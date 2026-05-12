@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyOptima | XAI Dashboard</title>
+    <!-- Fontes Modernas -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Bibliotecas externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+</head>
+<body>
+    <!-- Modal de Upload Inicial -->
+    <div id="upload-modal" class="modal-overlay">
+        <div class="upload-card glass">
+            <div class="logo-modal">
+                <span class="logo-icon">⬡</span>
+                <h2>PolyOptima</h2>
+            </div>
+            <p>Importa o teu modelo High Poly para iniciar o agente de Reinforcement Learning.</p>
+            
+            <label class="upload-zone" id="drop-zone" for="file-input" style="display: block;">
+                <div class="upload-icon">📁</div>
+                <h3>Arrasta o ficheiro para aqui</h3>
+                <p class="small-text">Suporta .OBJ, .FBX, .GLTF (Max 500MB)</p>
+                <input type="file" id="file-input" style="display: none;" accept=".obj,.fbx,.gltf,.glb">
+                <span class="btn btn-outline" style="margin-top: 1rem; display: inline-block;">Ou clica para procurar</span>
+            </label>
+            
+            <div class="upload-progress" id="upload-progress" style="display: none;">
+                <p class="small-text text-blue" id="loading-status" style="font-weight: 600; margin-bottom: 0.8rem;">A carregar o ficheiro .obj para a memória...</p>
+                <div class="bar-bg"><div class="bar-fill blue" style="width: 0%; transition: width 0.3s ease-out;" id="progress-bar"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container" id="main-app" style="filter: blur(10px); pointer-events: none; transition: filter 0.5s;">
+        <!-- Barra de Topo -->
+        <header class="topbar glass">
+            <div class="logo">
+                <span class="logo-icon">⬡</span>
+                <h1>PolyOptima <span>SaaS</span></h1>
+            </div>
+            <div class="topbar-actions">
+                <span class="status-badge online">RL Agent Status: Idle</span>
+                <button id="btn-export" class="btn btn-outline">Exportar Low Poly</button>
+            </div>
+        </header>
+
+        <!-- Container Principal -->
+        <main class="main-content">
+            
+            <!-- Viewport 3D Principal -->
+            <section class="viewport-container">
+                <canvas id="canvas3d"></canvas>
+                
+                <!-- Viewport Overlay UI -->
+                <div class="viewport-overlay">
+                    <div class="view-controls glass">
+                        <button id="btn-high-poly" class="view-btn active">Original (High)</button>
+                        <button id="btn-low-poly" class="view-btn">Otimizado (Low)</button>
+                        <div class="divider"></div>
+                        <button id="btn-wireframe" class="view-btn">Wireframe</button>
+                    </div>
+
+                    <div class="xai-controls glass">
+                        <h3><span class="dot-red"></span> Heatmap de XAI</h3>
+                        <p class="small-text">Visualizar áreas preservadas (Vermelho) vs Planificadas (Azul)</p>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-heatmap">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Stats flutuantes -->
+                <div class="mesh-stats glass">
+                    <div class="stat-item">
+                        <span class="stat-label">Triângulos</span>
+                        <span class="stat-value" id="val-tris">128,400</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Vértices</span>
+                        <span class="stat-value" id="val-verts">64,200</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Painel Lateral de Ferramentas -->
+            <aside class="sidebar glass">
+                <h2>RL Decimation Engine</h2>
+                
+                <div class="panel-section">
+                    <h3>Simulação de Treino</h3>
+                    <p class="small-text">Explora o modelo em diferentes episódios.</p>
+                    <div class="slider-container">
+                        <input type="range" min="0" max="100" value="0" class="rl-slider" id="rl-episode-slider">
+                        <div class="slider-labels">
+                            <span>Step 0</span>
+                            <span id="slider-val-display">Step 0</span>
+                            <span>Step 100</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>Reward Breakdown</h3>
+                    <p class="small-text">O que motivou as ações do Agente X no passo atual?</p>
+                    
+                    <div class="reward-bar">
+                        <div class="reward-label">
+                            <span>Preservação de Silhueta</span>
+                            <span>78%</span>
+                        </div>
+                        <div class="bar-bg"><div class="bar-fill blue" style="width: 78%" id="bar-sil"></div></div>
+                    </div>
+
+                    <div class="reward-bar">
+                        <div class="reward-label">
+                            <span>Redução Triângulos</span>
+                            <span>45%</span>
+                        </div>
+                        <div class="bar-bg"><div class="bar-fill purple" style="width: 45%" id="bar-tri"></div></div>
+                    </div>
+
+                    <div class="reward-bar">
+                        <div class="reward-label">
+                            <span>Penalização Distorção UV</span>
+                            <span>-12%</span>
+                        </div>
+                        <div class="bar-bg"><div class="bar-fill red" style="width: 12%" id="bar-uv"></div></div>
+                    </div>
+                </div>
+
+                <div class="panel-section terminal-section">
+                    <h3>RL Action Log</h3>
+                    <div class="terminal" id="terminal-log">
+                        <p>[Init] Loading High Poly Mesh...</p>
+                        <p>[Init] Verts: 64,200 | Tris: 128,400</p>
+                        <p class="text-green">[RL Agent] Ready for decimation.</p>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+    
+    <script src="api.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
