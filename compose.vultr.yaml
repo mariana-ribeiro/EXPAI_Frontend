@@ -1,0 +1,19 @@
+services:
+  frontend:
+    build:
+      context: .
+      args:
+        NGINX_CONFIG: nginx/vultr.conf
+
+    ports:
+      - "127.0.0.1:8080:80"
+
+    networks:
+      - backend
+
+    restart: unless-stopped
+
+networks:
+  backend:
+    external: true
+    name: api_expai_default

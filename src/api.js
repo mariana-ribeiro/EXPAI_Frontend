@@ -15,6 +15,10 @@
  * }
  */
 
+const API_BASE_URL = (
+    window.APP_CONFIG?.API_BASE_URL || ""
+).replace(/\/+$/, "");
+
 window.RetopoAPI = {
     /**
      * Simula o upload inicial do modelo High Poly para a Cloud.
@@ -33,7 +37,7 @@ window.RetopoAPI = {
         formData.append("file", file);
 
         const response = await fetch(
-            "http://127.0.0.1:8000/v1/mesh/upload",
+            `${API_BASE_URL}/api/v1/mesh/upload`,
             {
                 method: "POST",
                 headers: {
