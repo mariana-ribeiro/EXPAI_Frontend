@@ -15,29 +15,60 @@
  * }
  */
 
-window.PolyOptimaAPI = {
+window.RetopoAPI = {
     /**
      * Simula o upload inicial do modelo High Poly para a Cloud.
      * @param {File} file - Ficheiro de input nativo (.obj, .fbx, etc)
      * @param {function} onProgress - Callback(percentagem 0 a 100)
      * @returns {Promise<string>} Resolve com um modelId
      */
-    uploadModel: function(file, onProgress) {
-        return new Promise((resolve) => {
-            let progress = 0;
-            const interval = setInterval(() => {
-                progress += Math.random() * 15 + 5; // Simulação de envio
-                if(progress >= 100) {
-                    progress = 100;
-                    clearInterval(interval);
-                    onProgress(100);
-                    // Resolve enviando de volta um ID virtual do modelo gerado pelo backend
-                    setTimeout(() => resolve("model_89A2b_test"), 300);
-                } else {
-                    onProgress(progress);
+    uploadModel: async function(file, onProgress) {
+        const token = sessionStorage.getItem("dev_upload_token");
+
+        if (!token) {
+            throw new Error("JWT de teste não configurado.");
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch(
+            "http://127.0.0.1:8000/v1/mesh/upload",
+            {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`
+                },
+                body: formData
+            }
+        );
+
+        if (!response.ok) {
+            let message = `Erro HTTP ${response.status}`;
+
+            try {
+                const errorData = await response.json();
+                if (typeof errorData.detail === "string") {
+                    message = errorData.detail;
                 }
-            }, 150);
-        });
+            } catch {
+                // Manter a mensagem HTTP original
+            }
+
+            throw new Error(message);
+        }
+
+        const result = await response.json();
+
+        if (!result.mesh_id) {
+            throw new Error("A API não devolveu mesh_id.");
+        }
+
+        if (typeof onProgress === "function") {
+            onProgress(100);
+        }
+
+        return result.mesh_id;
     },
 
     /**

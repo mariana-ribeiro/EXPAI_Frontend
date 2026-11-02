@@ -7,34 +7,59 @@
     const fileInput = document.getElementById("file-input");
     const loadingStatus = document.getElementById("loading-status");
 
-    function startUploadFlow(fileObj) {
-        // Garantir que a UI muda
+    async function startUploadFlow(fileObj) {
+        if (!fileObj) return;
+
+        // Preparar a interface
         dropZone.style.display = "none";
         uploadProgress.style.display = "block";
-        
-        // Atualizar texto com o nome do ficheiro, se existir
-        const name = fileObj ? fileObj.name : "modelo";
-        loadingStatus.innerText = `A carregar ficheiro ${name}...`;
-        
-        // Criar um Local Object URL do ficheiro que foi carregado
-        const fileUrl = fileObj ? URL.createObjectURL(fileObj) : null;
-        
-        // --- Delegação da lógica de upload para a API Mock ---
-        PolyOptimaAPI.uploadModel(fileObj, (progress) => {
-            progressBar.style.width = `${Math.min(progress, 100)}%`;
-            
-            if(progress >= 100) {
-                loadingStatus.innerText = "Concluído!";
-                setTimeout(() => {
-                    uploadModal.classList.add("hidden");
-                    mainApp.style.filter = "none";
-                    mainApp.style.pointerEvents = "all";
-                    
-                    // Inicia o 3D passando o ID devolvido pela API e o URL do ficheiro
-                    initThreeJS("mock_id_do_modelo", fileUrl);
-                }, 500);
+        progressBar.style.width = "0%";
+
+        loadingStatus.innerText =
+            `A carregar ficheiro ${fileObj.name}...`;
+
+        // URL local para visualizar o ficheiro
+        const fileUrl = URL.createObjectURL(fileObj);
+
+        try {
+            // Aguardar pela resposta da API
+            const modelId = await RetopoAPI.uploadModel(
+                fileObj,
+                (progress) => {
+                    progressBar.style.width =
+                        `${Math.min(progress, 100)}%`;
+                }
+            );
+
+            // Só avançamos depois de receber o ID
+            if (!modelId) {
+                throw new Error("A API não devolveu um ID do modelo.");
             }
-        });
+
+            loadingStatus.innerText = "Upload concluído!";
+
+            // Apresentar a aplicação
+            uploadModal.classList.add("hidden");
+            mainApp.style.filter = "none";
+            mainApp.style.pointerEvents = "all";
+
+            // Iniciar visualizador com o ID devolvido
+            initThreeJS(modelId, fileUrl);
+
+        } catch (error) {
+            console.error("Erro no upload:", error);
+
+            loadingStatus.innerText =
+                `Erro no upload: ${error.message}`;
+
+            // Permitir nova tentativa
+            dropZone.style.display = "block";
+            uploadProgress.style.display = "none";
+            progressBar.style.width = "0%";
+
+            URL.revokeObjectURL(fileUrl);
+            fileInput.value = "";
+        }
     }
 
     // Input via clique nativo no botão (Label -> Input)
@@ -342,7 +367,7 @@
     });
 
     // --- Simular o Agente RL a correr em Background ouvindo a API ---
-    PolyOptimaAPI.startRLDecimation(modelId, 
+    RetopoAPI.startRLDecimation(modelId, 
         // onRLStep - O que fazer quando recebemos o JSON a cada passo
         (stepData) => {
             rlSlider.value = stepData.step;
