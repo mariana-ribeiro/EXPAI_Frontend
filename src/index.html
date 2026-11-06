@@ -228,7 +228,26 @@
                     </button>
                 </div>
                 
-                <!-- Secção 1: Motor de Decimação RL -->
+                <!-- Secção 1: Análise GNN & XAI Feature Importance -->
+                <div class="panel-section">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                        <h3 style="margin:0;">GNN Feature Importance</h3>
+                    </div>
+                    <p class="small-text">Predição da rede neuronal sobre a saliência geométrica dos vértices.</p>
+
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.8rem;">
+                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
+                            <span style="color:#94a3b8;">Vértices Analisados:</span>
+                            <strong id="side-gnn-verts" style="color:#60a5fa;font-family:'JetBrains Mono',monospace;">--</strong>
+                        </div>
+                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
+                            <span style="color:#94a3b8;">Vértices Críticos:</span>
+                            <strong id="side-gnn-critical" style="color:#f87171;font-family:'JetBrains Mono',monospace;">--</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Secção 2: Motor de Decimação RL -->
                 <div class="panel-section">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
                         <h3 style="margin:0;">RL Decimation</h3>
@@ -253,25 +272,6 @@
                     <button id="btn-side-report" class="btn btn-outline" style="width:100%;margin-top:1rem;font-size:0.8rem;padding:0.5rem;">
                         📋 Ver Relatório de Ações
                     </button>
-                </div>
-
-                <!-- Secção 2: Análise GNN & XAI Feature Importance -->
-                <div class="panel-section">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                        <h3 style="margin:0;">GNN Feature Importance</h3>
-                    </div>
-                    <p class="small-text">Predição da rede neuronal sobre a saliência geométrica dos vértices.</p>
-
-                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.8rem;">
-                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
-                            <span style="color:#94a3b8;">Vértices Analisados:</span>
-                            <strong id="side-gnn-verts" style="color:#60a5fa;font-family:'JetBrains Mono',monospace;">--</strong>
-                        </div>
-                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
-                            <span style="color:#94a3b8;">Vértices Críticos:</span>
-                            <strong id="side-gnn-critical" style="color:#f87171;font-family:'JetBrains Mono',monospace;">--</strong>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Secção 3: Comparação de Geometria Real -->

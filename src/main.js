@@ -368,6 +368,9 @@
         if (sideGnnVerts) {
             sideGnnVerts.textContent = realStats.high.verts.toLocaleString();
         }
+        if (sideLowInfo) {
+            sideLowInfo.textContent = "⏳ A otimizar...";
+        }
 
         // Inicialmente o Low Poly está em processamento
         btnLow.disabled = true;
@@ -586,6 +589,13 @@
 
             const steps = parseInt(stepsToRun || inputMaxSteps?.value || "100", 10) || 100;
 
+            if (sideLowInfo) {
+                sideLowInfo.textContent = "⏳ A otimizar...";
+            }
+            if (sideReduction) {
+                sideReduction.textContent = "A calcular...";
+            }
+
             btnLow.disabled = true;
             btnLow.style.opacity = "0.45";
             btnLow.style.cursor = "not-allowed";
@@ -634,20 +644,46 @@
                 async (simplifyResult) => {
                     isRLRunning = false;
 
-                    // Atualizar métricas garantidas vindas da API ou simulação
-                    if (simplifyResult) {
-                        if (sideDissolves && simplifyResult.accepted_dissolves !== undefined) {
-                            sideDissolves.textContent = simplifyResult.accepted_dissolves;
-                        }
-                        if (sideSteps && simplifyResult.steps !== undefined) {
-                            sideSteps.textContent = simplifyResult.steps;
-                        }
-                        if (sideReduction && simplifyResult.face_reduction !== undefined) {
+                    // 1. Atualizar métricas garantidas vindas da API ou simulação
+                    const acceptedDissolves = (simplifyResult && typeof simplifyResult.accepted_dissolves === "number")
+                        ? simplifyResult.accepted_dissolves
+                        : (parseInt(sideDissolves?.textContent, 10) || 0);
+
+                    if (sideDissolves) {
+                        sideDissolves.textContent = acceptedDissolves;
+                    }
+                    if (sideSteps && simplifyResult?.steps !== undefined) {
+                        sideSteps.textContent = simplifyResult.steps;
+                    }
+
+                    // 2. Preencher imediatamente OTIMIZADO (LOW POLY) para nunca ficar vazio ("--")
+                    const finalFaces = simplifyResult?.final_faces
+                        || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (acceptedDissolves * 2)) : "--");
+                    const finalVerts = simplifyResult?.final_verts
+                        || (realStats.high.verts > 0 ? Math.max(1, realStats.high.verts - acceptedDissolves) : "--");
+
+                    realStats.low.faces = typeof finalFaces === "number" ? finalFaces : realStats.high.faces;
+                    realStats.low.verts = typeof finalVerts === "number" ? finalVerts : realStats.high.verts;
+
+                    if (sideLowInfo) {
+                        const fStr = typeof finalFaces === "number" ? finalFaces.toLocaleString() : finalFaces;
+                        const vStr = typeof finalVerts === "number" ? finalVerts.toLocaleString() : finalVerts;
+                        sideLowInfo.textContent = `${fStr} faces / ${vStr} vértices`;
+                    }
+
+                    if (sideReduction) {
+                        if (simplifyResult?.face_reduction !== undefined) {
                             const rawRed = simplifyResult.face_reduction * 100;
                             const formatted = rawRed >= 1
                                 ? `${Math.round(rawRed)}%`
                                 : `${Math.max(0, rawRed).toFixed(1)}%`;
                             sideReduction.textContent = formatted;
+                        } else if (realStats.high.faces > 0 && typeof finalFaces === "number") {
+                            const rawRed = ((1 - (finalFaces / realStats.high.faces)) * 100);
+                            const formatted = rawRed >= 1 ? `${Math.round(rawRed)}%` : `${Math.max(0, rawRed).toFixed(1)}%`;
+                            sideReduction.textContent = formatted;
+                        } else {
+                            sideReduction.textContent = "0%";
                         }
                     }
 
@@ -666,7 +702,7 @@
                         rlStatusBadge.textContent = "RL: Decimação Concluída";
                     }
 
-                    // Descarregar a malha .obj real otimizada da API
+                    // 3. Tentar descarregar a malha .obj real otimizada da API para refinar com a geometria exata
                     try {
                         const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(modelId);
                         if (lowPolyText && lowPolyText.includes("v ")) {
@@ -675,17 +711,17 @@
                             realStats.low.verts = lowStats.verts;
                             realStats.low.faces = lowStats.faces;
 
-                            // Atualizar métricas na barra lateral
+                            // Atualizar métricas na barra lateral com a contagem geométrica exata
                             if (sideLowInfo) {
                                 sideLowInfo.textContent = `${lowStats.faces.toLocaleString()} faces / ${lowStats.verts.toLocaleString()} vértices`;
                             }
 
-                            if (realStats.high.faces > 0) {
+                            if (realStats.high.faces > 0 && sideReduction) {
                                 const rawRed = (1 - lowStats.faces / realStats.high.faces) * 100;
                                 const formatted = rawRed >= 1
                                     ? `${Math.round(rawRed)}%`
                                     : `${Math.max(0, rawRed).toFixed(1)}%`;
-                                if (sideReduction) sideReduction.textContent = formatted;
+                                sideReduction.textContent = formatted;
                             }
 
                             // Carregar geometria no Three.js
@@ -718,9 +754,9 @@
                         console.warn("[Main] Não foi possível carregar o modelo Low Poly da API:", err.message);
                     }
 
-                    // Garantir que sideReduction nunca fica preso em "A calcular..."
-                    if (sideReduction && sideReduction.textContent === "A calcular...") {
-                        sideReduction.textContent = "0%";
+                    // Fallback para geometria Low Poly caso a API ainda não tenha o ficheiro OBJ gerado
+                    if (!lowPolyGeo && highPolyGeo) {
+                        lowPolyGeo = highPolyGeo.clone();
                     }
 
                     // Desbloquear botão Low Poly
