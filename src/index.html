@@ -53,10 +53,70 @@
                 <h1>Retopo Tool</h1>
             </div>
             <div class="topbar-actions">
-                <span class="status-badge online">RL Agent Status: Idle</span>
-                <button id="btn-export" class="btn btn-outline">Exportar Low Poly</button>
+                <span class="status-badge online" id="rl-status-badge">API: A verificar...</span>
             </div>
         </header>
+
+        <!-- ═══════════════ RL ACTION LOG & REPORT DRAWER ═══════════════ -->
+        <div id="action-log-drawer" class="report-drawer-overlay">
+            <aside class="report-drawer glass">
+                <!-- Header do Relatório -->
+                <div class="report-header">
+                    <div class="report-title-group">
+                        <span class="report-tag">RL EXECUTION REPORT</span>
+                        <h2>📋 Decimation Report</h2>
+                    </div>
+                    <div class="report-header-actions">
+                        <span id="action-log-count" class="badge-count">0 acções</span>
+                        <button id="action-log-close" class="btn-icon-close" title="Fechar Relatório">✕</button>
+                    </div>
+                </div>
+
+                <!-- Resumo Executivo / Métricas Rápidas -->
+                <div class="report-summary-cards">
+                    <div class="summary-card">
+                        <span class="sc-label">Total Steps</span>
+                        <span class="sc-value" id="rep-steps">0</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="sc-label">Dissolves</span>
+                        <span class="sc-value text-blue" id="rep-dissolves">0</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="sc-label">Redução Faces</span>
+                        <span class="sc-value text-green" id="rep-reduction">0%</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="sc-label">Snapshots</span>
+                        <span class="sc-value text-purple" id="rep-snapshots">0</span>
+                    </div>
+                </div>
+
+                <!-- Tabs de Navegação -->
+                <div class="report-tabs">
+                    <button class="rep-tab-btn active" id="tab-btn-snapshots">📸 Snapshots & Malhas</button>
+                    <button class="rep-tab-btn" id="tab-btn-history">📝 Histórico de Ações</button>
+                </div>
+
+                <!-- Conteúdo Tab 1: Snapshots intermédios com fotos e botão de carregar mesh -->
+                <div class="report-tab-pane active" id="tab-pane-snapshots">
+                    <div id="snapshots-list" class="snapshots-grid">
+                        <div class="action-log-empty" id="snapshots-empty">
+                            <span>⏳ Nenhum snapshot intermédio capturado ainda.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Conteúdo Tab 2: Histórico detalhado de ações -->
+                <div class="report-tab-pane" id="tab-pane-history">
+                    <div class="action-log-body" id="action-log-body">
+                        <div class="action-log-empty" id="action-log-empty">
+                            <span>⏳ Aguarda o início da simulação RL...</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
 
         <!-- Container Principal -->
         <main class="main-content">
@@ -72,84 +132,109 @@
                         <button id="btn-low-poly" class="view-btn">Otimizado (Low)</button>
                         <div class="divider"></div>
                         <button id="btn-wireframe" class="view-btn">Wireframe</button>
-                    </div>
-
-                    <div class="xai-controls glass">
-                        <h3><span class="dot-red"></span> Heatmap de XAI</h3>
-                        <p class="small-text">Visualizar áreas preservadas (Vermelho) vs Planificadas (Azul)</p>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="toggle-heatmap">
-                            <span class="slider round"></span>
-                        </label>
+                        <button id="btn-heatmap" class="view-btn">🔥 Heatmap GNN</button>
                     </div>
                 </div>
 
-                <!-- Stats flutuantes -->
+                <!-- Botão flutuante para reabrir o painel lateral quando escondido -->
+                <button id="btn-expand-sidebar" class="btn-expand-sidebar glass" title="Mostrar Painel Lateral" style="display:none;">
+                    <span>◀ Painel</span>
+                </button>
+
+                <!-- Stats flutuantes (Dados Reais do Modelo Carregado) -->
                 <div class="mesh-stats glass">
                     <div class="stat-item">
                         <span class="stat-label">Triângulos</span>
-                        <span class="stat-value" id="val-tris">128,400</span>
+                        <span class="stat-value" id="val-tris">--</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-label">Vértices</span>
-                        <span class="stat-value" id="val-verts">64,200</span>
+                        <span class="stat-value" id="val-verts">--</span>
                     </div>
                 </div>
             </section>
 
-            <!-- Painel Lateral de Ferramentas -->
-            <aside class="sidebar glass">
-                <h2>RL Decimation Engine</h2>
+            <!-- Painel Lateral de Métricas & Controlo Reais -->
+            <aside class="sidebar glass" id="app-sidebar">
+                <div class="sidebar-header">
+                    <h2>Painel de Otimização</h2>
+                    <button id="btn-collapse-sidebar" class="btn-icon-sidebar" title="Esconder Painel Lateral">
+                        <span>→</span>
+                    </button>
+                </div>
                 
+                <!-- Secção 1: Motor de Decimação RL -->
                 <div class="panel-section">
-                    <h3>Simulação de Treino</h3>
-                    <p class="small-text">Explora o modelo em diferentes episódios.</p>
-                    <div class="slider-container">
-                        <input type="range" min="0" max="100" value="0" class="rl-slider" id="rl-episode-slider">
-                        <div class="slider-labels">
-                            <span>Step 0</span>
-                            <span id="slider-val-display">Step 0</span>
-                            <span>Step 100</span>
-                        </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                        <h3 style="margin:0;">RL Decimation</h3>
+                        <span class="badge-count" id="side-rl-status">Aguardando</span>
                     </div>
-                </div>
-
-                <div class="panel-section">
-                    <h3>Reward Breakdown</h3>
-                    <p class="small-text">O que motivou as ações do Agente X no passo atual?</p>
+                    <p class="small-text">Otimização de malha orientada por Reinforcement Learning.</p>
                     
-                    <div class="reward-bar">
-                        <div class="reward-label">
-                            <span>Preservação de Silhueta</span>
-                            <span>78%</span>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.8rem;">
+                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
+                            <span style="color:#94a3b8;">Redução Real:</span>
+                            <strong id="side-face-reduction" style="color:#34d399;font-family:'JetBrains Mono',monospace;">--</strong>
                         </div>
-                        <div class="bar-bg"><div class="bar-fill blue" style="width: 78%" id="bar-sil"></div></div>
+                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
+                            <span style="color:#94a3b8;">Dissolves Aceites:</span>
+                            <strong id="side-dissolves" style="color:#60a5fa;font-family:'JetBrains Mono',monospace;">--</strong>
+                        </div>
+                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
+                            <span style="color:#94a3b8;">Passos Realizados:</span>
+                            <strong id="side-steps" style="color:#e2e8f0;font-family:'JetBrains Mono',monospace;">--</strong>
+                        </div>
                     </div>
 
-                    <div class="reward-bar">
-                        <div class="reward-label">
-                            <span>Redução Triângulos</span>
-                            <span>45%</span>
+                    <button id="btn-side-report" class="btn btn-outline" style="width:100%;margin-top:1rem;font-size:0.8rem;padding:0.5rem;">
+                        📋 Ver Relatório de Ações
+                    </button>
+                </div>
+
+                <!-- Secção 2: Análise GNN & XAI Feature Importance -->
+                <div class="panel-section">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                        <h3 style="margin:0;">GNN Feature Importance</h3>
+                        <span class="badge-count" id="side-gnn-status">Pronto</span>
+                    </div>
+                    <p class="small-text">Predição da rede neuronal sobre a saliência geométrica dos vértices.</p>
+
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.8rem;">
+                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
+                            <span style="color:#94a3b8;">Vértices Analisados:</span>
+                            <strong id="side-gnn-verts" style="color:#60a5fa;font-family:'JetBrains Mono',monospace;">--</strong>
                         </div>
-                        <div class="bar-bg"><div class="bar-fill purple" style="width: 45%" id="bar-tri"></div></div>
+                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
+                            <span style="color:#94a3b8;">Vértices Críticos:</span>
+                            <strong id="side-gnn-critical" style="color:#f87171;font-family:'JetBrains Mono',monospace;">--</strong>
+                        </div>
                     </div>
 
-                    <div class="reward-bar">
-                        <div class="reward-label">
-                            <span>Penalização Distorção UV</span>
-                            <span>-12%</span>
+                    <button id="btn-side-gnn" class="btn btn-primary" style="width:100%;margin-top:1rem;font-size:0.8rem;padding:0.5rem;">
+                        ⚡ Calcular Heatmap GNN
+                    </button>
+                </div>
+
+                <!-- Secção 3: Comparação de Geometria Real -->
+                <div class="panel-section">
+                    <h3>Comparação de Malha</h3>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.6rem;font-size:0.8rem;">
+                        <div style="padding:0.5rem;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);">
+                            <span style="color:#64748b;font-size:0.72rem;display:block;">ORIGINAL (HIGH POLY)</span>
+                            <span id="side-high-info" style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
                         </div>
-                        <div class="bar-bg"><div class="bar-fill red" style="width: 12%" id="bar-uv"></div></div>
+                        <div style="padding:0.5rem;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);">
+                            <span style="color:#64748b;font-size:0.72rem;display:block;">OTIMIZADO (LOW POLY)</span>
+                            <span id="side-low-info" style="font-family:'JetBrains Mono',monospace;color:#34d399;">--</span>
+                        </div>
                     </div>
                 </div>
 
-                <div class="panel-section terminal-section">
-                    <h3>RL Action Log</h3>
-                    <div class="terminal" id="terminal-log">
-                        <p>[Init] Loading High Poly Mesh...</p>
-                        <p>[Init] Verts: 64,200 | Tris: 128,400</p>
-                        <p class="text-green">[RL Agent] Ready for decimation.</p>
-                    </div>
+                <!-- Secção 4: Exportação Low Poly -->
+                <div class="panel-section" style="margin-top:auto;padding-top:1.2rem;border-top:1px solid rgba(255,255,255,0.08);margin-bottom:0;">
+                    <button id="btn-export" class="btn btn-primary" style="width:100%;padding:0.75rem;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:0.5rem;">
+                        <span>💾 Exportar Low Poly (.obj)</span>
+                    </button>
                 </div>
             </aside>
         </main>
