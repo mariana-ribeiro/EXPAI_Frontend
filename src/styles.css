@@ -182,6 +182,12 @@ canvas#canvas3d {
     display: block;
     min-width: 0;
     background: radial-gradient(circle at center, #1e2130 0%, #0f111a 100%);
+    cursor: grab;
+    touch-action: none;
+}
+
+canvas#canvas3d:active {
+    cursor: grabbing;
 }
 
 .viewport-overlay {
@@ -227,6 +233,33 @@ canvas#canvas3d {
 
 .view-btn:hover:not(.active) {
     color: var(--text-main);
+}
+
+.view-btn-mode {
+    min-width: 96px;
+    padding: 0 0.75rem;
+    font-size: 0.82rem;
+    gap: 0.35rem;
+}
+
+.view-btn-mode#btn-surface.active {
+    background: rgba(255, 255, 255, 0.12);
+    color: #f8fafc;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.view-btn-mode#btn-edges.active {
+    background: rgba(56, 189, 248, 0.16);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.view-btn-mode#btn-verts.active {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
 }
 
 .divider {

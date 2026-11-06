@@ -263,14 +263,44 @@
             color: 0x94a3b8,
             roughness: 0.4,
             metalness: 0.1,
-            wireframe: false
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1
         });
 
         let heatmapMaterial = new THREE.MeshStandardMaterial({
             vertexColors: true,
             roughness: 0.35,
             metalness: 0.1,
-            wireframe: false
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1
+        });
+
+        // Material Oclusor (para quando a superfície está invisível, ocultando faces traseiras para NUNCA piscar)
+        const occluderMaterial = new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            depthWrite: true,
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1
+        });
+
+        // Materiais para Arestas (Linhas) e Vértices (Pontos)
+        const edgesMaterial = new THREE.LineBasicMaterial({
+            color: 0x38bdf8,
+            transparent: true,
+            opacity: 0.85,
+            depthTest: true
+        });
+
+        const pointsMaterial = new THREE.PointsMaterial({
+            color: 0xfbbf24,
+            size: 4,
+            sizeAttenuation: false, // Pontos sempre nítidos na resolução do ecrã
+            transparent: true,
+            opacity: 0.95,
+            depthTest: true
         });
 
         // Geometrias
@@ -310,11 +340,84 @@
         const mesh = new THREE.Mesh(highPolyGeo, baseMaterial);
         scene.add(mesh);
 
-        // Loop de Renderização
+        function getOrCreateWireframeGeo(geo) {
+            if (!geo) return null;
+            if (!geo.userData) geo.userData = {};
+            if (!geo.userData._wireGeo) {
+                geo.userData._wireGeo = new THREE.WireframeGeometry(geo);
+            }
+            return geo.userData._wireGeo;
+        }
+
+        // Overlay de Arestas e Vértices
+        const edgesMesh = new THREE.LineSegments(getOrCreateWireframeGeo(highPolyGeo), edgesMaterial);
+        edgesMesh.visible = false;
+        scene.add(edgesMesh);
+
+        const pointsMesh = new THREE.Points(highPolyGeo, pointsMaterial);
+        pointsMesh.visible = false;
+        scene.add(pointsMesh);
+
+        // ══════════════════════════════════════════════════════
+        //  CONTROLOS INTERATIVOS DE CÂMARA (ROTAÇÃO LIVRE COM O RATO)
+        // ══════════════════════════════════════════════════════
+        let controls = null;
+        if (window.THREE && window.THREE.OrbitControls) {
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.rotateSpeed = 0.85;
+            controls.zoomSpeed = 1.0;
+            controls.panSpeed = 0.8;
+            controls.enablePan = true;
+            controls.autoRotate = false; // Desativa a rotação automática contínua!
+        } else {
+            // Controlo manual nativo de rotação com o rato caso o script CDN não esteja pronto
+            setupNativeMouseDrag(canvas, mesh);
+        }
+
+        function setupNativeMouseDrag(domElement, targetMesh) {
+            let isDragging = false;
+            let prevMouseX = 0;
+            let prevMouseY = 0;
+
+            domElement.addEventListener("mousedown", (e) => {
+                if (e.button === 0) { // Botão esquerdo
+                    isDragging = true;
+                    prevMouseX = e.clientX;
+                    prevMouseY = e.clientY;
+                }
+            });
+
+            window.addEventListener("mousemove", (e) => {
+                if (!isDragging || !targetMesh) return;
+                const deltaX = e.clientX - prevMouseX;
+                const deltaY = e.clientY - prevMouseY;
+                prevMouseX = e.clientX;
+                prevMouseY = e.clientY;
+
+                targetMesh.rotation.y += deltaX * 0.008;
+                targetMesh.rotation.x += deltaY * 0.008;
+                if (edgesMesh) edgesMesh.rotation.copy(targetMesh.rotation);
+                if (pointsMesh) pointsMesh.rotation.copy(targetMesh.rotation);
+            });
+
+            window.addEventListener("mouseup", () => {
+                isDragging = false;
+            });
+
+            domElement.addEventListener("wheel", (e) => {
+                e.preventDefault();
+                camera.position.z = Math.max(5, Math.min(150, camera.position.z + e.deltaY * 0.05));
+            }, { passive: false });
+        }
+
+        // Loop de Renderização Interativo
         function animate() {
             requestAnimationFrame(animate);
-            mesh.rotation.y += 0.004;
-            mesh.rotation.x += 0.0015;
+            if (controls) {
+                controls.update();
+            }
             renderer.render(scene, camera);
         }
         animate();
@@ -325,9 +428,39 @@
         const btnHigh       = document.getElementById("btn-high-poly");
         const btnLow        = document.getElementById("btn-low-poly");
         const btnSnapPoly   = document.getElementById("btn-snap-poly");
-        const btnWire       = document.getElementById("btn-wireframe");
+        const btnSurface    = document.getElementById("btn-surface");
+        const btnEdges      = document.getElementById("btn-edges");
+        const btnVerts      = document.getElementById("btn-verts");
+        const btnWire       = document.getElementById("btn-wireframe"); // fallback para compatibilidade
         const btnHeatmap    = document.getElementById("btn-heatmap");
         const heatmapSubbar = document.getElementById("heatmap-subbar");
+
+        let showSurface = true;
+        let showEdges   = false;
+        let showVerts   = false;
+
+        function updateSurfaceMaterial() {
+            if (!showSurface) {
+                mesh.material = occluderMaterial;
+            } else {
+                if (activeView === "high" && btnHeatmap && btnHeatmap.classList.contains("active")) {
+                    mesh.material = heatmapMaterial;
+                } else {
+                    mesh.material = baseMaterial;
+                }
+            }
+            mesh.material.needsUpdate = true;
+        }
+
+        function syncVisualOverlays() {
+            const activeGeo = mesh.geometry;
+            if (edgesMesh) {
+                edgesMesh.geometry = getOrCreateWireframeGeo(activeGeo);
+            }
+            if (pointsMesh) {
+                pointsMesh.geometry = activeGeo;
+            }
+        }
 
         let currentSnapGeo   = null;
         let currentSnapStats = null;
@@ -380,15 +513,20 @@
         btnLow.innerText = "🔒 A Otimizar...";
 
         // ══════════════════════════════════════════════════════
-        //  CONTROLOS DE VISUALIZAÇÃO (ORIGINAL, LOW, WIREFRAME, HEATMAP)
+        //  CONTROLOS DE VISUALIZAÇÃO (ORIGINAL, LOW, SNAPSHOT, MODOS)
         // ══════════════════════════════════════════════════════
         btnHigh.addEventListener("click", () => {
             if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo) {
+                if (currentSnapGeo.userData && currentSnapGeo.userData._wireGeo) {
+                    currentSnapGeo.userData._wireGeo.dispose();
+                    currentSnapGeo.userData._wireGeo = null;
+                }
                 currentSnapGeo.dispose();
                 currentSnapGeo = null;
             }
             mesh.geometry = highPolyGeo;
-            mesh.material = (btnHeatmap && btnHeatmap.classList.contains("active")) ? heatmapMaterial : baseMaterial;
+            updateSurfaceMaterial();
+            syncVisualOverlays();
             btnHigh.classList.add("active");
             btnLow.classList.remove("active");
             if (btnSnapPoly) btnSnapPoly.classList.remove("active");
@@ -404,11 +542,16 @@
         btnLow.addEventListener("click", () => {
             if (btnLow.disabled || !lowPolyGeo) return;
             if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo) {
+                if (currentSnapGeo.userData && currentSnapGeo.userData._wireGeo) {
+                    currentSnapGeo.userData._wireGeo.dispose();
+                    currentSnapGeo.userData._wireGeo = null;
+                }
                 currentSnapGeo.dispose();
                 currentSnapGeo = null;
             }
             mesh.geometry = lowPolyGeo;
-            mesh.material = baseMaterial; // Heatmap GNN aplica-se ao High Poly
+            updateSurfaceMaterial();
+            syncVisualOverlays();
             btnLow.classList.add("active");
             btnHigh.classList.remove("active");
             if (btnSnapPoly) btnSnapPoly.classList.remove("active");
@@ -426,7 +569,8 @@
             btnSnapPoly.addEventListener("click", () => {
                 if (!currentSnapGeo) return;
                 mesh.geometry = currentSnapGeo;
-                mesh.material = baseMaterial;
+                updateSurfaceMaterial();
+                syncVisualOverlays();
                 btnSnapPoly.classList.add("active");
                 btnHigh.classList.remove("active");
                 btnLow.classList.remove("active");
@@ -443,12 +587,65 @@
             });
         }
 
-        btnWire.addEventListener("click", () => {
-            btnWire.classList.toggle("active");
-            const isWire = btnWire.classList.contains("active");
-            baseMaterial.wireframe = isWire;
-            heatmapMaterial.wireframe = isWire;
-        });
+        // Toggles de Modo: Superfície, Arestas e Vértices
+        if (btnSurface) {
+            btnSurface.addEventListener("click", () => {
+                if (showSurface && !showEdges && !showVerts) {
+                    // Evita ecrã completamente vazio: se desligar a superfície, ativa as arestas
+                    showEdges = true;
+                    if (btnEdges) btnEdges.classList.add("active");
+                    if (edgesMesh) {
+                        edgesMesh.visible = true;
+                        edgesMesh.geometry = getOrCreateWireframeGeo(mesh.geometry);
+                    }
+                }
+                showSurface = !showSurface;
+                btnSurface.classList.toggle("active", showSurface);
+                updateSurfaceMaterial();
+            });
+        }
+
+        if (btnEdges) {
+            btnEdges.addEventListener("click", () => {
+                showEdges = !showEdges;
+                btnEdges.classList.toggle("active", showEdges);
+                if (edgesMesh) {
+                    edgesMesh.visible = showEdges;
+                    if (showEdges) {
+                        edgesMesh.geometry = getOrCreateWireframeGeo(mesh.geometry);
+                    }
+                }
+                if (!showEdges && !showSurface && !showVerts) {
+                    showSurface = true;
+                    if (btnSurface) btnSurface.classList.add("active");
+                    updateSurfaceMaterial();
+                }
+            });
+        }
+
+        if (btnVerts) {
+            btnVerts.addEventListener("click", () => {
+                showVerts = !showVerts;
+                btnVerts.classList.toggle("active", showVerts);
+                if (pointsMesh) {
+                    pointsMesh.visible = showVerts;
+                    if (showVerts) {
+                        pointsMesh.geometry = mesh.geometry;
+                    }
+                }
+                if (!showVerts && !showSurface && !showEdges) {
+                    showSurface = true;
+                    if (btnSurface) btnSurface.classList.add("active");
+                    updateSurfaceMaterial();
+                }
+            });
+        }
+
+        if (btnWire) {
+            btnWire.addEventListener("click", () => {
+                if (btnEdges) btnEdges.click();
+            });
+        }
 
         // ══════════════════════════════════════════════════════
         //  HEATMAP GNN REAL (POST /predict + GET /scores)
@@ -464,11 +661,11 @@
                 activeView = "high";
                 if (heatmapSubbar) heatmapSubbar.classList.remove("hidden");
                 updateFloatingStats(realStats.high.verts, realStats.high.faces);
+                syncVisualOverlays();
             }
-            mesh.material = heatmapMaterial;
+            updateSurfaceMaterial();
             heatmapMaterial.vertexColors = true;
             heatmapMaterial.needsUpdate = true;
-            mesh.material.needsUpdate = true;
         }
 
         function createHeatmapColors(scoreEntries) {
@@ -576,9 +773,7 @@
                         rlStatusBadge.textContent = "GNN: Heatmap Aplicado";
                     }
                 } else {
-                    mesh.material = baseMaterial;
-                    baseMaterial.needsUpdate = true;
-                    mesh.material.needsUpdate = true;
+                    updateSurfaceMaterial();
                     if (rlStatusBadge) {
                         rlStatusBadge.className = "status-badge online";
                         rlStatusBadge.textContent = "Visualizando: Original (High Poly)";
@@ -1533,7 +1728,8 @@
             if (!geo) return;
             currentSnapGeo = geo;
             mesh.geometry = geo;
-            mesh.material = baseMaterial;
+            updateSurfaceMaterial();
+            syncVisualOverlays();
 
             // Flash ciano para confirmação visual evidente
             baseMaterial.color.setHex(0x38bdf8);

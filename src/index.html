@@ -12,6 +12,7 @@
     
     <!-- Three.js e Loaders Necessários -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
 </head>
@@ -236,7 +237,9 @@
                         <button id="btn-low-poly" class="view-btn">Otimizado (Low)</button>
                         <button id="btn-snap-poly" class="view-btn" style="display:none; border: 1px solid rgba(168, 85, 247, 0.5); color: #c084fc;">📸 Snapshot</button>
                         <div class="divider"></div>
-                        <button id="btn-wireframe" class="view-btn">Wireframe</button>
+                        <button id="btn-surface" class="view-btn view-btn-mode active" title="Alternar visualização da Superfície Sólida">🎨 Superfície</button>
+                        <button id="btn-edges" class="view-btn view-btn-mode" title="Alternar visualização das Arestas (Wireframe)">📐 Arestas</button>
+                        <button id="btn-verts" class="view-btn view-btn-mode" title="Alternar visualização dos Vértices">✦ Vértices</button>
                     </div>
                 </div>
 
