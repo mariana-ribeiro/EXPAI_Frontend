@@ -152,10 +152,10 @@
                 <!-- Tabs de Navegação -->
                 <div class="report-tabs">
                     <button class="rep-tab-btn active" id="tab-btn-snapshots">📸 Snapshots & Malhas</button>
-                    <button class="rep-tab-btn" id="tab-btn-history">📝 Histórico de Ações</button>
+                    <button class="rep-tab-btn" id="tab-btn-history">📝 Histórico de Edges</button>
                 </div>
 
-                <!-- Conteúdo Tab 1: Snapshots intermédios com fotos e botão de carregar mesh -->
+                <!-- Conteúdo Tab 1: Snapshots intermédios com fotos, explicações de arestas e botão de carregar mesh -->
                 <div class="report-tab-pane active" id="tab-pane-snapshots">
                     <div id="snapshots-list" class="snapshots-grid">
                         <div class="action-log-empty" id="snapshots-empty">
@@ -164,8 +164,13 @@
                     </div>
                 </div>
 
-                <!-- Conteúdo Tab 2: Histórico detalhado de ações -->
+                <!-- Conteúdo Tab 2: Histórico detalhado de edges com ilustrações visuais -->
                 <div class="report-tab-pane" id="tab-pane-history">
+                    <div class="history-filter-bar">
+                        <button class="filter-chip active" data-filter="all">Todas as Edges (<span id="count-all-edges">0</span>)</button>
+                        <button class="filter-chip" data-filter="accepted">✂️ Dissolvidas (<span id="count-accepted-edges">0</span>)</button>
+                        <button class="filter-chip" data-filter="rejected">🛡️ Protegidas (<span id="count-rejected-edges">0</span>)</button>
+                    </div>
                     <div class="action-log-body" id="action-log-body">
                         <div class="action-log-empty" id="action-log-empty">
                             <span>⏳ Aguarda o início da simulação RL...</span>
@@ -173,6 +178,40 @@
                     </div>
                 </div>
             </aside>
+        </div>
+
+        <!-- ═══════════════ LIGHTBOX DE FOTOGRAFIA & ANÁLISE DE EDGES ═══════════════ -->
+        <div id="snapshot-lightbox" class="lightbox-overlay">
+            <div class="lightbox-content glass">
+                <div class="lightbox-header">
+                    <div class="lightbox-title-group">
+                        <span class="report-tag" id="lightbox-tag">SNAPSHOT #1</span>
+                        <h3 id="lightbox-title">Análise Visual da Malha & Edges</h3>
+                    </div>
+                    <button id="lightbox-close" class="btn-icon-close" title="Fechar Visualização">✕</button>
+                </div>
+                <div class="lightbox-body">
+                    <div class="lightbox-img-wrap">
+                        <img id="lightbox-img" src="" alt="Fotografia do Snapshot da Malha">
+                    </div>
+                    <div class="lightbox-info">
+                        <div class="snap-chips" id="lightbox-chips"></div>
+                        <h4 style="margin:0.8rem 0 0.3rem 0;color:#f1f5f9;font-size:0.95rem;">Explicação da Decimação de Arestas</h4>
+                        <p id="lightbox-explanation" style="font-size:0.82rem;color:#94a3b8;line-height:1.5;margin:0 0 1rem 0;"></p>
+                        
+                        <div id="lightbox-actions-summary" class="lightbox-edge-summary"></div>
+
+                        <div style="margin-top:auto;padding-top:1rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
+                            <button id="lightbox-btn-load" class="btn-load-snap-mesh" style="flex:1;min-width:180px;">
+                                <span>📥 Carregar Malha no 3D</span>
+                            </button>
+                            <button id="lightbox-btn-download" class="btn btn-outline" style="font-size:0.85rem;padding:0.6rem 1rem;">
+                                <span>💾 Descarregar Snapshot (.obj)</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Container Principal -->
