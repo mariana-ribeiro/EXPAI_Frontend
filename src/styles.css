@@ -170,14 +170,17 @@ body {
 
 /* --- Viewport 3D --- */
 .viewport-container {
-    flex: 1;
+    flex: 1 1 0%;
+    min-width: 0;
     position: relative;
+    overflow: hidden;
 }
 
 canvas#canvas3d {
-    width: 100%;
-    height: 100%;
+    width: 100% !important;
+    height: 100% !important;
     display: block;
+    min-width: 0;
     background: radial-gradient(circle at center, #1e2130 0%, #0f111a 100%);
 }
 
@@ -187,11 +190,12 @@ canvas#canvas3d {
     left: 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.5rem;
 }
 
 .view-controls {
     display: flex;
+    align-items: center;
     padding: 0.25rem;
     border-radius: 8px;
     gap: 0.25rem;
@@ -201,12 +205,19 @@ canvas#canvas3d {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
+    height: 36px;
+    padding: 0 0.9rem;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 0.84rem;
     font-weight: 600;
     transition: all 0.2s;
+    min-width: 140px;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
 }
 
 .view-btn.active {
@@ -220,31 +231,77 @@ canvas#canvas3d {
 
 .divider {
     width: 1px;
+    height: 22px;
     background: var(--border-color);
-    margin: 0.25rem 0;
+    margin: 0 0.25rem;
 }
 
-.xai-controls {
-    padding: 1rem;
-    border-radius: 8px;
-    width: 280px;
+/* Âncora relativa para que o sub-botão Heatmap alinhe exatamente com Original (High) */
+.view-btn-anchor {
+    position: relative;
+    display: inline-flex;
 }
 
-.xai-controls h3 {
-    font-size: 0.95rem;
-    margin-bottom: 0.25rem;
-    display: flex;
+/* Sub-botão Heatmap GNN sob o botão Original — exatamente a mesma dimensão e alinhamento */
+.heatmap-subbar {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 100%;
+    z-index: 50;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slideDownSubbar 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.heatmap-subbar.hidden {
+    display: none !important;
+}
+
+.heatmap-toggle-btn {
+    width: 100% !important;
+    min-width: 140px;
+    height: 36px;
+    padding: 0 0.9rem;
+    background: rgba(18, 22, 34, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: center;
+    white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    transition: all 0.2s ease;
 }
 
-.dot-red {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--accent-red);
-    box-shadow: 0 0 8px var(--accent-red);
+.heatmap-toggle-btn:hover:not(.active) {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.heatmap-toggle-btn.active,
+#btn-heatmap.active {
+    background: rgba(245, 158, 11, 0.18) !important;
+    border: 1px solid rgba(245, 158, 11, 0.55) !important;
+    color: #fbbf24 !important;
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.25) !important;
+}
+
+@keyframes slideDownSubbar {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .small-text {
@@ -285,19 +342,27 @@ canvas#canvas3d {
 /* --- Sidebar --- */
 .sidebar {
     width: 380px;
+    min-width: 380px;
+    max-width: 380px;
     border-left: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
     padding: 1.5rem;
     overflow-y: auto;
     flex-shrink: 0;
-    transition: margin-right 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+    transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.3s cubic-bezier(0.16, 1, 0.3, 1), max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1), padding 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, border-color 0.25s ease;
 }
 
 .sidebar.collapsed {
-    margin-right: -380px;
-    opacity: 0;
-    pointer-events: none;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    border-left-color: transparent !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    overflow: hidden !important;
 }
 
 .sidebar-header {
@@ -307,6 +372,7 @@ canvas#canvas3d {
     margin-bottom: 1.5rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
 }
 
 .sidebar-header h2 {
@@ -342,29 +408,30 @@ canvas#canvas3d {
     position: absolute;
     top: 1.5rem;
     right: 1.5rem;
-    padding: 0.55rem 1rem;
+    padding: 0.55rem 1.1rem;
     border-radius: 8px;
-    border: 1px solid rgba(59, 130, 246, 0.35);
+    border: 1px solid rgba(59, 130, 246, 0.45);
     color: #93c5fd;
     font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
-    display: flex;
+    display: none;
     align-items: center;
-    gap: 0.4rem;
-    z-index: 20;
-    background: rgba(15, 23, 42, 0.88);
+    gap: 0.5rem;
+    z-index: 100;
+    background: rgba(15, 23, 42, 0.92);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 15px rgba(59, 130, 246, 0.2);
     transition: all 0.2s ease;
 }
 
 .btn-expand-sidebar:hover {
-    background: rgba(59, 130, 246, 0.25);
-    border-color: rgba(59, 130, 246, 0.6);
+    background: rgba(59, 130, 246, 0.28);
+    border-color: rgba(96, 165, 250, 0.8);
     color: #ffffff;
-    transform: translateX(-3px);
+    box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4);
+    transform: translateY(-1px);
 }
 
 .panel-section {
@@ -544,6 +611,126 @@ input:checked + .slider.round:before {
     z-index: 1000;
     transition: opacity 0.4s ease;
     overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════
+   OVERLAY TRANSPARENTE DE OTIMIZAÇÃO RL
+═══════════════════════════════════════════ */
+.optimizing-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 14, 26, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.35s ease;
+}
+
+.optimizing-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+}
+
+.optimizing-card {
+    width: min(480px, 92vw);
+    padding: 2rem 2.2rem;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.15);
+    text-align: center;
+    position: relative;
+    animation: optCardPop 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes optCardPop {
+    from {
+        opacity: 0;
+        transform: scale(0.94) translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.opt-tag {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #60a5fa;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-bottom: 0.4rem;
+}
+
+.optimizing-card h2 {
+    font-size: 1.35rem;
+    margin: 0 0 0.4rem 0;
+    color: #f8fafc;
+}
+
+.opt-subtitle {
+    font-size: 0.82rem;
+    color: #94a3b8;
+    margin: 0 0 1.5rem 0;
+    line-height: 1.4;
+}
+
+.opt-progress-box {
+    margin-bottom: 1.5rem;
+}
+
+.opt-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: #cbd5e1;
+    margin-bottom: 0.4rem;
+    font-weight: 500;
+}
+
+.opt-progress-meta #opt-pct-label {
+    font-family: var(--font-mono);
+    color: #38bdf8;
+    font-weight: 700;
+}
+
+.opt-bar-bg {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.opt-metrics-live {
+    display: flex;
+    justify-content: space-around;
+    padding-top: 1.1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.opt-live-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.opt-live-label {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.opt-live-val {
+    font-size: 1.2rem;
+    font-family: var(--font-mono);
+    color: #f1f5f9;
 }
 
 /* ═══════════════════════════════════════════

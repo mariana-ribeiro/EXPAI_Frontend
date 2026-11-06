@@ -3,21 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retopo Tool</title>
-    <link rel="icon" type="image/png" href="logo.png">
-    <!-- Fontes Modernas -->
+    <title>PolyOptima XAI - Retopo Tool</title>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     
-    <!-- Bibliotecas externas -->
+    <!-- Three.js e Loaders Necessários -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
 </head>
 <body>
-    <!-- Modal de Upload Inicial -->
+    <!-- Modal de Upload Inicial (Confirmação em 2 passos) -->
     <div id="upload-modal" class="modal-overlay">
         <!-- Animated background logos (3 parallel diagonal lanes) -->
         <img src="logo.png" alt="" class="bg-logo-lane lane1" aria-hidden="true">
@@ -33,14 +32,72 @@
             <label class="upload-zone" id="drop-zone" for="file-input" style="display: block;">
                 <div class="upload-icon">📁</div>
                 <h3>Arrasta o ficheiro para aqui</h3>
-                <p class="small-text">Suporta .OBJ, .PLY, .GLB(Max 1GB)</p>
+                <p class="small-text">Suporta .OBJ, .PLY, .GLB (Max 1GB)</p>
                 <input type="file" id="file-input" style="display: none;" accept=".obj,.ply,.glb">
                 <span class="btn btn-outline" style="margin-top: 1rem; display: inline-block;">Ou clica para procurar</span>
             </label>
-            
-            <div class="upload-progress" id="upload-progress" style="display: none;">
-                <p class="small-text text-blue" id="loading-status" style="font-weight: 600; margin-bottom: 0.8rem;">A carregar o ficheiro .obj para a memória...</p>
-                <div class="bar-bg"><div class="bar-fill blue" style="width: 0%; transition: width 0.3s ease-out;" id="progress-bar"></div></div>
+
+            <!-- Card de Ficheiro Selecionado -->
+            <div id="selected-file-info" style="display: none; margin-top: 1rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.75rem 1rem; border-radius: 8px; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; text-align: left;">
+                    <span style="font-size: 1.5rem;">📦</span>
+                    <div>
+                        <strong id="selected-file-name" style="font-size: 0.88rem; color: #f8fafc; display: block; word-break: break-all;">modelo.obj</strong>
+                        <span id="selected-file-size" style="font-size: 0.75rem; color: #94a3b8;">0 KB</span>
+                    </div>
+                </div>
+                <button type="button" id="btn-change-file" class="btn btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.75rem;">Trocar</button>
+            </div>
+
+            <!-- Configuração de Iterações RL -->
+            <div style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.6rem 0.9rem; border-radius: 8px;">
+                <div style="text-align: left;">
+                    <label for="input-max-steps" style="font-size: 0.82rem; font-weight: 600; color: #e2e8f0; display: block;">Iterações do Agente RL</label>
+                    <span style="font-size: 0.72rem; color: #94a3b8;">Passos de simplificação a executar</span>
+                </div>
+                <input type="number" id="input-max-steps" min="1" max="5000" value="100" style="width: 80px; padding: 0.4rem 0.6rem; background: rgba(15,23,42,0.85); border: 1px solid rgba(59,130,246,0.45); border-radius: 6px; color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; font-weight: bold; text-align: center;">
+            </div>
+
+            <!-- Botão Seguinte para confirmar ambos os parâmetros -->
+            <button type="button" id="btn-upload-next" class="btn btn-primary" style="width: 100%; margin-top: 1.2rem; padding: 0.75rem; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; opacity: 0.45; cursor: not-allowed;" disabled>
+                <span>Seguinte</span>
+                <span>➔</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ═══════════════ OVERLAY TRANSPARENTE DE OTIMIZAÇÃO RL ═══════════════ -->
+    <div id="optimizing-overlay" class="optimizing-overlay hidden">
+        <div class="optimizing-card glass">
+            <div class="opt-header">
+                <span class="opt-tag">REINFORCEMENT LEARNING</span>
+                <h2 id="opt-title">A Otimizar Malha...</h2>
+                <p id="opt-subtitle" class="opt-subtitle">O agente RL está a simplificar a geometria preservando a silhueta.</p>
+            </div>
+
+            <div class="opt-progress-box">
+                <div class="opt-progress-meta">
+                    <span id="opt-step-label">A iniciar agente...</span>
+                    <span id="opt-pct-label">0%</span>
+                </div>
+                <div class="bar-bg opt-bar-bg">
+                    <div id="opt-progress-bar" class="bar-fill blue" style="width: 0%; transition: width 0.3s ease-out;"></div>
+                </div>
+            </div>
+
+            <div class="opt-metrics-live">
+                <div class="opt-live-item">
+                    <span class="opt-live-label">Passo</span>
+                    <strong id="opt-live-step" class="opt-live-val">0</strong>
+                </div>
+                <div class="opt-live-item">
+                    <span class="opt-live-label">Dissolves</span>
+                    <strong id="opt-live-dissolves" class="opt-live-val text-blue">0</strong>
+                </div>
+                <div class="opt-live-item">
+                    <span class="opt-live-label">Iterações</span>
+                    <strong id="opt-live-total" class="opt-live-val text-green">100</strong>
+                </div>
             </div>
         </div>
     </div>
@@ -128,17 +185,25 @@
                 <!-- Viewport Overlay UI -->
                 <div class="viewport-overlay">
                     <div class="view-controls glass">
-                        <button id="btn-high-poly" class="view-btn active">Original (High)</button>
+                        <!-- Âncora para Original (High) + sub-botão Heatmap GNN diretamente por baixo -->
+                        <div class="view-btn-anchor">
+                            <button id="btn-high-poly" class="view-btn active">Original (High)</button>
+                            
+                            <div id="heatmap-subbar" class="heatmap-subbar">
+                                <button id="btn-heatmap" class="view-btn heatmap-toggle-btn">🔥 Heatmap GNN</button>
+                            </div>
+                        </div>
+
                         <button id="btn-low-poly" class="view-btn">Otimizado (Low)</button>
+                        <button id="btn-snap-poly" class="view-btn" style="display:none; border: 1px solid rgba(168, 85, 247, 0.5); color: #c084fc;">📸 Snapshot</button>
                         <div class="divider"></div>
                         <button id="btn-wireframe" class="view-btn">Wireframe</button>
-                        <button id="btn-heatmap" class="view-btn">🔥 Heatmap GNN</button>
                     </div>
                 </div>
 
                 <!-- Botão flutuante para reabrir o painel lateral quando escondido -->
                 <button id="btn-expand-sidebar" class="btn-expand-sidebar glass" title="Mostrar Painel Lateral" style="display:none;">
-                    <span>◀ Painel</span>
+                    <span>◀ Painel Lateral</span>
                 </button>
 
                 <!-- Stats flutuantes (Dados Reais do Modelo Carregado) -->
@@ -167,11 +232,10 @@
                 <div class="panel-section">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
                         <h3 style="margin:0;">RL Decimation</h3>
-                        <span class="badge-count" id="side-rl-status">Aguardando</span>
                     </div>
                     <p class="small-text">Otimização de malha orientada por Reinforcement Learning.</p>
-                    
-                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.8rem;">
+
+                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.9rem;">
                         <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
                             <span style="color:#94a3b8;">Redução Real:</span>
                             <strong id="side-face-reduction" style="color:#34d399;font-family:'JetBrains Mono',monospace;">--</strong>
@@ -195,7 +259,6 @@
                 <div class="panel-section">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
                         <h3 style="margin:0;">GNN Feature Importance</h3>
-                        <span class="badge-count" id="side-gnn-status">Pronto</span>
                     </div>
                     <p class="small-text">Predição da rede neuronal sobre a saliência geométrica dos vértices.</p>
 
@@ -209,10 +272,6 @@
                             <strong id="side-gnn-critical" style="color:#f87171;font-family:'JetBrains Mono',monospace;">--</strong>
                         </div>
                     </div>
-
-                    <button id="btn-side-gnn" class="btn btn-primary" style="width:100%;margin-top:1rem;font-size:0.8rem;padding:0.5rem;">
-                        ⚡ Calcular Heatmap GNN
-                    </button>
                 </div>
 
                 <!-- Secção 3: Comparação de Geometria Real -->

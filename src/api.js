@@ -21,58 +21,50 @@ window.RetopoAPI = {
      * Upload do modelo High Poly para a API.
      * POST /v1/mesh/upload
      * @param {File} file - Ficheiro nativo (.obj, .ply, .glb)
-     * @param {function} onProgress - Callback de progresso (0-100)
      * @returns {Promise<string>} mesh_id
      */
-    uploadModel: async function(file, onProgress) {
-        const formData = new FormData();
-        formData.append("file", file);
+    uploadModel: function(file) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", `${API_BASE_URL}/v1/mesh/upload`);
 
-        if (typeof onProgress === "function") {
-            onProgress(25);
-        }
+            xhr.setRequestHeader("X-API-Key", API_KEY);
+            xhr.setRequestHeader("X-Upload-Size", String(file.size));
 
-        const response = await fetch(
-            `${API_BASE_URL}/v1/mesh/upload`,
-            {
-                method: "POST",
-                headers: baseHeaders({
-                    "X-Upload-Size": String(file.size)
-                }),
-                body: formData
-            }
-        );
-
-        if (typeof onProgress === "function") {
-            onProgress(75);
-        }
-
-        if (!response.ok) {
-            let message = `Erro HTTP ${response.status}`;
-            try {
-                const errorData = await response.json();
-                if (typeof errorData.message === "string") {
-                    message = errorData.message;
-                } else if (typeof errorData.detail === "string") {
-                    message = errorData.detail;
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        const result = JSON.parse(xhr.responseText);
+                        if (!result.mesh_id) {
+                            reject(new Error("A API não devolveu mesh_id."));
+                            return;
+                        }
+                        resolve(result.mesh_id);
+                    } catch (err) {
+                        reject(new Error("Resposta inválida da API ao carregar modelo."));
+                    }
+                } else {
+                    let message = `Erro HTTP ${xhr.status}`;
+                    try {
+                        const errorData = JSON.parse(xhr.responseText);
+                        if (typeof errorData.message === "string") {
+                            message = errorData.message;
+                        } else if (typeof errorData.detail === "string") {
+                            message = errorData.detail;
+                        }
+                    } catch {}
+                    reject(new Error(message));
                 }
-            } catch {
-                // manter mensagem HTTP
-            }
-            throw new Error(message);
-        }
+            };
 
-        const result = await response.json();
+            xhr.onerror = () => {
+                reject(new Error("Erro de rede ao carregar ficheiro para a API."));
+            };
 
-        if (!result.mesh_id) {
-            throw new Error("A API não devolveu mesh_id.");
-        }
-
-        if (typeof onProgress === "function") {
-            onProgress(100);
-        }
-
-        return result.mesh_id;
+            const formData = new FormData();
+            formData.append("file", file);
+            xhr.send(formData);
+        });
     },
 
     /**
@@ -278,7 +270,7 @@ window.RetopoAPI = {
     /**
      * Executa a simplificação RL em tempo real.
      * Tenta primeiro a API real (POST simplify + GET actions).
-     * Se a API falhar, cai com elegância na simulação local.
+     * Se a API falhar, cai com elegância na simulação local normal.
      */
     startRLDecimation: async function(modelId, onRLStep, onComplete, maxSteps = 100) {
         try {
@@ -288,78 +280,107 @@ window.RetopoAPI = {
             // 2. Buscar o action log detalhado gerado pela API
             const actions = await this.getRLActions(modelId);
 
+            const total = (Array.isArray(actions) && actions.length > 0)
+                ? actions.length
+                : (simplifyResult?.steps || maxSteps || 100);
+
             if (Array.isArray(actions) && actions.length > 0) {
                 let idx = 0;
-                const total = actions.length;
-                // Reproduzir cada ação de forma animada (~4-6 segundos no total)
-                const intervalMs = Math.max(25, Math.min(120, Math.floor(5000 / total)));
+                // Animação suave e fluida (~3s no total)
+                const stepsPerTick = Math.max(1, Math.ceil(total / 45));
+                const intervalMs = Math.max(25, Math.min(80, Math.floor(3000 / (total / stepsPerTick))));
 
                 const timer = setInterval(() => {
-                    if (idx < actions.length) {
-                        const act = actions[idx];
-                        const stepNum = act.step || (idx + 1);
-                        const progress = Math.min(100, Math.round((stepNum / total) * 100));
+                    idx = Math.min(total, idx + stepsPerTick);
+                    const actIndex = Math.min(actions.length - 1, idx - 1);
+                    const act = actions[actIndex];
+                    const stepNum = act.step || idx;
+                    const progress = Math.min(100, Math.round((idx / total) * 100));
 
-                        const isAccepted = act.accepted !== false;
-                        const actionName = act.action_name || (isAccepted ? "EDGE_DISSOLVE" : "ATTEMPT_REJECTED");
-                        const reason = act.rejection_reason ? ` (${act.rejection_reason})` : "";
-                        const facesInfo = act.faces !== undefined ? ` [Faces: ${act.faces}]` : "";
+                    const isAccepted = act.accepted !== false;
+                    const actionName = act.action_name || (isAccepted ? "EDGE_DISSOLVE" : "ATTEMPT_REJECTED");
+                    const reason = act.rejection_reason ? ` (${act.rejection_reason})` : "";
+                    const facesInfo = act.faces !== undefined ? ` [Faces: ${act.faces}]` : "";
 
-                        const stepData = {
-                            step: stepNum,
-                            progress: progress,
-                            log_message: `[Step ${stepNum}] ${actionName}${reason}${facesInfo}`,
-                            is_critical: !isAccepted,
-                            raw_action: act,
-                            rewards: {
-                                silhouette: Math.max(20, Math.round(95 - (progress * 0.45))),
-                                triangle_reduction: Math.min(95, Math.round(progress * 0.85)),
-                                uv_distortion: Math.min(25, Math.round(progress * 0.2))
-                            }
-                        };
+                    const stepData = {
+                        step: stepNum,
+                        progress: progress,
+                        log_message: `[Step ${stepNum}] ${actionName}${reason}${facesInfo}`,
+                        is_critical: !isAccepted,
+                        raw_action: act,
+                        rewards: {
+                            silhouette: Math.max(20, Math.round(95 - (progress * 0.45))),
+                            triangle_reduction: Math.min(95, Math.round(progress * 0.85)),
+                            uv_distortion: Math.min(25, Math.round(progress * 0.2))
+                        }
+                    };
 
-                        onRLStep(stepData);
-                        idx++;
-                    } else {
+                    onRLStep(stepData);
+
+                    if (idx >= total) {
                         clearInterval(timer);
                         onComplete(simplifyResult);
                     }
                 }, intervalMs);
+                return;
+            } else if (simplifyResult) {
+                // Caso a API tenha concluído com sucesso mas o action log esteja vazio
+                onRLStep({
+                    step: simplifyResult.steps || maxSteps,
+                    progress: 100,
+                    log_message: `[Concluído] ${simplifyResult.accepted_dissolves || 0} dissolves aceites`,
+                    is_critical: false,
+                    raw_action: { accepted: true, accepted_dissolves: simplifyResult.accepted_dissolves || 0 }
+                });
+                onComplete(simplifyResult);
                 return;
             }
         } catch (err) {
             console.warn("[RetopoAPI] Simplificação via API indisponível, a usar simulação de fallback:", err.message);
         }
 
-        // Fallback: simulação local caso a API não tenha respondido
+        // Fallback: simulação local limpa de 0% a 100%
         let currentStep = 0;
+        let currentDissolves = 0;
+        const targetSteps = maxSteps || 100;
+        const stepsPerTick = Math.max(1, Math.round(targetSteps / 35));
         const fallbackActions = ["Edge Collapse", "Vertex Merge", "Planar Decimation", "Feature Preserved"];
-        
+
         const fallbackTimer = setInterval(() => {
-            currentStep += Math.floor(Math.random() * 5) + 2;
-            if (currentStep >= 100) currentStep = 100;
+            currentStep = Math.min(targetSteps, currentStep + stepsPerTick);
+            const isAccepted = Math.random() < 0.2;
+            if (isAccepted) currentDissolves++;
 
             const action = fallbackActions[Math.floor(Math.random() * fallbackActions.length)];
             const rewardVal = (Math.random() * 0.5).toFixed(2);
-            
+            const progress = Math.min(100, Math.round((currentStep / targetSteps) * 100));
+
             const stepData = {
                 step: currentStep,
-                progress: currentStep,
+                progress: progress,
                 log_message: `[Step ${currentStep}] ${action}: Reward = +${rewardVal}`,
-                is_critical: (currentStep > 50 && currentStep < 55),
+                is_critical: !isAccepted,
+                raw_action: {
+                    accepted: isAccepted,
+                    accepted_dissolves: currentDissolves
+                },
                 rewards: {
-                    silhouette: Math.max(20, Math.round(95 - (currentStep * 0.5))),
-                    triangle_reduction: Math.min(80, Math.round(10 + (currentStep * 0.7))),
-                    uv_distortion: Math.min(30, Math.round(currentStep * 0.3))
+                    silhouette: Math.max(20, Math.round(95 - (progress * 0.5))),
+                    triangle_reduction: Math.min(80, Math.round(10 + (progress * 0.7))),
+                    uv_distortion: Math.min(30, Math.round(progress * 0.3))
                 }
             };
-            
+
             onRLStep(stepData);
 
-            if (currentStep >= 100) {
+            if (currentStep >= targetSteps) {
                 clearInterval(fallbackTimer);
-                onComplete(null);
+                onComplete({
+                    steps: targetSteps,
+                    accepted_dissolves: currentDissolves,
+                    face_reduction: Math.min(0.5, Math.max(0.05, currentDissolves / 100))
+                });
             }
-        }, 150);
+        }, 70);
     }
 };

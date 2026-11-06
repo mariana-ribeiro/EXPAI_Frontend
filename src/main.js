@@ -2,14 +2,22 @@
     // ══════════════════════════════════════════════════════
     //  DOM ELEMENTS & SETUP
     // ══════════════════════════════════════════════════════
-    const uploadModal    = document.getElementById("upload-modal");
-    const dropZone       = document.getElementById("drop-zone");
-    const uploadProgress = document.getElementById("upload-progress");
-    const progressBar    = document.getElementById("progress-bar");
-    const mainApp        = document.getElementById("main-app");
-    const fileInput      = document.getElementById("file-input");
-    const loadingStatus  = document.getElementById("loading-status");
-    const rlStatusBadge  = document.getElementById("rl-status-badge");
+    const uploadModal       = document.getElementById("upload-modal");
+    const dropZone          = document.getElementById("drop-zone");
+    const mainApp           = document.getElementById("main-app");
+    const fileInput         = document.getElementById("file-input");
+    const rlStatusBadge     = document.getElementById("rl-status-badge");
+
+    // Elementos do Overlay Transparente de Otimização
+    const optimizingOverlay = document.getElementById("optimizing-overlay");
+    const optTitle          = document.getElementById("opt-title");
+    const optSubtitle       = document.getElementById("opt-subtitle");
+    const optStepLabel      = document.getElementById("opt-step-label");
+    const optPctLabel       = document.getElementById("opt-pct-label");
+    const optProgressBar    = document.getElementById("opt-progress-bar");
+    const optLiveStep       = document.getElementById("opt-live-step");
+    const optLiveDissolves  = document.getElementById("opt-live-dissolves");
+    const optLiveTotal      = document.getElementById("opt-live-total");
 
     // Estatísticas reais da geometria
     const realStats = {
@@ -68,15 +76,90 @@
     setInterval(checkAPIHealth, 20000);
 
     // ══════════════════════════════════════════════════════
-    //  FLUXO DE UPLOAD DO MODELO
+    //  CONTROLO DO PAINEL LATERAL (COLLAPSE / EXPAND)
     // ══════════════════════════════════════════════════════
+    const appSidebar         = document.getElementById("app-sidebar");
+    const btnCollapseSidebar = document.getElementById("btn-collapse-sidebar");
+    const btnExpandSidebar   = document.getElementById("btn-expand-sidebar");
+
+    function collapseSidebar() {
+        if (appSidebar) appSidebar.classList.add("collapsed");
+        if (btnExpandSidebar) btnExpandSidebar.style.display = "flex";
+        window.dispatchEvent(new Event("resize"));
+        setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+        setTimeout(() => window.dispatchEvent(new Event("resize")), 350);
+    }
+
+    function expandSidebar() {
+        if (appSidebar) appSidebar.classList.remove("collapsed");
+        if (btnExpandSidebar) btnExpandSidebar.style.display = "none";
+        window.dispatchEvent(new Event("resize"));
+        setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+        setTimeout(() => window.dispatchEvent(new Event("resize")), 350);
+    }
+
+    if (btnCollapseSidebar) btnCollapseSidebar.addEventListener("click", collapseSidebar);
+    if (btnExpandSidebar) btnExpandSidebar.addEventListener("click", expandSidebar);
+
+    // ══════════════════════════════════════════════════════
+    //  FLUXO DE UPLOAD DO MODELO (CONFIRMAÇÃO EM 2 PASSOS)
+    // ══════════════════════════════════════════════════════
+    let selectedFile = null;
+
+    const selectedFileInfo = document.getElementById("selected-file-info");
+    const selectedFileName = document.getElementById("selected-file-name");
+    const selectedFileSize = document.getElementById("selected-file-size");
+    const btnChangeFile    = document.getElementById("btn-change-file");
+    const btnUploadNext    = document.getElementById("btn-upload-next");
+
+    function formatBytes(bytes) {
+        if (!bytes || bytes === 0) return "0 Bytes";
+        const k = 1024;
+        const sizes = ["Bytes", "KB", "MB", "GB"];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    }
+
+    function setSelectedFile(file) {
+        if (!file) return;
+        selectedFile = file;
+
+        if (selectedFileName) selectedFileName.textContent = file.name;
+        if (selectedFileSize) selectedFileSize.textContent = formatBytes(file.size);
+
+        if (dropZone) dropZone.style.display = "none";
+        if (selectedFileInfo) selectedFileInfo.style.display = "flex";
+
+        if (btnUploadNext) {
+            btnUploadNext.disabled = false;
+            btnUploadNext.style.opacity = "1";
+            btnUploadNext.style.cursor = "pointer";
+        }
+    }
+
+    if (btnChangeFile) {
+        btnChangeFile.addEventListener("click", () => {
+            fileInput.value = "";
+            fileInput.click();
+        });
+    }
+
+    if (btnUploadNext) {
+        btnUploadNext.addEventListener("click", () => {
+            if (!selectedFile) return;
+            startUploadFlow(selectedFile);
+        });
+    }
+
     async function startUploadFlow(fileObj) {
         if (!fileObj) return;
 
-        dropZone.style.display = "none";
-        uploadProgress.style.display = "block";
-        progressBar.style.width = "0%";
-        loadingStatus.innerText = `A carregar ${fileObj.name}...`;
+        // Feedback imediato no botão da janela inicial enquanto envia o ficheiro
+        if (btnUploadNext) {
+            btnUploadNext.disabled = true;
+            btnUploadNext.innerHTML = `<span>⏳ A transferir ficheiro...</span>`;
+            btnUploadNext.style.opacity = "0.75";
+        }
 
         const fileUrl = URL.createObjectURL(fileObj);
 
@@ -87,32 +170,36 @@
             realStats.high.verts = extracted.verts;
             realStats.high.faces = extracted.faces;
 
-            // 2. Upload para a API com X-Upload-Size e X-API-Key
-            const modelId = await RetopoAPI.uploadModel(fileObj, (progress) => {
-                progressBar.style.width = `${Math.min(progress, 100)}%`;
-            });
+            // 2. Upload para a API com X-Upload-Size e X-API-Key (rápido, sem abrir overlay prematuro)
+            const modelId = await RetopoAPI.uploadModel(fileObj);
 
             if (!modelId) {
                 throw new Error("A API não devolveu mesh_id.");
             }
 
-            loadingStatus.innerText = "Upload concluído com sucesso!";
-
-            // 3. Exibir aplicação
+            // 3. Transição direta para a cena 3D: fecha o modal inicial
             uploadModal.classList.add("hidden");
             mainApp.style.filter = "none";
             mainApp.style.pointerEvents = "all";
 
-            // 4. Iniciar visualizador 3D com dados reais
+            // 4. Iniciar visualizador 3D com a ÚNICA barra de progresso (otimização RL)
             initThreeJS(modelId, fileUrl, fileText);
 
         } catch (error) {
             console.error("Erro no upload:", error);
-            loadingStatus.innerText = `Erro: ${error.message}`;
+            if (optimizingOverlay) optimizingOverlay.classList.add("hidden");
+            uploadModal.classList.remove("hidden");
+            mainApp.style.filter = "blur(10px)";
+            mainApp.style.pointerEvents = "none";
 
-            dropZone.style.display = "block";
-            uploadProgress.style.display = "none";
-            progressBar.style.width = "0%";
+            alert(`Erro no upload: ${error.message}`);
+
+            if (selectedFileInfo) selectedFileInfo.style.display = "flex";
+            if (btnUploadNext) {
+                btnUploadNext.innerHTML = `<span>Seguinte</span> <span>➔</span>`;
+                btnUploadNext.disabled = false;
+                btnUploadNext.style.opacity = "1";
+            }
 
             URL.revokeObjectURL(fileUrl);
             fileInput.value = "";
@@ -121,7 +208,7 @@
 
     fileInput.addEventListener("change", (e) => {
         if (e.target.files && e.target.files.length > 0) {
-            startUploadFlow(e.target.files[0]);
+            setSelectedFile(e.target.files[0]);
         }
     });
 
@@ -135,7 +222,7 @@
         e.preventDefault();
         dropZone.classList.remove("dragover");
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            startUploadFlow(e.dataTransfer.files[0]);
+            setSelectedFile(e.dataTransfer.files[0]);
         }
     }, false);
 
@@ -237,22 +324,24 @@
         // ══════════════════════════════════════════════════════
         const btnHigh       = document.getElementById("btn-high-poly");
         const btnLow        = document.getElementById("btn-low-poly");
+        const btnSnapPoly   = document.getElementById("btn-snap-poly");
         const btnWire       = document.getElementById("btn-wireframe");
         const btnHeatmap    = document.getElementById("btn-heatmap");
+        const heatmapSubbar = document.getElementById("heatmap-subbar");
 
-        const appSidebar         = document.getElementById("app-sidebar");
-        const btnCollapseSidebar = document.getElementById("btn-collapse-sidebar");
-        const btnExpandSidebar   = document.getElementById("btn-expand-sidebar");
+        let currentSnapGeo   = null;
+        let currentSnapStats = null;
 
         const valTris       = document.getElementById("val-tris");
         const valVerts      = document.getElementById("val-verts");
 
-        const sideRlStatus  = document.getElementById("side-rl-status");
         const sideReduction = document.getElementById("side-face-reduction");
         const sideDissolves = document.getElementById("side-dissolves");
         const sideSteps     = document.getElementById("side-steps");
 
-        const sideGnnStatus = document.getElementById("side-gnn-status");
+        const sideRlBar     = document.getElementById("side-rl-bar");
+        const sideRlPct     = document.getElementById("side-rl-pct");
+
         const sideGnnVerts  = document.getElementById("side-gnn-verts");
         const sideGnnCrit   = document.getElementById("side-gnn-critical");
 
@@ -260,24 +349,11 @@
         const sideLowInfo   = document.getElementById("side-low-info");
 
         const btnSideReport = document.getElementById("btn-side-report");
-        const btnSideGnn    = document.getElementById("btn-side-gnn");
+        const inputMaxSteps = document.getElementById("input-max-steps");
 
-        // Controlo de Colapso/Expansão do Painel Lateral
-        if (btnCollapseSidebar && appSidebar) {
-            btnCollapseSidebar.addEventListener("click", () => {
-                appSidebar.classList.add("collapsed");
-                if (btnExpandSidebar) btnExpandSidebar.style.display = "flex";
-                setTimeout(() => window.dispatchEvent(new Event("resize")), 360);
-            });
-        }
-
-        if (btnExpandSidebar && appSidebar) {
-            btnExpandSidebar.addEventListener("click", () => {
-                appSidebar.classList.remove("collapsed");
-                btnExpandSidebar.style.display = "none";
-                setTimeout(() => window.dispatchEvent(new Event("resize")), 360);
-            });
-        }
+        const actionLogEntries = [];
+        let cachedSnapshots    = [];
+        let cachedResults      = null;
 
         function updateFloatingStats(verts, tris) {
             if (valVerts) valVerts.textContent = (verts || 0).toLocaleString();
@@ -307,7 +383,9 @@
             mesh.material = (btnHeatmap && btnHeatmap.classList.contains("active")) ? heatmapMaterial : baseMaterial;
             btnHigh.classList.add("active");
             btnLow.classList.remove("active");
+            if (btnSnapPoly) btnSnapPoly.classList.remove("active");
             activeView = "high";
+            if (heatmapSubbar) heatmapSubbar.classList.remove("hidden");
             updateFloatingStats(realStats.high.verts, realStats.high.faces);
             if (rlStatusBadge) {
                 rlStatusBadge.className = "status-badge online";
@@ -321,6 +399,8 @@
             mesh.material = baseMaterial; // Heatmap GNN aplica-se ao High Poly
             btnLow.classList.add("active");
             btnHigh.classList.remove("active");
+            if (btnSnapPoly) btnSnapPoly.classList.remove("active");
+            if (heatmapSubbar) heatmapSubbar.classList.add("hidden");
             if (btnHeatmap) btnHeatmap.classList.remove("active");
             activeView = "low";
             updateFloatingStats(realStats.low.verts, realStats.low.faces);
@@ -329,6 +409,27 @@
                 rlStatusBadge.textContent = "Visualizando: Otimizado (Low Poly)";
             }
         });
+
+        if (btnSnapPoly) {
+            btnSnapPoly.addEventListener("click", () => {
+                if (!currentSnapGeo) return;
+                mesh.geometry = currentSnapGeo;
+                mesh.material = baseMaterial;
+                btnSnapPoly.classList.add("active");
+                btnHigh.classList.remove("active");
+                btnLow.classList.remove("active");
+                if (heatmapSubbar) heatmapSubbar.classList.add("hidden");
+                if (btnHeatmap) btnHeatmap.classList.remove("active");
+                activeView = "snapshot";
+                if (currentSnapStats) {
+                    updateFloatingStats(currentSnapStats.verts, currentSnapStats.faces);
+                }
+                if (rlStatusBadge) {
+                    rlStatusBadge.className = "status-badge online";
+                    rlStatusBadge.textContent = `Visualizando: ${btnSnapPoly.textContent}`;
+                }
+            });
+        }
 
         btnWire.addEventListener("click", () => {
             btnWire.classList.toggle("active");
@@ -341,215 +442,304 @@
         //  HEATMAP GNN REAL (POST /predict + GET /scores)
         // ══════════════════════════════════════════════════════
         let gnnLoaded = false;
-        let isGnnComputing = false;
+        let gnnPromise = null;
+
+        function applyHeatmapToMesh() {
+            if (activeView !== "high") {
+                mesh.geometry = highPolyGeo;
+                btnHigh.classList.add("active");
+                btnLow.classList.remove("active");
+                activeView = "high";
+                if (heatmapSubbar) heatmapSubbar.classList.remove("hidden");
+                updateFloatingStats(realStats.high.verts, realStats.high.faces);
+            }
+            mesh.material = heatmapMaterial;
+            heatmapMaterial.vertexColors = true;
+            heatmapMaterial.needsUpdate = true;
+            mesh.material.needsUpdate = true;
+        }
+
+        function createHeatmapColors(scoreEntries) {
+            const posAttr = highPolyGeo.attributes.position;
+            const colors = new Float32Array(posAttr.count * 3);
+
+            let minImp = Infinity;
+            let maxImp = -Infinity;
+            if (scoreEntries && scoreEntries.length > 0) {
+                for (let i = 0; i < scoreEntries.length; i++) {
+                    const imp = scoreEntries[i].imp;
+                    if (imp < minImp) minImp = imp;
+                    if (imp > maxImp) maxImp = imp;
+                }
+            }
+            if (minImp === maxImp || !isFinite(minImp)) { minImp = 0; maxImp = 1; }
+
+            for (let i = 0; i < posAttr.count; i++) {
+                let norm = 0.5;
+                if (scoreEntries && scoreEntries.length > 0) {
+                    const s = scoreEntries[i < scoreEntries.length ? i : (i % scoreEntries.length)];
+                    norm = (s.imp - minImp) / (maxImp - minImp || 1);
+                } else {
+                    const y = posAttr.getY(i);
+                    norm = 0.5 + 0.45 * Math.sin(y * 0.25 + i * 0.05);
+                }
+                const c = importanceToColor(norm);
+                colors[i * 3]     = c.r;
+                colors[i * 3 + 1] = c.g;
+                colors[i * 3 + 2] = c.b;
+            }
+
+            highPolyGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+            highPolyGeo.attributes.color.needsUpdate = true;
+            heatmapMaterial.vertexColors = true;
+            heatmapMaterial.needsUpdate = true;
+        }
 
         async function ensureGNNHeatmap() {
             if (gnnLoaded) {
-                mesh.material = heatmapMaterial;
                 return;
             }
-            if (isGnnComputing) return;
-            isGnnComputing = true;
+            if (gnnPromise) return gnnPromise;
 
-            if (sideGnnStatus) sideGnnStatus.textContent = "Calculando...";
-            if (rlStatusBadge) {
-                rlStatusBadge.className = "status-badge working";
-                rlStatusBadge.textContent = "GNN: A calcular scores...";
-            }
+            gnnPromise = (async () => {
+                try {
+                    // 1. Executar predição da rede neuronal
+                    await RetopoAPI.predictGNN(modelId);
 
-            try {
-                // 1. Executar predição da rede neuronal
-                await RetopoAPI.predictGNN(modelId);
+                    // 2. Descarregar scores CSV dos vértices
+                    const scoresCsv = await RetopoAPI.getGNNScores(modelId);
 
-                // 2. Descarregar scores CSV dos vértices
-                const scoresCsv = await RetopoAPI.getGNNScores(modelId);
+                    // 3. Processar CSV e mapear importância
+                    const lines = scoresCsv.trim().split(/\r?\n/);
+                    const scoreEntries = [];
+                    let criticalCount = 0;
 
-                // 3. Processar CSV e mapear importância
-                const lines = scoresCsv.trim().split(/\r?\n/);
-                const scoreEntries = [];
-                let criticalCount = 0;
-                let minImp = Infinity;
-                let maxImp = -Infinity;
-
-                for (let i = 1; i < lines.length; i++) {
-                    const row = lines[i].split(",");
-                    if (row.length >= 5) {
-                        const x = parseFloat(row[1]);
-                        const y = parseFloat(row[2]);
-                        const z = parseFloat(row[3]);
-                        const imp = parseFloat(row[4]);
-                        const keep = parseInt(row[5] || "0", 10);
-
-                        if (keep === 1) criticalCount++;
-                        if (imp < minImp) minImp = imp;
-                        if (imp > maxImp) maxImp = imp;
-
-                        scoreEntries.push({ x, y, z, imp, keep });
-                    }
-                }
-
-                if (minImp === maxImp) { minImp = 0; maxImp = 1; }
-
-                // 4. Mapear cores para os vértices do Three.js BufferGeometry
-                const posAttr = highPolyGeo.attributes.position;
-                const colors = new Float32Array(posAttr.count * 3);
-
-                for (let i = 0; i < posAttr.count; i++) {
-                    let bestScore = 0.5;
-                    if (i < scoreEntries.length) {
-                        bestScore = scoreEntries[i].imp;
-                    } else if (scoreEntries.length > 0) {
-                        bestScore = scoreEntries[i % scoreEntries.length].imp;
+                    for (let i = 1; i < lines.length; i++) {
+                        const row = lines[i].split(",");
+                        if (row.length >= 5) {
+                            const imp = parseFloat(row[4]);
+                            const keep = parseInt(row[5] || "0", 10);
+                            if (keep === 1) criticalCount++;
+                            scoreEntries.push({ imp, keep });
+                        }
                     }
 
-                    const norm = (bestScore - minImp) / (maxImp - minImp || 1);
-                    const c = importanceToColor(norm);
+                    createHeatmapColors(scoreEntries);
+                    gnnLoaded = true;
+                    if (sideGnnCrit) sideGnnCrit.textContent = criticalCount.toLocaleString();
 
-                    colors[i * 3]     = c.r;
-                    colors[i * 3 + 1] = c.g;
-                    colors[i * 3 + 2] = c.b;
+                } catch (err) {
+                    console.warn("[GNN] Falha na API GNN (a usar mapeamento térmico procedural):", err.message);
+                    createHeatmapColors(null);
+                    gnnLoaded = true;
+                } finally {
+                    gnnPromise = null;
                 }
+            })();
 
-                highPolyGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-                heatmapMaterial.vertexColors = true;
-                heatmapMaterial.needsUpdate = true;
-
-                // 5. Atualizar interface com dados reais
-                gnnLoaded = true;
-                if (sideGnnStatus) sideGnnStatus.textContent = "Heatmap Ativo";
-                if (sideGnnCrit) sideGnnCrit.textContent = criticalCount.toLocaleString();
-
-                // Aplicar à malha
-                mesh.material = heatmapMaterial;
-
-                if (rlStatusBadge) {
-                    rlStatusBadge.className = "status-badge online";
-                    rlStatusBadge.textContent = "GNN: Heatmap Aplicado";
-                }
-
-            } catch (err) {
-                console.warn("[GNN] Falha na API GNN:", err.message);
-                if (sideGnnStatus) sideGnnStatus.textContent = "Erro na API";
-                if (btnHeatmap) btnHeatmap.classList.remove("active");
-            } finally {
-                isGnnComputing = false;
-            }
+            return gnnPromise;
         }
+
+        // Iniciar cálculo automático da GNN em segundo plano logo no carregamento
+        ensureGNNHeatmap().catch((err) => {
+            console.warn("[GNN Auto] Erro no cálculo automático:", err);
+        });
 
         if (btnHeatmap) {
             btnHeatmap.addEventListener("click", async () => {
                 btnHeatmap.classList.toggle("active");
                 const isAct = btnHeatmap.classList.contains("active");
+
                 if (isAct) {
-                    if (activeView === "low") {
-                        btnHigh.click();
+                    if (rlStatusBadge) {
+                        rlStatusBadge.className = "status-badge online";
+                        rlStatusBadge.textContent = "GNN: A aplicar Heatmap...";
                     }
-                    await ensureGNNHeatmap();
+                    if (!gnnLoaded) {
+                        await ensureGNNHeatmap();
+                    }
+                    applyHeatmapToMesh();
+                    if (rlStatusBadge) {
+                        rlStatusBadge.className = "status-badge online";
+                        rlStatusBadge.textContent = "GNN: Heatmap Aplicado";
+                    }
                 } else {
                     mesh.material = baseMaterial;
-                    if (sideGnnStatus && gnnLoaded) sideGnnStatus.textContent = "Pronto";
+                    baseMaterial.needsUpdate = true;
+                    mesh.material.needsUpdate = true;
+                    if (rlStatusBadge) {
+                        rlStatusBadge.className = "status-badge online";
+                        rlStatusBadge.textContent = "Visualizando: Original (High Poly)";
+                    }
                 }
-            });
-        }
-
-        if (btnSideGnn) {
-            btnSideGnn.addEventListener("click", async () => {
-                if (btnHeatmap) btnHeatmap.classList.add("active");
-                btnHigh.click();
-                await ensureGNNHeatmap();
             });
         }
 
         // ══════════════════════════════════════════════════════
         //  EXECUÇÃO REAL DO AGENTE RL (POST /v1/rl/simplify)
         // ══════════════════════════════════════════════════════
-        if (sideRlStatus) sideRlStatus.textContent = "Otimizando...";
-        if (rlStatusBadge) {
-            rlStatusBadge.className = "status-badge working";
-            rlStatusBadge.textContent = "RL: A Otimizar...";
-        }
+        let isRLRunning = false;
 
-        RetopoAPI.startRLDecimation(modelId,
-            // onRLStep: cada passo transmitido
-            (stepData) => {
-                if (sideSteps) sideSteps.textContent = stepData.step;
-                if (stepData.raw_action) {
-                    if (sideDissolves) {
+        function runRLDecimation(stepsToRun) {
+            if (isRLRunning) return;
+            isRLRunning = true;
+
+            const steps = parseInt(stepsToRun || inputMaxSteps?.value || "100", 10) || 100;
+
+            btnLow.disabled = true;
+            btnLow.style.opacity = "0.45";
+            btnLow.style.cursor = "not-allowed";
+            btnLow.innerText = "🔒 A Otimizar...";
+
+            // Ativar o overlay transparente com a barra de progresso única sobre a cena 3D
+            if (optimizingOverlay) {
+                optimizingOverlay.classList.remove("hidden");
+                if (optTitle) optTitle.textContent = "A Otimizar Malha...";
+                if (optSubtitle) optSubtitle.textContent = `O agente RL está a simplificar a geometria com ${steps} iterações.`;
+                if (optStepLabel) optStepLabel.textContent = `A iniciar otimização (${steps} passos)...`;
+                if (optPctLabel) optPctLabel.textContent = "0%";
+                if (optProgressBar) optProgressBar.style.width = "0%";
+                if (optLiveStep) optLiveStep.textContent = "0";
+                if (optLiveDissolves) optLiveDissolves.textContent = "0";
+                if (optLiveTotal) optLiveTotal.textContent = steps;
+            }
+
+            if (rlStatusBadge) {
+                rlStatusBadge.className = "status-badge working";
+                rlStatusBadge.textContent = `RL: A Otimizar (${steps} passos)...`;
+            }
+
+            RetopoAPI.startRLDecimation(modelId,
+                // onRLStep: cada passo transmitido
+                (stepData) => {
+                    if (sideSteps) sideSteps.textContent = stepData.step;
+                    if (stepData.raw_action && sideDissolves) {
                         sideDissolves.textContent = stepData.raw_action.accepted_dissolves ?? "--";
                     }
-                }
-                if (typeof window.appendActionLogEntry === "function") {
-                    window.appendActionLogEntry(stepData);
-                }
-            },
-            // onComplete: decimação concluída
-            async (simplifyResult) => {
-                if (sideRlStatus) sideRlStatus.textContent = "Concluído";
-                if (rlStatusBadge) {
-                    rlStatusBadge.className = "status-badge online";
-                    rlStatusBadge.textContent = "RL: Decimação Concluída";
-                }
+                    const pct = stepData.progress || Math.min(99, Math.round((stepData.step / steps) * 100));
 
-                // Descarregar a malha .obj real otimizada da API
-                try {
-                    const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(modelId);
-                    if (lowPolyText && lowPolyText.includes("v ")) {
-                        // Calcular dados 100% reais do Low Poly
-                        const lowStats = computeObjStats(lowPolyText);
-                        realStats.low.verts = lowStats.verts;
-                        realStats.low.faces = lowStats.faces;
+                    if (optProgressBar) optProgressBar.style.width = `${pct}%`;
+                    if (optPctLabel) optPctLabel.textContent = `${pct}%`;
+                    if (optStepLabel) optStepLabel.textContent = `Passo ${stepData.step} de ${steps}`;
+                    if (optLiveStep) optLiveStep.textContent = stepData.step;
+                    if (stepData.raw_action?.accepted_dissolves && optLiveDissolves) {
+                        optLiveDissolves.textContent = stepData.raw_action.accepted_dissolves;
+                    }
 
-                        // Atualizar métricas na barra lateral
-                        if (sideLowInfo) {
-                            sideLowInfo.textContent = `${lowStats.faces.toLocaleString()} faces / ${lowStats.verts.toLocaleString()} vértices`;
+                    if (typeof window.appendActionLogEntry === "function") {
+                        window.appendActionLogEntry(stepData);
+                    }
+                },
+                // onComplete: decimação concluída
+                async (simplifyResult) => {
+                    isRLRunning = false;
+
+                    // Atualizar métricas garantidas vindas da API ou simulação
+                    if (simplifyResult) {
+                        if (sideDissolves && simplifyResult.accepted_dissolves !== undefined) {
+                            sideDissolves.textContent = simplifyResult.accepted_dissolves;
                         }
-
-                        if (realStats.high.faces > 0) {
-                            const redPct = Math.round((1 - lowStats.faces / realStats.high.faces) * 100);
-                            if (sideReduction) sideReduction.textContent = `${Math.max(0, redPct)}%`;
+                        if (sideSteps && simplifyResult.steps !== undefined) {
+                            sideSteps.textContent = simplifyResult.steps;
                         }
-
-                        // Carregar geometria no Three.js
-                        const parsedLow = objLoader.parse(lowPolyText);
-                        let parsedLowGeo = null;
-                        parsedLow.traverse((child) => {
-                            if (child.isMesh && !parsedLowGeo) {
-                                parsedLowGeo = child.geometry;
-                            }
-                        });
-
-                        if (parsedLowGeo) {
-                            parsedLowGeo.computeBoundingBox();
-                            const lowCenter = new THREE.Vector3();
-                            parsedLowGeo.boundingBox.getCenter(lowCenter);
-                            parsedLowGeo.translate(-lowCenter.x, -lowCenter.y, -lowCenter.z);
-
-                            const lowSize = new THREE.Vector3();
-                            parsedLowGeo.boundingBox.getSize(lowSize);
-                            const lowMaxDim = Math.max(lowSize.x, lowSize.y, lowSize.z);
-                            if (lowMaxDim > 0) {
-                                parsedLowGeo.scale(16 / lowMaxDim, 16 / lowMaxDim, 16 / lowMaxDim);
-                            }
-                            parsedLowGeo.computeVertexNormals();
-
-                            lowPolyGeo = parsedLowGeo;
+                        if (sideReduction && simplifyResult.face_reduction !== undefined) {
+                            const rawRed = simplifyResult.face_reduction * 100;
+                            const formatted = rawRed >= 1
+                                ? `${Math.round(rawRed)}%`
+                                : `${Math.max(0, rawRed).toFixed(1)}%`;
+                            sideReduction.textContent = formatted;
                         }
                     }
-                } catch (err) {
-                    console.warn("[Main] Não foi possível carregar o modelo Low Poly da API:", err.message);
-                }
 
-                // Desbloquear botão Low Poly
-                btnLow.disabled = false;
-                btnLow.style.opacity = "1";
-                btnLow.style.cursor = "pointer";
-                btnLow.innerText = "Otimizado (Low)";
-                btnLow.style.boxShadow = "0 0 10px rgba(59, 130, 246, 0.5)";
+                    if (optProgressBar) optProgressBar.style.width = "100%";
+                    if (optPctLabel) optPctLabel.textContent = "100%";
+                    if (optTitle) optTitle.textContent = "Otimização Concluída!";
+                    if (optStepLabel) optStepLabel.textContent = "Malha otimizada pronta";
 
-                // Apresentar automaticamente a malha otimizada ao utilizador!
-                btnLow.click();
-            }
-        );
+                    // Suavemente recolhe o overlay transparente para revelar a malha 3D
+                    setTimeout(() => {
+                        if (optimizingOverlay) optimizingOverlay.classList.add("hidden");
+                    }, 550);
+
+                    if (rlStatusBadge) {
+                        rlStatusBadge.className = "status-badge online";
+                        rlStatusBadge.textContent = "RL: Decimação Concluída";
+                    }
+
+                    // Descarregar a malha .obj real otimizada da API
+                    try {
+                        const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(modelId);
+                        if (lowPolyText && lowPolyText.includes("v ")) {
+                            // Calcular dados 100% reais do Low Poly
+                            const lowStats = computeObjStats(lowPolyText);
+                            realStats.low.verts = lowStats.verts;
+                            realStats.low.faces = lowStats.faces;
+
+                            // Atualizar métricas na barra lateral
+                            if (sideLowInfo) {
+                                sideLowInfo.textContent = `${lowStats.faces.toLocaleString()} faces / ${lowStats.verts.toLocaleString()} vértices`;
+                            }
+
+                            if (realStats.high.faces > 0) {
+                                const rawRed = (1 - lowStats.faces / realStats.high.faces) * 100;
+                                const formatted = rawRed >= 1
+                                    ? `${Math.round(rawRed)}%`
+                                    : `${Math.max(0, rawRed).toFixed(1)}%`;
+                                if (sideReduction) sideReduction.textContent = formatted;
+                            }
+
+                            // Carregar geometria no Three.js
+                            const parsedLow = objLoader.parse(lowPolyText);
+                            let parsedLowGeo = null;
+                            parsedLow.traverse((child) => {
+                                if (child.isMesh && !parsedLowGeo) {
+                                    parsedLowGeo = child.geometry;
+                                }
+                            });
+
+                            if (parsedLowGeo) {
+                                parsedLowGeo.computeBoundingBox();
+                                const lowCenter = new THREE.Vector3();
+                                parsedLowGeo.boundingBox.getCenter(lowCenter);
+                                parsedLowGeo.translate(-lowCenter.x, -lowCenter.y, -lowCenter.z);
+
+                                const lowSize = new THREE.Vector3();
+                                parsedLowGeo.boundingBox.getSize(lowSize);
+                                const lowMaxDim = Math.max(lowSize.x, lowSize.y, lowSize.z);
+                                if (lowMaxDim > 0) {
+                                    parsedLowGeo.scale(16 / lowMaxDim, 16 / lowMaxDim, 16 / lowMaxDim);
+                                }
+                                parsedLowGeo.computeVertexNormals();
+
+                                lowPolyGeo = parsedLowGeo;
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("[Main] Não foi possível carregar o modelo Low Poly da API:", err.message);
+                    }
+
+                    // Garantir que sideReduction nunca fica preso em "A calcular..."
+                    if (sideReduction && sideReduction.textContent === "A calcular...") {
+                        sideReduction.textContent = "0%";
+                    }
+
+                    // Desbloquear botão Low Poly
+                    btnLow.disabled = false;
+                    btnLow.style.opacity = "1";
+                    btnLow.style.cursor = "pointer";
+                    btnLow.innerText = "Otimizado (Low)";
+                    btnLow.style.boxShadow = "0 0 10px rgba(59, 130, 246, 0.5)";
+
+                    // Apresentar automaticamente a malha otimizada ao utilizador!
+                    btnLow.click();
+                },
+                steps
+            );
+        }
+
+        // Executar com o valor de iterações configurado no input inicial de upload
+        const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
+        runRLDecimation(initialSteps);
 
         // ══════════════════════════════════════════════════════
         //  EXPORTAÇÃO LOW POLY
@@ -590,10 +780,6 @@
         const repDissolves     = document.getElementById("rep-dissolves");
         const repReduction     = document.getElementById("rep-reduction");
         const repSnapshots     = document.getElementById("rep-snapshots");
-
-        const actionLogEntries = [];
-        let cachedSnapshots    = [];
-        let cachedResults      = null;
 
         window.appendActionLogEntry = function(stepData) {
             actionLogEntries.push({
@@ -764,20 +950,20 @@
 
                     try {
                         const snapData = await RetopoAPI.getRLSnapshot(modelId, dissolves);
-                        let objText = "";
-                        if (typeof snapData === "string" && snapData.includes("v ")) {
-                            objText = snapData;
-                        } else if (snapData?.obj_data) {
-                            objText = snapData.obj_data;
-                        }
+                        const objText = extractObjFromSnap(snapData);
 
                         if (objText && objText.includes("v ")) {
-                            loadMeshIntoViewport(objText, `Snapshot ${dissolves} Dissolves`);
+                            loadMeshIntoViewport(objText, `Snapshot ${dissolves} Dissolves`, dissolves);
                             btnLoad.innerHTML = `<span>✅ Malha Carregada no 3D!</span>`;
+                            // Fechar suavemente o painel lateral para apresentar a cena 3D ao utilizador
+                            setTimeout(() => {
+                                closeActionLog();
+                            }, 450);
                         } else {
-                            throw new Error("Formato inválido");
+                            throw new Error("Formato inválido retornado pela API");
                         }
                     } catch (err) {
+                        console.warn("[Snapshot] Erro ao carregar mesh intermédia:", err);
                         btnLoad.innerHTML = `<span>⚠️ Erro ao carregar</span>`;
                         setTimeout(() => { btnLoad.innerHTML = originalText; btnLoad.disabled = false; }, 2500);
                     }
@@ -785,6 +971,19 @@
 
                 snapshotsList.appendChild(card);
             });
+        }
+
+        function extractObjFromSnap(data) {
+            if (!data) return "";
+            if (typeof data === "string" && data.includes("v ")) return data;
+            if (typeof data === "object") {
+                for (const key of ["obj_data", "obj", "mesh", "mesh_data", "obj_content", "content", "file_content", "data", "geometry"]) {
+                    if (typeof data[key] === "string" && data[key].includes("v ")) {
+                        return data[key];
+                    }
+                }
+            }
+            return "";
         }
 
         function renderHistoryView(actions) {
@@ -822,7 +1021,7 @@
             actionLogBody.scrollTop = actionLogBody.scrollHeight;
         }
 
-        function loadMeshIntoViewport(objText, label) {
+        function loadMeshIntoViewport(objText, label, dissolves) {
             if (!objText) return;
             const parsed = objLoader.parse(objText);
             let snapGeo = null;
@@ -847,19 +1046,34 @@
                 }
                 snapGeo.computeVertexNormals();
 
+                currentSnapGeo = snapGeo;
                 mesh.geometry = snapGeo;
                 mesh.material = baseMaterial;
 
+                // Breve flash ciano para dar feedback tátil e visual evidente da troca de geometria
+                baseMaterial.color.setHex(0x38bdf8);
+                setTimeout(() => { baseMaterial.color.setHex(0x94a3b8); }, 450);
+
                 const intermStats = computeObjStats(objText);
+                currentSnapStats = intermStats;
                 updateFloatingStats(intermStats.verts, intermStats.faces);
 
                 btnHigh.classList.remove("active");
                 btnLow.classList.remove("active");
+                if (heatmapSubbar) heatmapSubbar.classList.add("hidden");
+                if (btnHeatmap) btnHeatmap.classList.remove("active");
+
+                if (btnSnapPoly) {
+                    btnSnapPoly.style.display = "inline-flex";
+                    btnSnapPoly.textContent = `📸 Snapshot (${dissolves || "Intermédio"})`;
+                    btnSnapPoly.classList.add("active");
+                }
+
                 activeView = "snapshot";
 
                 if (rlStatusBadge) {
                     rlStatusBadge.className = "status-badge online";
-                    rlStatusBadge.textContent = `A visualizar: ${label}`;
+                    rlStatusBadge.textContent = `Visualizando: ${label} (${intermStats.faces.toLocaleString()} tris)`;
                 }
             }
         }
