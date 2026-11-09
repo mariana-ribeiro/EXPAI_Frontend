@@ -1,7 +1,8 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MESH QA (AUDITORIA E CONTROLO DE QUALIDADE TOPOLÓGICO DE MALHAS 3D)
- *  PolyOptima XAI - Retopo Tool
+ *  MESH QA / DSS CONTROLLER (UNIFIED STUDIO)
+ *  Auditoria e Controlo de Qualidade Topológico de Malhas 3D
+ *  Integrado no Viewport 3D Único e Barra Lateral do Retopo Tool
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -9,7 +10,7 @@
     "use strict";
 
     // ═══════════════════════════════════════════════════════════════════
-    //  1. DICIONÁRIO DE EXPLICAÇÕES EM PORTUGUÊS
+    //  1. DICIONÁRIO DE EXPLICAÇÕES EM PORTUGUÊS (RIGOROSO E DIDÁTICO)
     // ═══════════════════════════════════════════════════════════════════
     const QA_EXPLANATIONS = {
         ngons: {
@@ -20,7 +21,7 @@
             priority: 9,
             what: "Faces compostas por 5 ou mais vértices.",
             why: function(faceData, hasCollinear) {
-                let msg = "Importam em pipelines que exigem quads/tris (modificadores de subdivisão, mapeamento de UVs e motores de jogo), podendo causar deformações e artefactos de sombreamento.";
+                let msg = "Importam em pipelines que exigem quads/tris (subdivisão, UVs e game engines), podendo causar deformações e artefactos de sombreamento.";
                 if (hasCollinear || (faceData && faceData.max_angle && faceData.max_angle >= 170)) {
                     msg += " NOTA: O count é por vértices; um quad com vértices colineares (ângulo ~180°) conta como n-gon.";
                 }
@@ -36,7 +37,7 @@
             priority: 2,
             what: "Aresta partilhada por 3 ou mais faces, ou vértices com ligações não contíguas.",
             why: function() {
-                return "Quebra operações booleanas, modificadores de subdivisão e impede a impressão 3D (a malha deixa de ser um sólido volumétrico válido).";
+                return "Quebra operações booleanas, modificadores de subdivisão e impede a impressão 3D (a malha deixa de ser um sólido volumétrico 2-manifold válido).";
             },
             how: "Separar as faces adjacentes excedentes ou remover faces internas que partilham a mesma aresta."
         },
@@ -119,67 +120,53 @@
             title: "Poles (Vértices Não-Regulares)",
             category: "Topologia",
             severity: "info",
-            color: "#fbbf24", // Dourado
-            priority: 11,
+            color: "#a855f7", // Lilás
+            priority: 10,
             what: "Vértices interiores com valência diferente da regular (4 em quads, 6 em tris).",
             why: function() {
-                return "Controlam o fluxo da topologia. Em malhas low-poly com cantos duros, valência 3 é perfeitamente normal e deve ser relativizada, só sendo problemática se gerar artefactos de sombreamento.";
+                return "Em malhas low-poly com cantos vivos ou extremidades, valência 3 é natural; em superfícies lisas com subdivisão, polos com valência 3 ou 5+ criam pontos de tensão (pinching).";
             },
-            how: "Redirecionar o loop de arestas para zonas coplanares ou de menor deformação articular."
+            how: "Redirecionar os loopings de aresta (Edge Spin/Slide) para deslocar o polo para zonas planas ou de menor deformação."
         },
         collinear_vertices: {
             title: "Vértices Colineares",
             category: "Otimização",
             severity: "info",
             color: "#14b8a6", // Teal
-            priority: 10,
-            what: "Vértices de valência 2 situados sobre uma aresta com ângulo próximo de 180°.",
+            priority: 11,
+            what: "Vértices de valência 2 com ângulo ~180° entre as arestas adjacentes.",
             why: function() {
-                return "São vértices redundantes que aumentam a contagem de lados das faces sem contribuir para a curvatura ou silhueta da forma.";
+                return "São vértices redundantes que aumentam a contagem sem contribuir para a curvatura ou silhueta da peça.";
             },
-            how: "Dissolver os vértices colineares (Dissolve Vertices) sem alterar a geometria 3D."
+            how: "Dissolver os vértices colineares (Dissolve Vertices) sem alterar a forma do polígono."
         },
         t_junction: {
             title: "T-Junctions",
             category: "Estanquicidade",
             severity: "critical",
-            color: "#f59e0b", // Âmbar
+            color: "#f43f5e", // Rosa avermelhado
             priority: 5,
             what: "Vértice pousado sobre a aresta de uma face vizinha sem pertencer à topologia dessa face.",
             why: function() {
-                return "Cria fendas microscópicas (cracks) ao longo da costura e faz com que a malha deixe de ser hermética (watertight).";
+                return "Quebra a continuidade da superfície criando micro-fendas visíveis na renderização; a malha deixa de ser hermética (watertight).";
             },
-            how: "Conectar o vértice à face adjacente através de um corte de aresta (Edge Cut / Knife) ou soldar os pontos."
+            how: "Inserir um vértice na aresta vizinha e soldar os dois vértices (Snap & Merge), ou triangular a face adjacente para absorver a junção."
         }
     };
 
-    /**
-     * Devolve a explicação padronizada para qualquer check, mesmo desconhecido
-     */
-    function getExplanation(checkKey, faceData, hasTJunction) {
-        if (QA_EXPLANATIONS[checkKey]) {
-            const exp = QA_EXPLANATIONS[checkKey];
-            return {
-                title: exp.title,
-                category: exp.category,
-                severity: exp.severity,
-                color: exp.color,
-                priority: exp.priority,
-                what: exp.what,
-                why: typeof exp.why === "function" ? exp.why(faceData, hasTJunction) : exp.why,
-                how: exp.how
-            };
+    function getCheckInfo(key) {
+        if (QA_EXPLANATIONS[key]) {
+            return QA_EXPLANATIONS[key];
         }
-        // Check desconhecido: exibe o nome cru com texto genérico
         return {
-            title: checkKey,
-            category: "Geral",
-            severity: "info",
-            color: "#94a3b8",
-            priority: 20,
-            what: `Verificação de qualidade topológica: ${checkKey}.`,
-            why: "Pode influenciar a integridade da malha e a compatibilidade no pipeline 3D.",
-            how: "Inspecionar visualmente os elementos afetados no visualizador 3D."
+            title: key.replace(/_/g, " ").toUpperCase(),
+            category: "Verificação",
+            severity: "warning",
+            color: "#64748b",
+            priority: 99,
+            what: `Verificação automatizada: ${key}.`,
+            why: () => "Potencial anomalia geométrica ou topológica reportada pelo algoritmo.",
+            how: "Inspecionar a malha e verificar a integridade dos polígonos afetados."
         };
     }
 
@@ -188,12 +175,12 @@
     // ═══════════════════════════════════════════════════════════════════
     const QAState = {
         activeMeshId: null,
-        activeMeshName: "Malha Otimizada",
+        activeSnapshot: null,
+        activeMeshName: "Malha Otimizada Final",
         statusData: null,
         resultData: null,
         rawObjText: null,
 
-        // Configuração de Parâmetros
         params: {
             min_angle: 20.0,
             max_angle: 160.0,
@@ -201,121 +188,67 @@
             skip: []
         },
 
-        // Visibilidade de checks nos overlays
         enabledChecks: {},
-
-        // Modo visual ativo no 3D: 'checks' | 'min_angle' | 'max_angle' | 'valence'
-        activeViewMode: "checks",
+        activeViewMode: "errors", // 'errors' | 'min_angle' | 'max_angle' | 'valence' | 'none'
         showEdges: true,
         showPoles: true,
         showSurface: true,
 
-        // Elemento atualmente selecionado/focado
         selectedFaceIdx: null,
         selectedVertIdx: null
     };
 
     // ═══════════════════════════════════════════════════════════════════
-    //  3. GESTOR 3D VIEWPORT DO MESH QA (THREE.JS)
+    //  3. ESTRUTURAS 3D DO DSS (ADICIONADAS À CENA PRINCIPAL)
     // ═══════════════════════════════════════════════════════════════════
-    let qaScene = null;
-    let qaCamera = null;
-    let qaRenderer = null;
-    let qaControls = null;
-    let qaCanvas = null;
+    let dssMesh = null;
+    let dssEdgesMesh = null;
+    let dssPolesPoints = null;
+    let dssSelectionLine = null;
 
-    let qaMesh = null;
-    let qaEdgesMesh = null;
-    let qaPolesPoints = null;
-    let qaSelectionLine = null;
+    let qaParsedVertices = [];
+    let qaPolygonFaces = [];
+    let qaTriangleToFaceMap = [];
+    let qaFaceToTrianglesMap = [];
+    let qaRaycaster = null;
+    let qaMouse = new THREE.Vector2();
 
-    // Dados geométricos processados
-    let qaParsedVertices = [];   // [[x, y, z], ...]
-    let qaPolygonFaces = [];     // [[v0, v1, ...], ...]
-    let qaTriangleToFaceMap = [];// triangleIndex -> polygonFaceIndex
-    let qaFaceToTrianglesMap = []; // polygonFaceIndex -> [triIdx0, triIdx1, ...]
-    let qaModelCenter = new THREE.Vector3();
-    let qaModelScale = 1.0;
-
-    function initQA3DViewer() {
-        qaCanvas = document.getElementById("qa-canvas3d");
-        const container = document.getElementById("qa-viewport-container");
-        if (!qaCanvas || !container) return;
-
-        // Limpar caso já exista
-        if (qaRenderer) {
-            qaRenderer.dispose();
-            qaRenderer = null;
-        }
-
-        qaScene = new THREE.Scene();
-        qaCamera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-        qaCamera.position.set(0, 0, 42);
-
-        qaRenderer = new THREE.WebGLRenderer({
-            canvas: qaCanvas,
-            alpha: true,
-            antialias: true,
-            preserveDrawingBuffer: true
-        });
-        qaRenderer.setSize(container.clientWidth, container.clientHeight);
-        qaRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-        // Luzes equilibradas para inspeção precisa de superfícies
-        qaScene.add(new THREE.AmbientLight(0xffffff, 0.55));
-        const dir1 = new THREE.DirectionalLight(0xffffff, 0.85);
-        dir1.position.set(15, 25, 20);
-        qaScene.add(dir1);
-
-        const dir2 = new THREE.DirectionalLight(0x38bdf8, 0.45);
-        dir2.position.set(-15, -20, -15);
-        qaScene.add(dir2);
-
-        // OrbitControls
-        if (window.THREE && window.THREE.OrbitControls) {
-            qaControls = new THREE.OrbitControls(qaCamera, qaRenderer.domElement);
-            qaControls.enableDamping = true;
-            qaControls.dampingFactor = 0.06;
-            qaControls.rotateSpeed = 0.85;
-            qaControls.zoomSpeed = 1.0;
-            qaControls.panSpeed = 0.8;
-            qaControls.enablePan = true;
-            qaControls.autoRotate = false;
-        }
-
-        // Redimensionamento
-        window.addEventListener("resize", onQAResize);
-
-        // Loop de Renderização
-        function animateQA() {
-            requestAnimationFrame(animateQA);
-            if (qaControls) qaControls.update();
-            qaRenderer.render(qaScene, qaCamera);
-        }
-        animateQA();
-
-        // Raycasting interativo (clicar numa face/vértice)
-        setupQARaycaster();
+    // ═══════════════════════════════════════════════════════════════════
+    //  4. ESCALAS DE COR (HEATMAPS CONTÍNUOS)
+    // ═══════════════════════════════════════════════════════════════════
+    function interpolateColor(c1, c2, factor) {
+        return [
+            c1[0] + (c2[0] - c1[0]) * factor,
+            c1[1] + (c2[1] - c1[1]) * factor,
+            c1[2] + (c2[2] - c1[2]) * factor
+        ];
     }
 
-    function onQAResize() {
-        const container = document.getElementById("qa-viewport-container");
-        if (!container || !qaCamera || !qaRenderer) return;
-        if (container.clientWidth === 0 || container.clientHeight === 0) return;
-        qaCamera.aspect = container.clientWidth / container.clientHeight;
-        qaCamera.updateProjectionMatrix();
-        qaRenderer.setSize(container.clientWidth, container.clientHeight);
+    function getHeatmapColor(value, minVal, maxVal) {
+        if (value === null || value === undefined || isNaN(value)) {
+            return [0.25, 0.28, 0.35]; // Cinzento escuro
+        }
+        const range = maxVal - minVal;
+        const t = range > 0 ? Math.max(0, Math.min(1, (value - minVal) / range)) : 0.5;
+
+        // Gradiente: Azul (frio) -> Verde -> Amarelo -> Vermelho (quente)
+        if (t < 0.33) {
+            return interpolateColor([0.23, 0.51, 0.96], [0.06, 0.72, 0.50], t / 0.33);
+        } else if (t < 0.66) {
+            return interpolateColor([0.06, 0.72, 0.50], [0.95, 0.70, 0.03], (t - 0.33) / 0.33);
+        } else {
+            return interpolateColor([0.95, 0.70, 0.03], [0.93, 0.26, 0.26], (t - 0.66) / 0.34);
+        }
     }
 
-    /**
-     * Analisa texto OBJ ou geometry { vertices, faces } e extrai polígonos reais
-     */
+    // ═══════════════════════════════════════════════════════════════════
+    //  5. EXTRAÇÃO DE POLÍGONOS E CONSTRUÇÃO 3D
+    // ═══════════════════════════════════════════════════════════════════
     function extractPolygonsAndVertices(objText, geometryObj) {
         let vertices = [];
         let faces = [];
 
         if (geometryObj && Array.isArray(geometryObj.vertices) && Array.isArray(geometryObj.faces)) {
-            // Formato flat [x0, y0, z0, x1, y1, z1, ...]
             const flat = geometryObj.vertices;
             for (let i = 0; i < flat.length; i += 3) {
                 vertices.push([flat[i], flat[i + 1], flat[i + 2]]);
@@ -344,18 +277,27 @@
         return { vertices, faces };
     }
 
+    function getViewer() {
+        if (!window.RetopoViewer && typeof window.initRetopoViewer === "function") {
+            window.initRetopoViewer();
+        }
+        return window.RetopoViewer || null;
+    }
+
     /**
-     * Constrói a geometria 3D no Three.js preservando os polígonos originais
+     * Constrói a geometria 3D do DSS preservando os polígonos originais
      */
-    function buildQAGeometry(vertices, polygonFaces) {
-        if (!vertices || vertices.length === 0 || !polygonFaces || polygonFaces.length === 0) {
+    function buildDSSGeometry(vertices, polygonFaces) {
+        const viewer = getViewer();
+        if (!viewer || !vertices || vertices.length === 0 || !polygonFaces || polygonFaces.length === 0) {
             return false;
         }
 
+        const scene = viewer.scene;
         qaParsedVertices = vertices;
         qaPolygonFaces = polygonFaces;
 
-        // 1. Calcular centro e normalização de escala
+        // 1. Normalizar escala e centrar
         let minX = Infinity, minY = Infinity, minZ = Infinity;
         let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
@@ -366,16 +308,15 @@
             if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
         }
 
-        qaModelCenter.set((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+        const center = new THREE.Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
         const dimX = maxX - minX, dimY = maxY - minY, dimZ = maxZ - minZ;
         const maxDim = Math.max(dimX, dimY, dimZ);
-        qaModelScale = maxDim > 0 ? (18 / maxDim) : 1;
+        const scale = maxDim > 0 ? (16 / maxDim) : 1;
 
-        // Função de normalização
         const norm = (v) => [
-            (v[0] - qaModelCenter.x) * qaModelScale,
-            (v[1] - qaModelCenter.y) * qaModelScale,
-            (v[2] - qaModelCenter.z) * qaModelScale
+            (v[0] - center.x) * scale,
+            (v[1] - center.y) * scale,
+            (v[2] - center.z) * scale
         ];
 
         // 2. Triangular polígonos apenas para renderização na GPU
@@ -390,7 +331,6 @@
             const fVerts = polygonFaces[f];
             const k = fVerts.length;
 
-            // Triangulação fan: (0, 1, 2), (0, 2, 3), ...
             for (let j = 1; j < k - 1; j++) {
                 const i0 = fVerts[0];
                 const i1 = fVerts[j];
@@ -409,19 +349,19 @@
             }
         }
 
-        // Limpar malhas anteriores da cena
-        if (qaMesh) { qaScene.remove(qaMesh); qaMesh.geometry.dispose(); qaMesh = null; }
-        if (qaEdgesMesh) { qaScene.remove(qaEdgesMesh); qaEdgesMesh.geometry.dispose(); qaEdgesMesh = null; }
-        if (qaPolesPoints) { qaScene.remove(qaPolesPoints); qaPolesPoints.geometry.dispose(); qaPolesPoints = null; }
-        if (qaSelectionLine) { qaScene.remove(qaSelectionLine); qaSelectionLine.geometry.dispose(); qaSelectionLine = null; }
+        // Limpar malhas DSS anteriores da cena
+        if (dssMesh) { scene.remove(dssMesh); dssMesh.geometry.dispose(); dssMesh = null; }
+        if (dssEdgesMesh) { scene.remove(dssEdgesMesh); dssEdgesMesh.geometry.dispose(); dssEdgesMesh = null; }
+        if (dssPolesPoints) { scene.remove(dssPolesPoints); dssPolesPoints.geometry.dispose(); dssPolesPoints = null; }
+        if (dssSelectionLine) { scene.remove(dssSelectionLine); dssSelectionLine.geometry.dispose(); dssSelectionLine = null; }
 
-        // 3. Criar Mesh principal com vertexColors
+        // 3. Criar Mesh principal DSS com vertexColors
         const triGeo = new THREE.BufferGeometry();
         triGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(triPositions), 3));
         triGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(triColors), 3));
         triGeo.computeVertexNormals();
 
-        const baseMat = new THREE.MeshStandardMaterial({
+        const dssMat = new THREE.MeshStandardMaterial({
             vertexColors: true,
             roughness: 0.35,
             metalness: 0.1,
@@ -431,10 +371,10 @@
             side: THREE.DoubleSide
         });
 
-        qaMesh = new THREE.Mesh(triGeo, baseMat);
-        qaScene.add(qaMesh);
+        dssMesh = new THREE.Mesh(triGeo, dssMat);
+        scene.add(dssMesh);
 
-        // 4. Criar Arestas dos Polígonos Originais (SEM diagonais de triangulação!)
+        // 4. Criar Arestas dos Polígonos Originais (SEM diagonais de triangulação artificial)
         const edgePositions = [];
         const edgeSet = new Set();
 
@@ -458,504 +398,409 @@
         edgesGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(edgePositions), 3));
 
         const edgesMat = new THREE.LineBasicMaterial({
-            color: 0x38bdf8, // Ciano vivo
+            color: 0x38bdf8,
             transparent: true,
             opacity: 0.85,
             depthTest: true
         });
 
-        qaEdgesMesh = new THREE.LineSegments(edgesGeo, edgesMat);
-        qaEdgesMesh.visible = QAState.showEdges;
-        qaScene.add(qaEdgesMesh);
+        dssEdgesMesh = new THREE.LineSegments(edgesGeo, edgesMat);
+        dssEdgesMesh.visible = QAState.showEdges;
+        scene.add(dssEdgesMesh);
 
-        // 5. Criar Pontos dos Poles
-        updateQAPolesLayer();
+        // 5. Criar Nuvem de Poles como Pontos 3D
+        buildDSSPolesPoints(norm);
 
-        // 6. Atualizar sombreamento e overlays
-        updateQAVisualLayers();
+        // Ocultar a malha RL normal para que o DSS seja o visualizador ativo
+        if (viewer.mesh) viewer.mesh.visible = false;
+        if (viewer.edgesMesh) viewer.edgesMesh.visible = false;
+        if (viewer.pointsMesh) viewer.pointsMesh.visible = false;
+
+        // 6. Atualizar cores de acordo com o modo ativo
+        updateDSSColors();
+
+        // 7. Configurar Raycaster no canvas principal
+        setupUnifiedRaycaster();
 
         return true;
     }
 
-    /**
-     * Atualiza a camada de pontos dos Poles e vértices não-regulares
-     */
-    function updateQAPolesLayer() {
-        if (!qaScene || !qaParsedVertices || qaParsedVertices.length === 0) return;
+    function buildDSSPolesPoints(normFn) {
+        const viewer = getViewer();
+        if (!viewer || !QAState.resultData) return;
+        const res = QAState.resultData;
+        const poles = res.poles;
+        if (!poles || !Array.isArray(poles.vertices) || poles.vertices.length === 0) return;
 
-        if (qaPolesPoints) {
-            qaScene.remove(qaPolesPoints);
-            qaPolesPoints.geometry.dispose();
-            qaPolesPoints = null;
-        }
-
-        const norm = (v) => [
-            (v[0] - qaModelCenter.x) * qaModelScale,
-            (v[1] - qaModelCenter.y) * qaModelScale,
-            (v[2] - qaModelCenter.z) * qaModelScale
-        ];
-
-        const polesData = QAState.resultData?.poles || QAState.statusData?.summary?.poles;
-        const poleVerts = QAState.resultData?.poles?.vertices || [];
-        const poleValences = QAState.resultData?.poles?.valence || [];
-
-        const ptsPos = [];
-        const ptsColors = [];
-
-        if (poleVerts && poleVerts.length > 0) {
-            for (let i = 0; i < poleVerts.length; i++) {
-                const vIdx = poleVerts[i];
-                if (vIdx >= 0 && vIdx < qaParsedVertices.length) {
-                    const p = norm(qaParsedVertices[vIdx]);
-                    ptsPos.push(...p);
-
-                    const val = poleValences[i] || 3;
-                    if (val === 3) ptsColors.push(0.98, 0.75, 0.14); // Dourado
-                    else if (val === 5) ptsColors.push(0.95, 0.45, 0.15); // Laranja
-                    else if (val === 2) ptsColors.push(0.93, 0.25, 0.25); // Vermelho
-                    else ptsColors.push(0.75, 0.35, 0.95); // Púrpura
-                }
+        const ptsPositions = [];
+        for (let i = 0; i < poles.vertices.length; i++) {
+            const vIdx = poles.vertices[i];
+            if (qaParsedVertices[vIdx]) {
+                const p = normFn(qaParsedVertices[vIdx]);
+                ptsPositions.push(...p);
             }
         }
 
-        if (ptsPos.length > 0) {
+        if (ptsPositions.length > 0) {
             const ptsGeo = new THREE.BufferGeometry();
-            ptsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(ptsPos), 3));
-            ptsGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(ptsColors), 3));
+            ptsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(ptsPositions), 3));
 
             const ptsMat = new THREE.PointsMaterial({
-                size: 7,
+                color: 0xec4899, // Rosa choque
+                size: 6,
                 sizeAttenuation: false,
-                vertexColors: true,
                 transparent: true,
                 opacity: 0.95,
                 depthTest: true
             });
 
-            qaPolesPoints = new THREE.Points(ptsGeo, ptsMat);
-            qaPolesPoints.visible = QAState.showPoles;
-            qaScene.add(qaPolesPoints);
+            dssPolesPoints = new THREE.Points(ptsGeo, ptsMat);
+            dssPolesPoints.visible = QAState.showPoles;
+            viewer.scene.add(dssPolesPoints);
         }
     }
 
-    /**
-     * Aplica cores na malha de acordo com o modo ativo:
-     * - 'checks': overlays categóricos por prioridade de erro
-     * - 'min_angle': heatmap contínuo do ângulo mínimo
-     * - 'max_angle': heatmap contínuo do ângulo máximo
-     * - 'valence': heatmap da valência por vértice
-     */
-    function updateQAVisualLayers() {
-        if (!qaMesh || !qaTriangleToFaceMap) return;
-
-        const colorAttr = qaMesh.geometry.attributes.color;
-        if (!colorAttr) return;
+    // ═══════════════════════════════════════════════════════════════════
+    //  6. COLORIZAÇÃO E MODOS VISUAIS (OVERLAYS & HEATMAPS)
+    // ═══════════════════════════════════════════════════════════════════
+    function updateDSSColors() {
+        if (!dssMesh) return;
+        const colorAttr = dssMesh.geometry.attributes.color;
+        const colors = colorAttr.array;
+        const mode = QAState.activeViewMode;
 
         const res = QAState.resultData;
-        const summary = QAState.statusData?.summary;
-        const totalTris = qaTriangleToFaceMap.length;
+        const numFaces = qaPolygonFaces.length;
 
-        // PRIORIDADE OBRIGATÓRIA: degenerate > nonmanifold > flipped > overlap > resto
-        const priorityOrder = [
-            "degenerate",
-            "nonmanifold",
-            "flipped",
-            "overlap",
-            "t_junction",
-            "open_edges",
-            "collinear_vertices",
-            "bad_quads",
-            "ngons",
-            "dup_faces"
-        ];
+        // Atualizar visibilidade da legenda
+        const legendEl = document.getElementById("qa-heatmap-legend");
+        const legendTitle = document.getElementById("qa-legend-title");
+        const legendMin = document.getElementById("qa-legend-min");
+        const legendMax = document.getElementById("qa-legend-max");
 
-        // 1. Mapear cada face ao seu check dominante ativo
-        const faceColors = [];
-        const hasTJunction = !!(summary?.checks?.t_junction && summary.checks.t_junction.count > 0);
-
-        for (let f = 0; f < qaPolygonFaces.length; f++) {
-            let assignedColor = null;
-
-            if (QAState.activeViewMode === "checks") {
-                // Verificar checks no result.json ou summary
-                const activeChecksForFace = [];
-                const checksObj = res?.checks || summary?.checks || {};
-
-                for (const [key, checkData] of Object.entries(checksObj)) {
-                    if (QAState.enabledChecks[key] === false) continue; // Desativado pelo utilizador
-                    const faceList = checkData.faces || [];
-                    if (faceList.includes(f)) {
-                        activeChecksForFace.push(key);
-                    }
-                }
-
-                if (activeChecksForFace.length > 0) {
-                    // Ordenar por prioridade
-                    activeChecksForFace.sort((a, b) => {
-                        const prioA = priorityOrder.indexOf(a) !== -1 ? priorityOrder.indexOf(a) : 99;
-                        const prioB = priorityOrder.indexOf(b) !== -1 ? priorityOrder.indexOf(b) : 99;
-                        return prioA - prioB;
-                    });
-                    const dominant = activeChecksForFace[0];
-                    const exp = getExplanation(dominant);
-                    assignedColor = new THREE.Color(exp.color);
-                } else {
-                    // Sem erro: cinzento ardósia neutro e elegante
-                    assignedColor = new THREE.Color(0x334155);
-                }
-            } else if (QAState.activeViewMode === "min_angle") {
-                const angle = res?.per_face?.min_angle ? res.per_face.min_angle[f] : null;
-                if (angle === null || angle === undefined) {
-                    assignedColor = new THREE.Color(0x475569);
-                } else {
-                    // 20° a 90°
-                    const t = Math.max(0, Math.min(1, (angle - 20) / 70));
-                    assignedColor = angleToColor(t);
-                }
-            } else if (QAState.activeViewMode === "max_angle") {
-                const angle = res?.per_face?.max_angle ? res.per_face.max_angle[f] : null;
-                if (angle === null || angle === undefined) {
-                    assignedColor = new THREE.Color(0x475569);
-                } else {
-                    // 90° a 180°
-                    const t = Math.max(0, Math.min(1, (angle - 90) / 90));
-                    assignedColor = angleToColorMax(t);
-                }
-            } else if (QAState.activeViewMode === "valence") {
-                // Médio da valência dos vértices da face
-                const fVerts = qaPolygonFaces[f];
-                let sumVal = 0;
-                for (let v of fVerts) {
-                    sumVal += (res?.per_vertex?.valence ? res.per_vertex.valence[v] : 4);
-                }
-                const avg = sumVal / (fVerts.length || 1);
-                assignedColor = valenceToColor(avg);
-            }
-
-            faceColors[f] = assignedColor || new THREE.Color(0x475569);
+        if (mode === "min_angle" || mode === "max_angle" || mode === "valence") {
+            if (legendEl) legendEl.style.display = "block";
+        } else {
+            if (legendEl) legendEl.style.display = "none";
         }
 
-        // Atribuir cores aos vértices dos triângulos correspondentes
-        for (let t = 0; t < totalTris; t++) {
-            const f = qaTriangleToFaceMap[t];
-            const c = faceColors[f];
-            const idx = t * 9;
-            colorAttr.array[idx]     = c.r; colorAttr.array[idx + 1] = c.g; colorAttr.array[idx + 2] = c.b;
-            colorAttr.array[idx + 3] = c.r; colorAttr.array[idx + 4] = c.g; colorAttr.array[idx + 5] = c.b;
-            colorAttr.array[idx + 6] = c.r; colorAttr.array[idx + 7] = c.g; colorAttr.array[idx + 8] = c.b;
+        // MODO 1: OVERLAYS DE ERRO CATEGÓRICOS
+        if (mode === "errors") {
+            const faceErrorMap = new Array(numFaces).fill(null);
+            const priorityOrder = ["degenerate", "nonmanifold", "flipped", "overlap", "t_junction", "open_edges", "bad_quads", "dup_faces", "ngons"];
+
+            if (res && res.checks) {
+                for (const checkKey of priorityOrder) {
+                    if (QAState.enabledChecks[checkKey] === false) continue;
+                    const checkData = res.checks[checkKey];
+                    if (checkData && Array.isArray(checkData.faces)) {
+                        const checkColorHex = QA_EXPLANATIONS[checkKey]?.color || "#eab308";
+                        const c = new THREE.Color(checkColorHex);
+                        const rgb = [c.r, c.g, c.b];
+                        for (const fIdx of checkData.faces) {
+                            if (fIdx < numFaces && faceErrorMap[fIdx] === null) {
+                                faceErrorMap[fIdx] = rgb;
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (let f = 0; f < numFaces; f++) {
+                const col = faceErrorMap[f] || [0.22, 0.27, 0.35]; // Azul-ardósia escuro por omissão
+                const triIndices = qaFaceToTrianglesMap[f] || [];
+                for (const triIdx of triIndices) {
+                    const offset = triIdx * 9;
+                    for (let v = 0; v < 3; v++) {
+                        colors[offset + v * 3] = col[0];
+                        colors[offset + v * 3 + 1] = col[1];
+                        colors[offset + v * 3 + 2] = col[2];
+                    }
+                }
+            }
+        }
+
+        // MODO 2: HEATMAP DE ÂNGULO MÍNIMO
+        else if (mode === "min_angle") {
+            const angles = res?.per_face?.min_angle || [];
+            let minVal = Infinity, maxVal = -Infinity;
+            for (let a of angles) {
+                if (a !== null && !isNaN(a)) {
+                    if (a < minVal) minVal = a;
+                    if (a > maxVal) maxVal = a;
+                }
+            }
+            if (minVal === Infinity) { minVal = 0; maxVal = 90; }
+
+            if (legendTitle) legendTitle.textContent = "Ângulo Mínimo por Face";
+            if (legendMin) legendMin.textContent = `${minVal.toFixed(1)}°`;
+            if (legendMax) legendMax.textContent = `${maxVal.toFixed(1)}°`;
+
+            for (let f = 0; f < numFaces; f++) {
+                const val = angles[f];
+                const col = getHeatmapColor(val, minVal, maxVal);
+                const triIndices = qaFaceToTrianglesMap[f] || [];
+                for (const triIdx of triIndices) {
+                    const offset = triIdx * 9;
+                    for (let v = 0; v < 3; v++) {
+                        colors[offset + v * 3] = col[0];
+                        colors[offset + v * 3 + 1] = col[1];
+                        colors[offset + v * 3 + 2] = col[2];
+                    }
+                }
+            }
+        }
+
+        // MODO 3: HEATMAP DE ÂNGULO MÁXIMO
+        else if (mode === "max_angle") {
+            const angles = res?.per_face?.max_angle || [];
+            let minVal = Infinity, maxVal = -Infinity;
+            for (let a of angles) {
+                if (a !== null && !isNaN(a)) {
+                    if (a < minVal) minVal = a;
+                    if (a > maxVal) maxVal = a;
+                }
+            }
+            if (minVal === Infinity) { minVal = 90; maxVal = 180; }
+
+            if (legendTitle) legendTitle.textContent = "Ângulo Máximo por Face";
+            if (legendMin) legendMin.textContent = `${minVal.toFixed(1)}°`;
+            if (legendMax) legendMax.textContent = `${maxVal.toFixed(1)}°`;
+
+            for (let f = 0; f < numFaces; f++) {
+                const val = angles[f];
+                const col = getHeatmapColor(val, minVal, maxVal);
+                const triIndices = qaFaceToTrianglesMap[f] || [];
+                for (const triIdx of triIndices) {
+                    const offset = triIdx * 9;
+                    for (let v = 0; v < 3; v++) {
+                        colors[offset + v * 3] = col[0];
+                        colors[offset + v * 3 + 1] = col[1];
+                        colors[offset + v * 3 + 2] = col[2];
+                    }
+                }
+            }
+        }
+
+        // MODO 4: HEATMAP DE VALÊNCIA POR VÉRTICE
+        else if (mode === "valence") {
+            const valences = res?.per_vertex?.valence || [];
+            let minVal = Infinity, maxVal = -Infinity;
+            for (let v of valences) {
+                if (v !== null && !isNaN(v)) {
+                    if (v < minVal) minVal = v;
+                    if (v > maxVal) maxVal = v;
+                }
+            }
+            if (minVal === Infinity) { minVal = 2; maxVal = 8; }
+
+            if (legendTitle) legendTitle.textContent = "Valência por Vértice";
+            if (legendMin) legendMin.textContent = `Val ${minVal}`;
+            if (legendMax) legendMax.textContent = `Val ${maxVal}`;
+
+            for (let f = 0; f < numFaces; f++) {
+                const fVerts = qaPolygonFaces[f];
+                const triIndices = qaFaceToTrianglesMap[f] || [];
+
+                for (let j = 1; j < fVerts.length - 1; j++) {
+                    const triIdx = triIndices[j - 1];
+                    if (triIdx === undefined) continue;
+
+                    const i0 = fVerts[0];
+                    const i1 = fVerts[j];
+                    const i2 = fVerts[j + 1];
+
+                    const c0 = getHeatmapColor(valences[i0], minVal, maxVal);
+                    const c1 = getHeatmapColor(valences[i1], minVal, maxVal);
+                    const c2 = getHeatmapColor(valences[i2], minVal, maxVal);
+
+                    const offset = triIdx * 9;
+                    colors[offset + 0] = c0[0]; colors[offset + 1] = c0[1]; colors[offset + 2] = c0[2];
+                    colors[offset + 3] = c1[0]; colors[offset + 4] = c1[1]; colors[offset + 5] = c1[2];
+                    colors[offset + 6] = c2[0]; colors[offset + 7] = c2[1]; colors[offset + 8] = c2[2];
+                }
+            }
         }
 
         colorAttr.needsUpdate = true;
-        qaMesh.material.needsUpdate = true;
-
-        // Atualizar legenda de heatmap
-        updateQAHeatmapLegend();
-    }
-
-    function angleToColor(t) {
-        // Azul (agudo) -> Ciano -> Verde -> Amarelo -> Vermelho
-        const c = new THREE.Color();
-        if (t < 0.25) {
-            c.setRGB(0.1 + t * 0.4, 0.4 + t * 1.5, 0.95);
-        } else if (t < 0.5) {
-            c.setRGB(0.2, 0.8 + (t - 0.25) * 0.8, 0.8 - (t - 0.25) * 2.5);
-        } else if (t < 0.75) {
-            c.setRGB(0.3 + (t - 0.5) * 2.5, 0.9, 0.1);
-        } else {
-            c.setRGB(0.95, 0.9 - (t - 0.75) * 3.0, 0.1);
-        }
-        return c;
-    }
-
-    function angleToColorMax(t) {
-        // Verde (90°) -> Amarelo -> Laranja -> Vermelho (~180°)
-        const c = new THREE.Color();
-        if (t < 0.3) {
-            c.setRGB(0.2 + t * 1.5, 0.85, 0.2);
-        } else if (t < 0.7) {
-            c.setRGB(0.9, 0.85 - (t - 0.3) * 1.2, 0.15);
-        } else {
-            c.setRGB(0.95, 0.35 - (t - 0.7) * 1.1, 0.2 + (t - 0.7) * 2.0); // Alerta Vermelho/Magenta em 180°
-        }
-        return c;
-    }
-
-    function valenceToColor(val) {
-        const c = new THREE.Color();
-        if (val < 2.5) return c.setHex(0xef4444); // 2: Vermelho
-        if (val < 3.5) return c.setHex(0xfbbf24); // 3: Âmbar
-        if (val < 4.5) return c.setHex(0x10b981); // 4: Verde regular
-        if (val < 5.5) return c.setHex(0x38bdf8); // 5: Ciano
-        if (val < 6.5) return c.setHex(0x10b981); // 6: Verde regular (triângulos)
-        return c.setHex(0xa855f7);                // 7+: Púrpura
-    }
-
-    /**
-     * Atualiza a barra de legenda flutuante no fundo do 3D
-     */
-    function updateQAHeatmapLegend() {
-        const legendBox = document.getElementById("qa-heatmap-legend");
-        if (!legendBox) return;
-
-        if (QAState.activeViewMode === "checks") {
-            legendBox.style.display = "none";
-            return;
-        }
-
-        legendBox.style.display = "flex";
-        const titleEl = document.getElementById("qa-legend-title");
-        const minEl = document.getElementById("qa-legend-min");
-        const maxEl = document.getElementById("qa-legend-max");
-        const gradEl = document.getElementById("qa-legend-gradient");
-
-        if (QAState.activeViewMode === "min_angle") {
-            if (titleEl) titleEl.textContent = "🌡️ Ângulo Mínimo da Face (°)";
-            if (minEl) minEl.textContent = "20.0°";
-            if (maxEl) maxEl.textContent = "90.0°";
-            if (gradEl) gradEl.style.background = "linear-gradient(to right, #38bdf8, #10b981, #f59e0b, #ef4444)";
-        } else if (QAState.activeViewMode === "max_angle") {
-            if (titleEl) titleEl.textContent = "🌡️ Ângulo Máximo da Face (°)";
-            if (minEl) minEl.textContent = "90.0°";
-            if (maxEl) maxEl.textContent = "180.0° (Colinear)";
-            if (gradEl) gradEl.style.background = "linear-gradient(to right, #10b981, #fbbf24, #f97316, #ef4444)";
-        } else if (QAState.activeViewMode === "valence") {
-            if (titleEl) titleEl.textContent = "📊 Valência Média";
-            if (minEl) minEl.textContent = "2 (Borda)";
-            if (maxEl) maxEl.textContent = "7+ (Alto)";
-            if (gradEl) gradEl.style.background = "linear-gradient(to right, #ef4444, #fbbf24, #10b981, #38bdf8, #a855f7)";
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  4. RAYCASTING INTERATIVO: MAPEAR TRIÂNGULO -> FACE ORIGINAL
+    //  7. RAYCASTING UNIFICADO (INSPEÇÃO DE FACE AO CLICAR)
     // ═══════════════════════════════════════════════════════════════════
-    function setupQARaycaster() {
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
+    let isRaycasterBound = false;
 
-        qaCanvas.addEventListener("click", (e) => {
-            if (!qaMesh || !qaCamera || !qaTriangleToFaceMap) return;
+    function setupUnifiedRaycaster() {
+        const canvas = document.getElementById("canvas3d");
+        if (!canvas || isRaycasterBound) return;
+        isRaycasterBound = true;
 
-            const rect = qaCanvas.getBoundingClientRect();
-            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        qaRaycaster = new THREE.Raycaster();
+        let isDragging = false;
+        let pointerDownPos = { x: 0, y: 0 };
 
-            raycaster.setFromCamera(mouse, qaCamera);
-            const intersects = raycaster.intersectObject(qaMesh);
+        canvas.addEventListener("pointerdown", (e) => {
+            isDragging = false;
+            pointerDownPos = { x: e.clientX, y: e.clientY };
+        });
 
-            if (intersects && intersects.length > 0) {
+        canvas.addEventListener("pointermove", (e) => {
+            const dx = Math.abs(e.clientX - pointerDownPos.x);
+            const dy = Math.abs(e.clientY - pointerDownPos.y);
+            if (dx > 4 || dy > 4) isDragging = true;
+        });
+
+        canvas.addEventListener("pointerup", (e) => {
+            if (isDragging) return;
+            const viewer = getViewer();
+            if (!viewer || !dssMesh || !dssMesh.visible) return;
+
+            const rect = canvas.getBoundingClientRect();
+            qaMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            qaMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+            qaRaycaster.setFromCamera(qaMouse, viewer.camera);
+            const intersects = qaRaycaster.intersectObject(dssMesh, false);
+
+            if (intersects.length > 0) {
                 const hit = intersects[0];
                 const triIdx = hit.faceIndex;
-                const origFaceIdx = qaTriangleToFaceMap[triIdx];
-                if (origFaceIdx !== undefined) {
-                    selectFaceInQA(origFaceIdx);
+                const polygonFaceIdx = qaTriangleToFaceMap[triIdx];
+                if (polygonFaceIdx !== undefined) {
+                    selectFaceInQA(polygonFaceIdx);
                 }
-            } else {
-                // Clicar no espaço vazio fecha detalhes se não estiver focado
-                // closeQADetailPanel();
             }
         });
     }
 
-    /**
-     * Destaca a face selecionada com contorno iluminado e abre os detalhes
-     */
     function selectFaceInQA(faceIdx) {
-        QAState.selectedFaceIdx = faceIdx;
-        if (!qaPolygonFaces[faceIdx]) return;
+        const viewer = getViewer();
+        if (!viewer || faceIdx === null || faceIdx >= qaPolygonFaces.length) return;
 
-        // 1. Desenhar linha de seleção sobre o contorno da face
-        if (qaSelectionLine) {
-            qaScene.remove(qaSelectionLine);
-            qaSelectionLine.geometry.dispose();
-            qaSelectionLine = null;
+        QAState.selectedFaceIdx = faceIdx;
+        const fVerts = qaPolygonFaces[faceIdx];
+        const res = QAState.resultData;
+
+        // Desenhar contorno de destaque amarelo vivo sobre a face
+        if (dssSelectionLine) {
+            viewer.scene.remove(dssSelectionLine);
+            dssSelectionLine.geometry.dispose();
+            dssSelectionLine = null;
         }
 
-        const fVerts = qaPolygonFaces[faceIdx];
-        const linePts = [];
-        const norm = (v) => [
-            (v[0] - qaModelCenter.x) * qaModelScale,
-            (v[1] - qaModelCenter.y) * qaModelScale,
-            (v[2] - qaModelCenter.z) * qaModelScale
-        ];
+        const triIndices = qaFaceToTrianglesMap[faceIdx] || [];
+        const posAttr = dssMesh.geometry.attributes.position;
+        const linePositions = [];
 
-        for (let i = 0; i < fVerts.length; i++) {
-            const a = fVerts[i];
-            const b = fVerts[(i + 1) % fVerts.length];
-            linePts.push(...norm(qaParsedVertices[a]), ...norm(qaParsedVertices[b]));
+        // Contorno do perímetro poligonal
+        for (let j = 0; j < fVerts.length; j++) {
+            const a = fVerts[j];
+            const b = fVerts[(j + 1) % fVerts.length];
+            const pA = posAttr.array; // usar vértices normalizados da geometria
+        }
+
+        // Construir linha sobre os triângulos da face
+        for (const tIdx of triIndices) {
+            const off = tIdx * 9;
+            const x0 = posAttr.array[off], y0 = posAttr.array[off+1], z0 = posAttr.array[off+2];
+            const x1 = posAttr.array[off+3], y1 = posAttr.array[off+4], z1 = posAttr.array[off+5];
+            const x2 = posAttr.array[off+6], y2 = posAttr.array[off+7], z2 = posAttr.array[off+8];
+            linePositions.push(x0, y0, z0, x1, y1, z1);
+            linePositions.push(x1, y1, z1, x2, y2, z2);
+            linePositions.push(x2, y2, z2, x0, y0, z0);
         }
 
         const lineGeo = new THREE.BufferGeometry();
-        lineGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(linePts), 3));
-        const lineMat = new THREE.LineBasicMaterial({
-            color: 0xffffff,
-            linewidth: 3,
-            depthTest: false
-        });
+        lineGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(linePositions), 3));
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xfacc15, linewidth: 2, depthTest: false });
+        dssSelectionLine = new THREE.LineSegments(lineGeo, lineMat);
+        dssSelectionLine.renderOrder = 999;
+        viewer.scene.add(dssSelectionLine);
 
-        qaSelectionLine = new THREE.LineSegments(lineGeo, lineMat);
-        qaScene.add(qaSelectionLine);
-
-        // 2. Preencher e apresentar o painel de detalhes da face
-        showQAFaceDetails(faceIdx);
-    }
-
-    /**
-     * Preenche os dados completos da face no painel de inspeção
-     */
-    function showQAFaceDetails(faceIdx) {
-        const detailPanel = document.getElementById("qa-detail-panel");
-        if (!detailPanel) return;
-
-        detailPanel.style.display = "block";
-        const fVerts = qaPolygonFaces[faceIdx] || [];
-        const res = QAState.resultData;
-        const summary = QAState.statusData?.summary;
-
-        // Título e Índice
+        // Preencher Painel Flutuante
+        const panel = document.getElementById("qa-detail-panel");
         const titleEl = document.getElementById("qa-detail-title");
         const typeEl = document.getElementById("qa-detail-type");
-        const idxEl = document.getElementById("qa-detail-idx");
-
-        let faceType = "Polígono";
-        if (fVerts.length === 3) faceType = "Triângulo (3 vértices)";
-        else if (fVerts.length === 4) faceType = "Quad (4 vértices)";
-        else faceType = `N-gon (${fVerts.length} vértices)`;
+        const minAEl = document.getElementById("qa-detail-min-angle");
+        const maxAEl = document.getElementById("qa-detail-max-angle");
+        const errorsBox = document.getElementById("qa-detail-errors");
+        const vertsBox = document.getElementById("qa-detail-verts");
 
         if (titleEl) titleEl.textContent = `Face #${faceIdx}`;
-        if (typeEl) typeEl.textContent = faceType;
-        if (idxEl) idxEl.textContent = `#${faceIdx}`;
-
-        // Métricas de Ângulos
-        const minAngle = res?.per_face?.min_angle ? res.per_face.min_angle[faceIdx] : null;
-        const maxAngle = res?.per_face?.max_angle ? res.per_face.max_angle[faceIdx] : null;
-
-        const minAngleEl = document.getElementById("qa-detail-min-angle");
-        const maxAngleEl = document.getElementById("qa-detail-max-angle");
-
-        if (minAngleEl) minAngleEl.textContent = minAngle !== null ? `${minAngle.toFixed(1)}°` : "--";
-        if (maxAngleEl) {
-            maxAngleEl.textContent = maxAngle !== null ? `${maxAngle.toFixed(1)}°` : "--";
-            if (maxAngle && maxAngle >= 175) {
-                maxAngleEl.innerHTML += ` <span class="qa-badge warning" title="Vértices colineares detectados">~180° Colinear</span>`;
-            }
+        if (typeEl) {
+            const k = fVerts.length;
+            typeEl.textContent = k === 3 ? "Triângulo (3 vértices)" : (k === 4 ? "Quad (4 vértices)" : `N-gon (${k} vértices)`);
         }
 
-        // Erros que afetam esta face
-        const errorsListEl = document.getElementById("qa-detail-errors");
-        if (errorsListEl) {
-            errorsListEl.innerHTML = "";
-            const matchedErrors = [];
-            const checksObj = res?.checks || summary?.checks || {};
+        const minAngle = res?.per_face?.min_angle?.[faceIdx];
+        const maxAngle = res?.per_face?.max_angle?.[faceIdx];
+        if (minAEl) minAEl.textContent = (minAngle !== null && minAngle !== undefined) ? `${minAngle.toFixed(1)}°` : "--";
+        if (maxAEl) maxAEl.textContent = (maxAngle !== null && maxAngle !== undefined) ? `${maxAngle.toFixed(1)}°` : "--";
 
-            for (const [key, checkData] of Object.entries(checksObj)) {
-                const faceList = checkData.faces || [];
-                if (faceList.includes(faceIdx)) {
-                    matchedErrors.push(key);
+        // Erros detetados nesta face
+        if (errorsBox) {
+            errorsBox.innerHTML = "";
+            const issues = [];
+            if (res && res.checks) {
+                for (const [key, check] of Object.entries(res.checks)) {
+                    if (Array.isArray(check.faces) && check.faces.includes(faceIdx)) {
+                        issues.push(key);
+                    }
                 }
             }
-
-            if (matchedErrors.length === 0) {
-                errorsListEl.innerHTML = `<span class="qa-tag ok">✅ Sem erros detetados nesta face</span>`;
-            } else {
-                matchedErrors.forEach(errKey => {
-                    const exp = getExplanation(errKey, { max_angle: maxAngle });
-                    const tag = document.createElement("div");
-                    tag.className = `qa-error-pill ${exp.severity}`;
-                    tag.innerHTML = `
-                        <div class="qa-pill-header">
-                            <span class="qa-dot" style="background:${exp.color};"></span>
-                            <strong>${exp.title}</strong>
-                        </div>
-                        <p class="qa-pill-desc">${exp.why}</p>
-                    `;
-                    errorsListEl.appendChild(tag);
+            if (issues.length > 0) {
+                issues.forEach(iss => {
+                    const tag = document.createElement("span");
+                    tag.className = "qa-badge critical";
+                    tag.textContent = iss;
+                    errorsBox.appendChild(tag);
                 });
+            } else {
+                errorsBox.innerHTML = `<span class="qa-badge ok">Sem problemas detetados</span>`;
             }
         }
 
-        // Vértices e respetivas valências
-        const vertsListEl = document.getElementById("qa-detail-verts");
-        if (vertsListEl) {
-            vertsListEl.innerHTML = "";
+        // Valência dos vértices
+        if (vertsBox) {
+            vertsBox.innerHTML = "";
+            const valences = res?.per_vertex?.valence || [];
             fVerts.forEach(vIdx => {
-                const val = res?.per_vertex?.valence ? res.per_vertex.valence[vIdx] : "--";
-                const isPole = res?.poles?.vertices ? res.poles.vertices.includes(vIdx) : false;
+                const val = valences[vIdx] ?? "--";
                 const chip = document.createElement("span");
-                chip.className = `qa-vert-chip ${isPole ? 'pole' : ''}`;
-                chip.textContent = `V${vIdx} (Val: ${val})`;
-                vertsListEl.appendChild(chip);
+                chip.className = "qa-vert-chip";
+                chip.textContent = `V#${vIdx}: Val ${val}`;
+                vertsBox.appendChild(chip);
             });
         }
+
+        if (panel) panel.style.display = "block";
     }
 
     function closeQADetailPanel() {
-        const detailPanel = document.getElementById("qa-detail-panel");
-        if (detailPanel) detailPanel.style.display = "none";
-        if (qaSelectionLine) {
-            qaScene.remove(qaSelectionLine);
-            qaSelectionLine.geometry.dispose();
-            qaSelectionLine = null;
-        }
-    }
-
-    /**
-     * Foca e faz zoom suave sobre as faces afetadas por um check específico
-     */
-    function focusQAFaces(faceIndices) {
-        if (!faceIndices || faceIndices.length === 0 || !qaCamera || !qaControls) return;
-
-        let minX = Infinity, minY = Infinity, minZ = Infinity;
-        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-
-        const norm = (v) => [
-            (v[0] - qaModelCenter.x) * qaModelScale,
-            (v[1] - qaModelCenter.y) * qaModelScale,
-            (v[2] - qaModelCenter.z) * qaModelScale
-        ];
-
-        faceIndices.forEach(fIdx => {
-            const fVerts = qaPolygonFaces[fIdx] || [];
-            fVerts.forEach(vIdx => {
-                const p = norm(qaParsedVertices[vIdx]);
-                if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
-                if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
-                if (p[2] < minZ) minZ = p[2]; if (p[2] > maxZ) maxZ = p[2];
-            });
-        });
-
-        if (isFinite(minX) && isFinite(maxX)) {
-            const centerX = (minX + maxX) / 2;
-            const centerY = (minY + maxY) / 2;
-            const centerZ = (minZ + maxZ) / 2;
-            qaControls.target.set(centerX, centerY, centerZ);
-            qaControls.update();
-
-            // Seleciona a primeira face para inspecionar
-            selectFaceInQA(faceIndices[0]);
+        const panel = document.getElementById("qa-detail-panel");
+        if (panel) panel.style.display = "none";
+        const viewer = getViewer();
+        if (viewer && dssSelectionLine) {
+            viewer.scene.remove(dssSelectionLine);
+            dssSelectionLine.geometry.dispose();
+            dssSelectionLine = null;
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  5. RENDERIZAÇÃO DA UI & PAINÉIS LATERAIS DO MESH QA
+    //  8. RENDERIZAÇÃO DA BARRA LATERAL (MÉTRICAS & CHECKS)
     // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Veredito curto derivado dos dados reais: nunca inventar uma pontuação
-     */
     function deriveQAVerdict(summary) {
         if (!summary) return "Estado desconhecido";
         const checks = summary.checks || {};
         let critCount = 0;
         let warnCount = 0;
-        let totalIssues = 0;
 
         const criticalTypes = ["degenerate", "nonmanifold", "flipped", "t_junction"];
 
         for (const [key, check] of Object.entries(checks)) {
             const c = check.count || 0;
             if (c > 0) {
-                totalIssues += c;
                 if (criticalTypes.includes(key)) critCount += c;
                 else if (key !== "poles" && key !== "collinear_vertices") warnCount += c;
             }
@@ -965,29 +810,29 @@
         const parts = [];
         if (critCount > 0) parts.push(`⚠️ ${critCount} erro(s) crítico(s)`);
         if (warnCount > 0) parts.push(`${warnCount} aviso(s) topológico(s)`);
-        if (watertight === false) parts.push("Não estanque (open edges)");
+        if (watertight === false) parts.push("Não estanque");
 
         if (parts.length === 0) return "✅ Sem erros críticos • Malha aprovada";
         return parts.join(" • ");
     }
 
-    /**
-     * Renderiza todo o painel de UI com os dados do status e result
-     */
-    function renderQAUI() {
+    function renderDSSUI() {
         const stat = QAState.statusData;
         const summary = stat?.summary;
         const res = QAState.resultData;
 
         if (!summary) return;
 
-        // A) Cabeçalho
-        const titleEl = document.getElementById("qa-header-title");
+        // Cabeçalho do DSS
+        const titleEl = document.getElementById("qa-target-title");
         const statusEl = document.getElementById("qa-header-status");
         const durationEl = document.getElementById("qa-header-duration");
         const verdictEl = document.getElementById("qa-header-verdict");
+        const topChip = document.getElementById("top-active-mesh-chip");
 
-        if (titleEl) titleEl.textContent = QAState.activeMeshName || stat.mesh_id || "Malha Analisada";
+        if (titleEl) titleEl.textContent = QAState.activeMeshName || "Malha Analisada";
+        if (topChip) topChip.textContent = QAState.activeMeshName || "Malha Analisada";
+        
         if (statusEl) {
             statusEl.className = `status-badge ${stat.status === 'done' ? 'online' : (stat.status === 'failed' ? 'error' : 'working')}`;
             statusEl.textContent = stat.status === 'done' ? 'Concluído' : (stat.status === 'failed' ? 'Falhou' : 'A Processar');
@@ -1004,57 +849,42 @@
             verdictEl.textContent = deriveQAVerdict(summary);
         }
 
-        // B) Cartões de Métricas e Topologia
-        renderQATopology(summary.topology, summary.angles_deg, summary.valence_histogram);
+        // Atualizar Crachá de Erros na Aba
+        const badge = document.getElementById("side-dss-badge");
+        if (badge) {
+            const issues = summary.issue_faces || 0;
+            badge.style.display = "inline-flex";
+            badge.textContent = issues > 0 ? issues : "OK";
+            badge.style.background = issues > 0 ? "rgba(239,68,68,0.25)" : "rgba(16,185,129,0.25)";
+            badge.style.color = issues > 0 ? "#f87171" : "#34d399";
+            badge.style.borderColor = issues > 0 ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.4)";
+        }
 
-        // C) Lista Dinâmica de Verificações (Checks)
-        renderQAChecksList(summary.checks, res?.checks);
+        // Métricas e Topologia
+        renderTopologyInfo(summary.topology, summary.angles_deg, summary.valence_histogram);
 
-        // D) Painel de Limitações e Avisos
-        renderQALimitations(summary.limitations, summary.warnings);
+        // Checklist Dinâmica
+        renderChecksList(summary.checks, res?.checks);
+
+        // Limitações e Avisos
+        renderLimitations(summary.limitations, summary.warnings);
     }
 
-    /**
-     * Renderiza o estado de falha na análise (com o campo error)
-     */
-    function renderQAFailed(statusData) {
-        const titleEl = document.getElementById("qa-header-title");
-        const statusEl = document.getElementById("qa-header-status");
-        const durationEl = document.getElementById("qa-header-duration");
-        const verdictEl = document.getElementById("qa-header-verdict");
-
-        if (titleEl) titleEl.textContent = QAState.activeMeshName || statusData?.mesh_id || "Malha Analisada";
-        if (statusEl) {
-            statusEl.className = "status-badge offline";
-            statusEl.textContent = "Falhou";
-        }
-        if (durationEl && statusData?.created_at && statusData?.finished_at) {
-            const start = new Date(statusData.created_at).getTime();
-            const end = new Date(statusData.finished_at).getTime();
-            const diffMs = Math.max(0, end - start);
-            durationEl.textContent = diffMs > 1000 ? `${(diffMs / 1000).toFixed(2)}s` : `${diffMs}ms`;
-        }
-        if (verdictEl) {
-            verdictEl.innerHTML = `<span style="color:#ef4444; font-weight:600;">❌ Análise falhou:</span> <span style="color:#fca5a5;">${escapeHTML(statusData?.error || "Erro interno do pipeline")}</span>`;
-        }
-    }
-
-    function renderQATopology(topo, angles, valenceHist) {
+    function renderTopologyInfo(topo, angles, valenceHist) {
         if (!topo) return;
 
-        // Watertight & Manifold
         const wtEl = document.getElementById("qa-topo-watertight");
         if (wtEl) {
             wtEl.innerHTML = topo.is_watertight
-                ? `<span class="qa-badge ok">Sim (Hermética)</span>`
-                : `<span class="qa-badge critical">Não (Com Aberturas)</span>`;
+                ? `<span class="qa-badge ok">Sim</span>`
+                : `<span class="qa-badge critical">Não</span>`;
         }
 
         const mfEl = document.getElementById("qa-topo-manifold");
         if (mfEl) {
             mfEl.innerHTML = topo.is_manifold
-                ? `<span class="qa-badge ok">Sim (2-Manifold)</span>`
-                : `<span class="qa-badge critical">Não (Não-Manifold)</span>`;
+                ? `<span class="qa-badge ok">Sim</span>`
+                : `<span class="qa-badge critical">Não</span>`;
         }
 
         const eulerEl = document.getElementById("qa-topo-euler");
@@ -1069,11 +899,11 @@
         const nonManEl = document.getElementById("qa-topo-nonman-edges");
         if (nonManEl) nonManEl.textContent = (topo.nonmanifold_edges || 0).toLocaleString();
 
-        // Contagens de Faces
+        // Distribuição de Faces
         const totalFaces = topo.faces || 1;
         const tris = topo.tris || 0;
         const quads = topo.quads || 0;
-        const ngons = topo.ngons || topo.raw_ngons || 0;
+        const ngons = topo.raw_ngons !== undefined ? topo.raw_ngons : (topo.ngons || 0);
 
         const trisPct = ((tris / totalFaces) * 100).toFixed(1);
         const quadsPct = ((quads / totalFaces) * 100).toFixed(1);
@@ -1088,9 +918,9 @@
         const barQuads = document.getElementById("qa-bar-quads");
         const barNgons = document.getElementById("qa-bar-ngons");
 
-        if (barTris) { barTris.style.width = `${trisPct}%`; barTris.title = `Tris: ${tris} (${trisPct}%)`; }
-        if (barQuads) { barQuads.style.width = `${quadsPct}%`; barQuads.title = `Quads: ${quads} (${quadsPct}%)`; }
-        if (barNgons) { barNgons.style.width = `${ngonsPct}%`; barNgons.title = `N-gons: ${ngons} (${ngonsPct}%)`; }
+        if (barTris) barTris.style.width = `${trisPct}%`;
+        if (barQuads) barQuads.style.width = `${quadsPct}%`;
+        if (barNgons) barNgons.style.width = `${ngonsPct}%`;
 
         const cntTris = document.getElementById("qa-count-tris");
         const cntQuads = document.getElementById("qa-count-quads");
@@ -1135,121 +965,97 @@
         }
     }
 
-    /**
-     * Renderiza a lista dinâmica de checks (itera sobre as chaves sem hardcoding)
-     */
-    function renderQAChecksList(summaryChecks, resultChecks) {
+    function renderChecksList(summaryChecks, resultChecks) {
         const container = document.getElementById("qa-checks-list");
         if (!container || !summaryChecks) return;
-
         container.innerHTML = "";
-        const skippedList = QAState.params.skip || [];
-        const hasTJunction = !!(summaryChecks.t_junction && summaryChecks.t_junction.count > 0);
 
-        for (const [key, checkData] of Object.entries(summaryChecks)) {
-            // Inicializar toggle se não existir
-            if (QAState.enabledChecks[key] === undefined) {
-                QAState.enabledChecks[key] = true;
-            }
+        const hasCollinear = summaryChecks.collinear_vertices && summaryChecks.collinear_vertices.count > 0;
+        const hasTJunction = summaryChecks.t_junction && summaryChecks.t_junction.count > 0;
 
+        for (const [checkKey, checkData] of Object.entries(summaryChecks)) {
+            const info = getCheckInfo(checkKey);
             const count = checkData.count || 0;
-            const ratio = checkData.ratio || 0;
-            const ratioPct = (ratio * 100).toFixed(1) + "%";
-            const isSkipped = skippedList.includes(key);
+            const ratio = checkData.ratio !== undefined ? (checkData.ratio * 100).toFixed(1) : null;
+            const basis = checkData.ratio_basis || "faces";
 
-            const exp = getExplanation(key, null, hasTJunction);
-            const facesAffected = (resultChecks && resultChecks[key]?.faces) || checkData.faces || [];
+            let severity = count === 0 ? "ok" : info.severity;
 
-            const card = document.createElement("div");
-            card.className = `qa-check-item ${count > 0 ? exp.severity : 'ok'} ${isSkipped ? 'skipped' : ''}`;
+            const item = document.createElement("div");
+            item.className = `qa-check-item severity-${severity}`;
+            item.dataset.check = checkKey;
 
-            card.innerHTML = `
+            const isChecked = QAState.enabledChecks[checkKey] !== false;
+
+            item.innerHTML = `
                 <div class="qa-check-header">
-                    <label class="qa-checkbox-label" title="Alternar visualização deste erro no modelo 3D">
-                        <input type="checkbox" class="qa-check-toggle" data-key="${key}" ${QAState.enabledChecks[key] ? 'checked' : ''}>
-                        <span class="qa-custom-checkbox" style="--check-color:${exp.color}"></span>
-                    </label>
-
-                    <div class="qa-check-title-group" style="cursor:pointer;" title="Clique para expandir explicação">
-                        <div class="qa-check-title-row">
-                            <span class="qa-check-dot" style="background:${exp.color}"></span>
-                            <span class="qa-check-name">${exp.title}</span>
-                            ${isSkipped ? '<span class="qa-tag skipped">Saltado</span>' : (count === 0 ? '<span class="qa-tag ok">0 Erros (OK)</span>' : `<span class="qa-tag ${exp.severity}">${count} faces</span>`)}
-                        </div>
-                        <div class="qa-check-meta">
-                            <span>Ratio: <strong>${ratioPct}</strong></span>
-                            ${facesAffected.length > 0 ? `<button class="qa-btn-focus-faces" type="button" data-key="${key}">🎯 Focar no 3D (${facesAffected.length})</button>` : ''}
+                    <div class="qa-check-title-group">
+                        <input type="checkbox" class="qa-check-toggle" data-check="${checkKey}" ${isChecked ? "checked" : ""}>
+                        <div>
+                            <span class="qa-check-name">${info.title}</span>
+                            <span class="qa-check-counts">${count} ${basis} ${ratio !== null ? `(${ratio}%)` : ""}</span>
                         </div>
                     </div>
-
-                    <button class="qa-btn-accordion-toggle" title="Ver explicação detalhada">▼</button>
+                    <div style="display:flex;align-items:center;gap:0.4rem;">
+                        <span class="qa-badge ${severity === 'ok' ? 'ok' : (severity === 'critical' ? 'critical' : 'warning')}">
+                            ${count === 0 ? "0 erros" : `${count} prob.`}
+                        </span>
+                        <span class="qa-chevron" style="color:#64748b;font-size:0.7rem;">▼</span>
+                    </div>
                 </div>
-
-                <div class="qa-check-explanation" style="display:none;">
-                    <div class="qa-exp-row">
-                        <strong>📌 O que é:</strong>
-                        <p>${exp.what}</p>
-                    </div>
-                    <div class="qa-exp-row">
-                        <strong>⚠️ Porque importa:</strong>
-                        <p>${exp.why}</p>
-                    </div>
-                    <div class="qa-exp-row">
-                        <strong>🛠️ Como corrigir:</strong>
-                        <p>${exp.how}</p>
-                    </div>
+                <div class="qa-check-exp" style="display: none;">
+                    <h6>O que é?</h6>
+                    <p>${info.what}</p>
+                    <h6>Porque importa?</h6>
+                    <p>${typeof info.why === 'function' ? info.why(null, checkKey === 'ngons' ? hasCollinear : hasTJunction) : info.why}</p>
+                    <h6>Como corrigir?</h6>
+                    <p>${info.how}</p>
                 </div>
             `;
 
-            // Eventos do Card
-            const toggleCb = card.querySelector(".qa-check-toggle");
-            toggleCb.addEventListener("change", (e) => {
-                QAState.enabledChecks[key] = e.target.checked;
-                updateQAVisualLayers();
+            // Toggle do acordeão explicativo
+            const header = item.querySelector(".qa-check-header");
+            const exp = item.querySelector(".qa-check-exp");
+            const chevron = item.querySelector(".qa-chevron");
+
+            header.addEventListener("click", (e) => {
+                if (e.target.classList.contains("qa-check-toggle")) return;
+                const isShown = exp.style.display === "block";
+                exp.style.display = isShown ? "none" : "block";
+                chevron.textContent = isShown ? "▼" : "▲";
+
+                // Focar faces afetadas no 3D
+                const resData = resultChecks?.[checkKey];
+                if (resData && Array.isArray(resData.faces) && resData.faces.length > 0) {
+                    focusFaces(resData.faces);
+                }
             });
 
-            const focusBtn = card.querySelector(".qa-btn-focus-faces");
-            if (focusBtn && facesAffected.length > 0) {
-                focusBtn.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    focusQAFaces(facesAffected);
-                });
-            }
+            // Toggle de visibilidade do check nos overlays
+            const toggle = item.querySelector(".qa-check-toggle");
+            toggle.addEventListener("change", (e) => {
+                QAState.enabledChecks[checkKey] = e.target.checked;
+                updateDSSColors();
+            });
 
-            const headerGroup = card.querySelector(".qa-check-title-group");
-            const expToggleBtn = card.querySelector(".qa-btn-accordion-toggle");
-            const expBox = card.querySelector(".qa-check-explanation");
-
-            const toggleAccordion = () => {
-                const isOpen = expBox.style.display !== "none";
-                expBox.style.display = isOpen ? "none" : "block";
-                expToggleBtn.textContent = isOpen ? "▼" : "▲";
-                if (!isOpen && facesAffected.length > 0) {
-                    focusQAFaces(facesAffected);
-                }
-            };
-
-            headerGroup.addEventListener("click", toggleAccordion);
-            expToggleBtn.addEventListener("click", toggleAccordion);
-
-            container.appendChild(card);
+            container.appendChild(item);
         }
     }
 
-    function renderQALimitations(limitations, warnings) {
+    function renderLimitations(limitations, warnings) {
         const limListEl = document.getElementById("qa-limitations-list");
         const warnListEl = document.getElementById("qa-warnings-list");
 
         if (limListEl) {
             limListEl.innerHTML = "";
             if (limitations && limitations.length > 0) {
-                limitations.forEach(lim => {
+                limitations.forEach(l => {
                     const li = document.createElement("li");
-                    li.textContent = lim;
+                    li.textContent = l;
                     limListEl.appendChild(li);
                 });
             } else {
-                limListEl.innerHTML = `<li style="color:#64748b;">Nenhuma limitação reportada.</li>`;
+                limListEl.innerHTML = `<li style="color:#94a3b8;">Nenhuma limitação adicional reportada.</li>`;
             }
         }
 
@@ -1267,51 +1073,72 @@
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    //  6. EXECUÇÃO DA ANÁLISE (LIVE API & FIXTURES FALLBACK)
-    // ═══════════════════════════════════════════════════════════════════
+    function focusFaces(faceIndices) {
+        if (!faceIndices || faceIndices.length === 0) return;
+        selectFaceInQA(faceIndices[0]);
+    }
 
-    /**
-     * Carrega e aplica os dados de análise no sistema
-     */
-    async function loadQAData(statusJson, resultJson, rawObjText) {
+    // ═══════════════════════════════════════════════════════════════════
+    //  9. EXECUÇÃO DA ANÁLISE (LIVE API & FIXTURES FALLBACK)
+    // ═══════════════════════════════════════════════════════════════════
+    async function loadDSSData(statusJson, resultJson, rawObjText) {
         QAState.statusData = statusJson;
         QAState.resultData = resultJson;
         QAState.rawObjText = rawObjText;
 
-        // Extrair polígonos reais
         const { vertices, faces } = extractPolygonsAndVertices(rawObjText, resultJson?.geometry);
-        buildQAGeometry(vertices, faces);
+        buildDSSGeometry(vertices, faces);
+        renderDSSUI();
+    }
 
-        renderQAUI();
+    function setWaitingRLState() {
+        const titleEl = document.getElementById("qa-target-title");
+        const statusEl = document.getElementById("qa-header-status");
+        const verdictEl = document.getElementById("qa-header-verdict");
+        const btnRun = document.getElementById("btn-qa-run");
+        const btnDownloadJson = document.getElementById("btn-qa-download-result");
 
-        // Atualizar crachá na barra de topo
-        const navBadge = document.getElementById("qa-nav-badge");
-        if (navBadge) {
-            const issueCount = statusJson?.summary?.issue_faces || (resultJson?.issue_faces ? resultJson.issue_faces.length : 0);
-            if (issueCount > 0) {
-                navBadge.style.display = "inline-flex";
-                navBadge.textContent = `${issueCount} erros`;
-                navBadge.className = "nav-badge-pill warning";
-            } else {
-                navBadge.style.display = "inline-flex";
-                navBadge.textContent = "OK";
-                navBadge.className = "nav-badge-pill ok";
-            }
+        if (titleEl) titleEl.textContent = "Aguardando Decimação RL";
+        if (statusEl) {
+            statusEl.className = "status-badge working";
+            statusEl.textContent = "A aguardar RL";
+        }
+        if (verdictEl) {
+            verdictEl.innerHTML = `<span style="color:#94a3b8;">A auditoria DSS inicia automaticamente assim que o agente RL gerar a malha otimizada ou ao inspecionar um snapshot.</span>`;
+        }
+        if (btnRun) {
+            btnRun.disabled = true;
+            btnRun.innerHTML = `<span>🔒 Aguarda RL</span>`;
+            btnRun.title = "A análise DSS necessita que a decimação RL gere a malha otimizada.";
+        }
+        if (btnDownloadJson) {
+            btnDownloadJson.disabled = true;
         }
     }
 
-    /**
-     * Executa a análise assíncrona contra a API (ou fixture fallback se falhar)
-     */
-    async function runQAAnalysis(meshId) {
-        const idToRun = meshId || QAState.activeMeshId || "53296970-b86b-4c00-97be-778bbbb39cf8";
+    async function runDSSAnalysis(meshId, snapshot = null) {
+        const idToRun = meshId || QAState.activeMeshId || window.currentActiveModelId;
+        if (!idToRun) {
+            setWaitingRLState();
+            return;
+        }
+        QAState.activeMeshId = idToRun;
+        QAState.activeSnapshot = snapshot;
+
+        if (snapshot === 0) {
+            QAState.activeMeshName = "Malha Original (Upload)";
+        } else if (snapshot !== null && snapshot !== undefined) {
+            QAState.activeMeshName = `Snapshot #${snapshot} (${snapshot} Dissolves)`;
+        } else {
+            QAState.activeMeshName = "Malha Otimizada Final";
+        }
+
         const btnRun = document.getElementById("btn-qa-run");
         const statusEl = document.getElementById("qa-header-status");
 
         if (btnRun) {
             btnRun.disabled = true;
-            btnRun.innerHTML = `<span>⏳ A Auditar...</span>`;
+            btnRun.innerHTML = `<span>⏳ A Auditar ${snapshot === 0 ? 'Original...' : (snapshot ? `#${snapshot}...` : '...')}</span>`;
         }
         if (statusEl) {
             statusEl.className = "status-badge working";
@@ -1319,10 +1146,11 @@
         }
 
         try {
-            // 1. Executar polling até concluir
+            // Polling até terminar (suportando query param ?snapshot=N)
             const statusResult = await window.MeshQAAPI.runFullAnalysis(
                 idToRun,
                 QAState.params,
+                snapshot,
                 (statusUpdate) => {
                     if (statusEl) {
                         statusEl.className = "status-badge working";
@@ -1332,47 +1160,72 @@
             );
 
             if (statusResult && statusResult.status === "failed") {
-                renderQAFailed(statusResult);
+                renderDSSFailed(statusResult);
                 return;
             }
 
-            // 2. Descarregar resultado detalhado (result.json)
-            const resultData = await window.MeshQAAPI.downloadAnalysisResult(idToRun, true);
+            // Descarregar resultado detalhado com geometria incluída
+            const resultData = await window.MeshQAAPI.downloadAnalysisResult(idToRun, true, snapshot);
 
-            // 3. Tentar obter o OBJ original da API ou fixture
-            let objText = QAState.rawObjText || window.cachedSimplifiedObjText;
-            if (!objText) {
+            let objText = null;
+            if (snapshot === 0) {
+                objText = window.currentUploadedObjText || QAState.rawObjText;
+            } else if (snapshot === null) {
+                objText = window.cachedSimplifiedObjText;
+            }
+            if (!objText && !resultData?.geometry) {
                 try {
                     objText = await window.RetopoAPI.downloadSimplifiedMesh(idToRun);
-                } catch (_) {
-                    // Fallback para geometria incluída no result.json
-                }
+                } catch (_) {}
             }
 
-            await loadQAData(statusResult, resultData, objText);
+            await loadDSSData(statusResult, resultData, objText);
 
         } catch (err) {
-            console.warn("[Mesh QA] Falha ao comunicar com a API:", err.message);
-            // Notificação ao utilizador
-            alert(`Aviso ao consultar API (${err.message}). A carregar fixtures locais para validação...`);
-            await loadQAFromFixtures();
+            console.warn("[DSS] Falha na API ao auditar:", err.message);
+            const verdictEl = document.getElementById("qa-header-verdict");
+            if (statusEl) {
+                statusEl.className = "status-badge offline";
+                statusEl.textContent = "Falhou";
+            }
+            if (verdictEl) {
+                verdictEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">❌ Aviso da API:</span> <span style="color:#fca5a5;">${err.message}</span>`;
+            }
         } finally {
             if (btnRun) {
                 btnRun.disabled = false;
-                btnRun.innerHTML = `<span>⚡ Analisar Novamente</span>`;
+                btnRun.innerHTML = snapshot === 0
+                    ? `<span>⚡ Reanalisar Original</span>`
+                    : (snapshot !== null && snapshot !== undefined ? `<span>⚡ Reanalisar Snapshot</span>` : `<span>⚡ Reanalisar Malha</span>`);
+            }
+            const btnDownloadJson = document.getElementById("btn-qa-download-result");
+            if (btnDownloadJson && QAState.resultData) {
+                btnDownloadJson.disabled = false;
             }
         }
     }
 
-    /**
-     * Carrega as fixtures oficiais fornecidas pelo utilizador
-     */
-    async function loadQAFromFixtures() {
+    function renderDSSFailed(statusData) {
+        const titleEl = document.getElementById("qa-target-title");
+        const statusEl = document.getElementById("qa-header-status");
+        const verdictEl = document.getElementById("qa-header-verdict");
+
+        if (titleEl) titleEl.textContent = QAState.activeMeshName || statusData?.mesh_id || "Malha Analisada";
+        if (statusEl) {
+            statusEl.className = "status-badge offline";
+            statusEl.textContent = "Falhou";
+        }
+        if (verdictEl) {
+            verdictEl.innerHTML = `<span style="color:#ef4444; font-weight:600;">❌ Falha na Análise:</span> <span style="color:#fca5a5;">${statusData?.error || "Erro no pipeline"}</span>`;
+        }
+    }
+
+    async function loadDSSFromFixtures() {
         try {
             const { status, result, objText } = await window.MeshQAAPI.loadLocalFixtures();
             QAState.activeMeshId = status.mesh_id || "53296970-b86b-4c00-97be-778bbbb39cf8";
             QAState.activeMeshName = "Fixture de Teste (16 faces / 10 ngons)";
-            await loadQAData(status, result, objText);
+            await loadDSSData(status, result, objText);
         } catch (err) {
             console.error("[Mesh QA Fixtures] Erro ao carregar fixtures locais:", err);
             alert(`Erro ao carregar fixtures: ${err.message}`);
@@ -1380,201 +1233,153 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  7. LIGAÇÃO DE CONTROLOS & EVENT LISTENERS
+    //  10. LIGAÇÃO DE CONTROLOS & EVENT LISTENERS UNIFICADOS
     // ═══════════════════════════════════════════════════════════════════
-    function setupQAEventListeners() {
-        // Navegação entre ecrãs (Retopologia vs Mesh QA)
-        const navRetopo = document.getElementById("nav-btn-retopo");
-        const navQA = document.getElementById("nav-btn-qa");
-        const retopoView = document.getElementById("retopo-main-view");
-        const qaView = document.getElementById("qa-main-view");
+    function setupStudioEventListeners() {
+        // Sub-abas do DSS: Verificações | Topologia | Limitações
+        const subChecks = document.getElementById("qa-tab-btn-checks");
+        const subTopo = document.getElementById("qa-tab-btn-topology");
+        const subLim = document.getElementById("qa-tab-btn-limitations");
 
-        function showScreen(screen) {
-            if (screen === "qa") {
-                if (retopoView) retopoView.style.display = "none";
-                if (qaView) qaView.style.display = "flex";
-                if (navRetopo) navRetopo.classList.remove("active");
-                if (navQA) navQA.classList.add("active");
+        const paneChecks = document.getElementById("qa-pane-checks");
+        const paneTopo = document.getElementById("qa-pane-topology");
+        const paneLim = document.getElementById("qa-pane-limitations");
 
-                // Redimensionar e renderizar viewport QA
-                setTimeout(() => {
-                    onQAResize();
-                    if (!qaMesh && !QAState.statusData) {
-                        loadQAFromFixtures();
-                    }
-                }, 50);
-            } else {
-                if (retopoView) retopoView.style.display = "flex";
-                if (qaView) qaView.style.display = "none";
-                if (navRetopo) navRetopo.classList.add("active");
-                if (navQA) navQA.classList.remove("active");
-                window.dispatchEvent(new Event("resize"));
+        function setDSSSubtab(sub) {
+            [subChecks, subTopo, subLim].forEach(b => b?.classList.remove("active"));
+            [paneChecks, paneTopo, paneLim].forEach(p => { if (p) p.style.display = "none"; });
+
+            if (sub === "checks") {
+                if (subChecks) subChecks.classList.add("active");
+                if (paneChecks) paneChecks.style.display = "block";
+            } else if (sub === "topology") {
+                if (subTopo) subTopo.classList.add("active");
+                if (paneTopo) paneTopo.style.display = "block";
+            } else if (sub === "limitations") {
+                if (subLim) subLim.classList.add("active");
+                if (paneLim) paneLim.style.display = "block";
             }
         }
 
-        if (navRetopo) navRetopo.addEventListener("click", () => showScreen("retopo"));
-        if (navQA) navQA.addEventListener("click", () => showScreen("qa"));
+        if (subChecks) subChecks.addEventListener("click", () => setDSSSubtab("checks"));
+        if (subTopo) subTopo.addEventListener("click", () => setDSSSubtab("topology"));
+        if (subLim) subLim.addEventListener("click", () => setDSSSubtab("limitations"));
 
-        // Botão de acesso direto no modal inicial
-        const btnModalOpenQA = document.getElementById("btn-modal-open-qa");
-        if (btnModalOpenQA) {
-            btnModalOpenQA.addEventListener("click", () => {
-                const uploadModal = document.getElementById("upload-modal");
-                const mainApp = document.getElementById("main-app");
-                if (uploadModal) uploadModal.classList.add("hidden");
-                if (mainApp) {
-                    mainApp.style.filter = "none";
-                    mainApp.style.pointerEvents = "all";
-                }
-                showScreen("qa");
-            });
-        }
-
-        // Botão de acesso rápido a partir da barra de retopologia
-        const btnOpenQAFromRetopo = document.getElementById("btn-open-qa-from-retopo");
-        if (btnOpenQAFromRetopo) {
-            btnOpenQAFromRetopo.addEventListener("click", () => {
-                showScreen("qa");
-                // Se já temos um modelo otimizado, executa análise
-                if (window.currentActiveModelId) {
-                    runQAAnalysis(window.currentActiveModelId);
-                }
-            });
-        }
-
-        // Botões de Ação no Topo do QA
+        // Botões de Ação Rápida no Card do DSS
         const btnRun = document.getElementById("btn-qa-run");
-        if (btnRun) {
-            btnRun.addEventListener("click", () => runQAAnalysis());
-        }
+        if (btnRun) btnRun.addEventListener("click", () => runDSSAnalysis());
 
-        const btnLoadFixture = document.getElementById("btn-qa-fixture");
-        if (btnLoadFixture) {
-            btnLoadFixture.addEventListener("click", () => loadQAFromFixtures());
-        }
+        const btnFixture = document.getElementById("btn-qa-fixture");
+        if (btnFixture) btnFixture.addEventListener("click", () => loadDSSFromFixtures());
 
-        const btnDownloadResult = document.getElementById("btn-qa-download-result");
-        if (btnDownloadResult) {
-            btnDownloadResult.addEventListener("click", () => {
+        const btnDownloadJson = document.getElementById("btn-qa-download-result");
+        if (btnDownloadJson) {
+            btnDownloadJson.addEventListener("click", () => {
                 if (!QAState.resultData) return;
                 const blob = new Blob([JSON.stringify(QAState.resultData, null, 2)], { type: "application/json" });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `qa_result_${QAState.activeMeshId || "mesh"}.json`;
+                a.download = `dss_result_${QAState.activeMeshId || "mesh"}${QAState.activeSnapshot ? `_snap${QAState.activeSnapshot}` : ''}.json`;
                 a.click();
                 URL.revokeObjectURL(url);
             });
         }
 
-        // Seletor de Modo no 3D: Checks, Ângulo Mín, Ângulo Máx, Valência
-        const btnModeChecks = document.getElementById("qa-mode-checks");
-        const btnModeMinAngle = document.getElementById("qa-mode-min-angle");
-        const btnModeMaxAngle = document.getElementById("qa-mode-max-angle");
-        const btnModeValence = document.getElementById("qa-mode-valence");
+        // Toggles das Camadas Visuais do Viewport 3D
+        const btnDssOverlay = document.getElementById("btn-dss-overlay");
+        const btnDssAngle = document.getElementById("btn-dss-heatmap-angle");
+        const btnDssValence = document.getElementById("btn-dss-heatmap-valence");
 
-        const modeButtons = [btnModeChecks, btnModeMinAngle, btnModeMaxAngle, btnModeValence];
+        function setViewMode(mode) {
+            const isSame = QAState.activeViewMode === mode && (
+                (mode === "errors" && btnDssOverlay?.classList.contains("active")) ||
+                (mode.includes("angle") && btnDssAngle?.classList.contains("active")) ||
+                (mode === "valence" && btnDssValence?.classList.contains("active"))
+            );
 
-        function setActiveMode(mode, targetBtn) {
-            QAState.activeViewMode = mode;
-            modeButtons.forEach(b => { if (b) b.classList.remove("active"); });
-            if (targetBtn) targetBtn.classList.add("active");
-            updateQAVisualLayers();
-        }
+            // Toggle on/off se clicou no mesmo
+            if (isSame) {
+                QAState.activeViewMode = "none";
+                [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
+                const legendEl = document.getElementById("qa-heatmap-legend");
+                if (legendEl) legendEl.style.display = "none";
+                closeQADetailPanel();
 
-        if (btnModeChecks) btnModeChecks.addEventListener("click", () => setActiveMode("checks", btnModeChecks));
-        if (btnModeMinAngle) btnModeMinAngle.addEventListener("click", () => setActiveMode("min_angle", btnModeMinAngle));
-        if (btnModeMaxAngle) btnModeMaxAngle.addEventListener("click", () => setActiveMode("max_angle", btnModeMaxAngle));
-        if (btnModeValence) btnModeValence.addEventListener("click", () => setActiveMode("valence", btnModeValence));
+                if (dssMesh) dssMesh.visible = false;
+                if (dssEdgesMesh) dssEdgesMesh.visible = false;
+                if (dssPolesPoints) dssPolesPoints.visible = false;
+                if (dssSelectionLine) dssSelectionLine.visible = false;
 
-        // Toggles no 3D: Arestas, Poles, Superfície, Reset Câmara
-        const btnToggleEdges = document.getElementById("qa-toggle-edges");
-        if (btnToggleEdges) {
-            btnToggleEdges.addEventListener("click", () => {
-                QAState.showEdges = !QAState.showEdges;
-                btnToggleEdges.classList.toggle("active", QAState.showEdges);
-                if (qaEdgesMesh) qaEdgesMesh.visible = QAState.showEdges;
-            });
-        }
-
-        const btnTogglePoles = document.getElementById("qa-toggle-poles");
-        if (btnTogglePoles) {
-            btnTogglePoles.addEventListener("click", () => {
-                QAState.showPoles = !QAState.showPoles;
-                btnTogglePoles.classList.toggle("active", QAState.showPoles);
-                if (qaPolesPoints) qaPolesPoints.visible = QAState.showPoles;
-            });
-        }
-
-        const btnToggleSurface = document.getElementById("qa-toggle-surface");
-        if (btnToggleSurface) {
-            btnToggleSurface.addEventListener("click", () => {
-                QAState.showSurface = !QAState.showSurface;
-                btnToggleSurface.classList.toggle("active", QAState.showSurface);
-                if (qaMesh) qaMesh.visible = QAState.showSurface;
-            });
-        }
-
-        const btnResetCam = document.getElementById("qa-reset-camera");
-        if (btnResetCam) {
-            btnResetCam.addEventListener("click", () => {
-                if (qaCamera && qaControls) {
-                    qaCamera.position.set(0, 0, 42);
-                    qaControls.target.set(0, 0, 0);
-                    qaControls.update();
+                const viewer = getViewer();
+                if (viewer && viewer.mesh) {
+                    viewer.mesh.visible = true;
+                    viewer.syncVisualOverlays();
                 }
-            });
-        }
+                return;
+            }
 
-        // Botão Fechar Painel de Detalhes
-        const btnCloseDetail = document.getElementById("qa-detail-close");
-        if (btnCloseDetail) {
-            btnCloseDetail.addEventListener("click", closeQADetailPanel);
-        }
+            QAState.activeViewMode = mode;
+            [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
 
-        // Abas da Barra Lateral do QA
-        const tabBtnChecks = document.getElementById("qa-tab-btn-checks");
-        const tabBtnTopology = document.getElementById("qa-tab-btn-topology");
-        const tabBtnLimitations = document.getElementById("qa-tab-btn-limitations");
+            if (mode === "errors" && btnDssOverlay) btnDssOverlay.classList.add("active");
+            if (mode === "min_angle" && btnDssAngle) btnDssAngle.classList.add("active");
+            if (mode === "max_angle" && btnDssAngle) btnDssAngle.classList.add("active");
+            if (mode === "valence" && btnDssValence) btnDssValence.classList.add("active");
 
-        const paneChecks = document.getElementById("qa-pane-checks");
-        const paneTopology = document.getElementById("qa-pane-topology");
-        const paneLimitations = document.getElementById("qa-pane-limitations");
-
-        function setQASidebarTab(tab) {
-            [tabBtnChecks, tabBtnTopology, tabBtnLimitations].forEach(b => { if (b) b.classList.remove("active"); });
-            [paneChecks, paneTopology, paneLimitations].forEach(p => { if (p) p.style.display = "none"; });
-
-            if (tab === "checks") {
-                if (tabBtnChecks) tabBtnChecks.classList.add("active");
-                if (paneChecks) paneChecks.style.display = "block";
-            } else if (tab === "topology") {
-                if (tabBtnTopology) tabBtnTopology.classList.add("active");
-                if (paneTopology) paneTopology.style.display = "block";
-            } else if (tab === "limitations") {
-                if (tabBtnLimitations) tabBtnLimitations.classList.add("active");
-                if (paneLimitations) paneLimitations.style.display = "block";
+            // Se dssMesh ainda não foi construído para a malha ativa, dispara análise real
+            if (!dssMesh) {
+                const id = QAState.activeMeshId || window.currentActiveModelId;
+                if (id) {
+                    runDSSAnalysis(id, QAState.activeSnapshot).then(() => {
+                        if (dssMesh) dssMesh.visible = true;
+                        if (dssEdgesMesh) dssEdgesMesh.visible = QAState.showEdges;
+                        if (dssPolesPoints) dssPolesPoints.visible = QAState.showPoles;
+                        const viewer = getViewer();
+                        if (viewer && viewer.mesh) viewer.mesh.visible = false;
+                        if (viewer && viewer.edgesMesh) viewer.edgesMesh.visible = false;
+                        if (viewer && viewer.pointsMesh) viewer.pointsMesh.visible = false;
+                        updateDSSColors();
+                    });
+                }
+            } else {
+                if (dssMesh) dssMesh.visible = true;
+                if (dssEdgesMesh) dssEdgesMesh.visible = QAState.showEdges;
+                if (dssPolesPoints) dssPolesPoints.visible = QAState.showPoles;
+                const viewer = getViewer();
+                if (viewer && viewer.mesh) viewer.mesh.visible = false;
+                if (viewer && viewer.edgesMesh) viewer.edgesMesh.visible = false;
+                if (viewer && viewer.pointsMesh) viewer.pointsMesh.visible = false;
+                updateDSSColors();
             }
         }
 
-        if (tabBtnChecks) tabBtnChecks.addEventListener("click", () => setQASidebarTab("checks"));
-        if (tabBtnTopology) tabBtnTopology.addEventListener("click", () => setQASidebarTab("topology"));
-        if (tabBtnLimitations) tabBtnLimitations.addEventListener("click", () => setQASidebarTab("limitations"));
+        if (btnDssOverlay) btnDssOverlay.addEventListener("click", () => setViewMode("errors"));
+        if (btnDssAngle) btnDssAngle.addEventListener("click", () => {
+            const nextMode = QAState.activeViewMode === "min_angle" ? "max_angle" : "min_angle";
+            btnDssAngle.textContent = nextMode === "min_angle" ? "🌡️ Ângulo Mín" : "🌡️ Ângulo Máx";
+            setViewMode(nextMode);
+        });
+        if (btnDssValence) btnDssValence.addEventListener("click", () => setViewMode("valence"));
+
+        // Botão Fechar Painel Raycaster
+        const btnCloseDetail = document.getElementById("qa-detail-close");
+        if (btnCloseDetail) btnCloseDetail.addEventListener("click", closeQADetailPanel);
     }
 
-    // Inicialização ao carregar a página
+    // Inicialização ao carregar
     window.addEventListener("DOMContentLoaded", () => {
-        initQA3DViewer();
-        setupQAEventListeners();
+        setupStudioEventListeners();
     });
 
-    // Exportar API global para integração externa
+    // API Global
     window.MeshQA = {
-        loadData: loadQAData,
-        runAnalysis: runQAAnalysis,
-        loadFixtures: loadQAFromFixtures,
-        focusFaces: focusQAFaces,
+        loadData: loadDSSData,
+        runAnalysis: runDSSAnalysis,
+        setWaitingRL: setWaitingRLState,
+        loadFixtures: loadDSSFromFixtures,
         selectFace: selectFaceInQA,
+        focusFaces: focusFaces,
         state: QAState
     };
 

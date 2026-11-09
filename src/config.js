@@ -1,4 +1,4 @@
 window.APP_CONFIG = {
-    API_BASE_URL: "https://expai-pt.ftpweb.dev",
+    API_BASE_URL: "http://localhost:8001",
     API_KEY: "58FFDC24770CFFAE2401E741B7AC51EADD22CA59539BCEFBAFEA0229E011D700"
 };

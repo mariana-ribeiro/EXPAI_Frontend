@@ -177,6 +177,9 @@
                 throw new Error("A API não devolveu mesh_id.");
             }
 
+            window.currentActiveModelId = modelId;
+            window.currentUploadedObjText = fileText;
+
             // 3. Transição direta para a cena 3D: fecha o modal inicial
             uploadModal.classList.add("hidden");
             mainApp.style.filter = "none";
@@ -184,6 +187,11 @@
 
             // 4. Iniciar visualizador 3D com a ÚNICA barra de progresso (otimização RL)
             initThreeJS(modelId, fileUrl, fileText);
+
+            // 5. Iniciar análise DSS da malha que acabou de ser enviada (snapshot=0)
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
+                window.MeshQA.runAnalysis(modelId, 0);
+            }
 
         } catch (error) {
             console.error("Erro no upload:", error);
@@ -229,6 +237,11 @@
     // ══════════════════════════════════════════════════════
     //  THREE.JS & APP PRINCIPAL
     // ══════════════════════════════════════════════════════
+    window.initRetopoStudio = function(modelId, fileUrl, rawObjText) {
+        return initThreeJS(modelId, fileUrl, rawObjText);
+    };
+    window.initRetopoViewer = window.initRetopoStudio;
+
     function initThreeJS(modelId, fileUrl, rawObjText) {
         const canvas = document.getElementById("canvas3d");
         const container = canvas.parentElement;
@@ -310,13 +323,18 @@
 
         // Carregar OBJ real fornecido no upload
         const objLoader = new THREE.OBJLoader();
-        const parsedObj = objLoader.parse(rawObjText);
-
-        parsedObj.traverse((child) => {
-            if (child.isMesh && !highPolyGeo) {
-                highPolyGeo = child.geometry;
+        if (rawObjText) {
+            try {
+                const parsedObj = objLoader.parse(rawObjText);
+                parsedObj.traverse((child) => {
+                    if (child.isMesh && !highPolyGeo) {
+                        highPolyGeo = child.geometry;
+                    }
+                });
+            } catch (err) {
+                console.warn("[Init] Erro ao parsear OBJ inicial:", err);
             }
-        });
+        }
 
         if (!highPolyGeo) {
             highPolyGeo = new THREE.TorusKnotGeometry(8, 2.5, 128, 32);
@@ -549,6 +567,31 @@
             }
         }
 
+        window.RetopoViewer = {
+            scene: scene,
+            camera: camera,
+            controls: controls,
+            renderer: renderer,
+            mesh: mesh,
+            edgesMesh: edgesMesh,
+            pointsMesh: pointsMesh,
+            baseMaterial: baseMaterial,
+            heatmapMaterial: heatmapMaterial,
+            occluderMaterial: occluderMaterial,
+            getHighPolyGeo: () => highPolyGeo,
+            getLowPolyGeo: () => lowPolyGeo,
+            setLowPolyGeo: (geo) => { lowPolyGeo = geo; },
+            syncVisualOverlays: syncVisualOverlays,
+            updateFloatingStats: updateFloatingStats,
+            loadMeshIntoViewport: loadMeshIntoViewport,
+            loadGeometryIntoViewport: loadGeometryIntoViewport,
+            resetCamera: () => {
+                camera.position.set(0, 0, 40);
+                controls.target.set(0, 0, 0);
+                controls.update();
+            }
+        };
+
         let currentSnapGeo   = null;
         let currentSnapStats = null;
 
@@ -620,6 +663,9 @@
                 rlStatusBadge.className = "status-badge online";
                 rlStatusBadge.textContent = "Visualizando: Original (High Poly)";
             }
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && modelId) {
+                window.MeshQA.runAnalysis(modelId, 0);
+            }
         });
 
         btnLow.addEventListener("click", () => {
@@ -641,6 +687,9 @@
             if (rlStatusBadge) {
                 rlStatusBadge.className = "status-badge online";
                 rlStatusBadge.textContent = "Visualizando: Otimizado (Low Poly)";
+            }
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && modelId) {
+                window.MeshQA.runAnalysis(modelId, null);
             }
         });
 
@@ -829,9 +878,11 @@
         }
 
         // Iniciar cálculo automático da GNN em segundo plano logo no carregamento
-        ensureGNNHeatmap().catch((err) => {
-            console.warn("[GNN Auto] Erro no cálculo automático:", err);
-        });
+        if (modelId) {
+            ensureGNNHeatmap().catch((err) => {
+                console.warn("[GNN Auto] Erro no cálculo automático:", err);
+            });
+        }
 
         if (btnHeatmap) {
             btnHeatmap.addEventListener("click", async () => {
@@ -869,6 +920,10 @@
         function runRLDecimation(stepsToRun) {
             if (isRLRunning) return;
             isRLRunning = true;
+
+            if (window.MeshQA && typeof window.MeshQA.setWaitingRL === "function") {
+                window.MeshQA.setWaitingRL();
+            }
 
             const steps = parseInt(stepsToRun || inputMaxSteps?.value || "100", 10) || 100;
 
@@ -1049,6 +1104,11 @@
                         lowPolyGeo = highPolyGeo.clone();
                     }
 
+                    // Executar auditoria DSS simultânea da malha otimizada resultante
+                    if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
+                        window.MeshQA.runAnalysis(modelId);
+                    }
+
                     // Desbloquear botão Low Poly
                     btnLow.disabled = false;
                     btnLow.style.opacity = "1";
@@ -1064,8 +1124,10 @@
         }
 
         // Executar com o valor de iterações configurado no input inicial de upload
-        const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
-        runRLDecimation(initialSteps);
+        if (modelId) {
+            const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
+            runRLDecimation(initialSteps);
+        }
 
         // ══════════════════════════════════════════════════════
         //  EXPORTAÇÃO LOW POLY
@@ -1275,6 +1337,20 @@
                     closeSnapshotLightbox();
                     if (typeof info.onLoadMesh === "function") {
                         info.onLoadMesh();
+                    }
+                };
+            }
+
+            const lightboxBtnDSS = document.getElementById("lightbox-btn-dss");
+            if (lightboxBtnDSS) {
+                lightboxBtnDSS.onclick = () => {
+                    closeSnapshotLightbox();
+                    closeActionLog();
+                    if (window.MeshQA && window.MeshQA.switchSidebarTab) {
+                        window.MeshQA.switchSidebarTab("dss");
+                    }
+                    if (window.MeshQA && window.MeshQA.runAnalysis) {
+                        window.MeshQA.runAnalysis(modelId, info.dissolves);
                     }
                 };
             }
@@ -1493,6 +1569,9 @@
                             <button class="btn-load-snap-mesh" data-dissolves="${dissolves}">
                                 <span>📥 Carregar no 3D</span>
                             </button>
+                            <button class="btn-dss-snap-mesh" data-dissolves="${dissolves}" title="Auditar qualidade topológica deste snapshot com DSS">
+                                <span>🛡️ Auditar com DSS</span>
+                            </button>
                             <button class="btn-download-snap-mesh" data-dissolves="${dissolves}" title="Descarregar ficheiro .OBJ deste snapshot">
                                 <span>💾 Descarregar (.obj)</span>
                             </button>
@@ -1503,10 +1582,24 @@
                 const imgEl = card.querySelector(".snap-photo");
                 const placeholder = card.querySelector(".snap-photo-placeholder");
                 const btnLoad = card.querySelector(".btn-load-snap-mesh");
+                const btnDSS = card.querySelector(".btn-dss-snap-mesh");
                 const btnDownload = card.querySelector(".btn-download-snap-mesh");
                 const imgWrapper = card.querySelector(".snap-img-wrapper");
                 const accordionBtn = card.querySelector(".snap-edges-accordion-btn");
                 const edgesList = card.querySelector(".snap-edges-list");
+
+                if (btnDSS) {
+                    btnDSS.addEventListener("click", async (e) => {
+                        e.stopPropagation();
+                        closeActionLog();
+                        if (window.MeshQA && window.MeshQA.switchSidebarTab) {
+                            window.MeshQA.switchSidebarTab("dss");
+                        }
+                        if (window.MeshQA && window.MeshQA.runAnalysis) {
+                            window.MeshQA.runAnalysis(modelId, dissolves);
+                        }
+                    });
+                }
 
                 if (btnDownload) {
                     btnDownload.addEventListener("click", async (e) => {
@@ -1665,6 +1758,9 @@
 
                         if (loaded) {
                             btnLoad.innerHTML = `<span>✅ Malha Carregada no 3D!</span>`;
+                            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
+                                window.MeshQA.runAnalysis(modelId, dissolves);
+                            }
                             setTimeout(() => {
                                 closeActionLog();
                             }, 450);

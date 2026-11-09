@@ -4,7 +4,7 @@
  */
 
 const API_BASE_URL = (
-    window.APP_CONFIG?.API_BASE_URL || "https://expai-pt.ftpweb.dev"
+    window.APP_CONFIG?.API_BASE_URL || "http://localhost:8001"
 ).replace(/\/+$/, "");
 
 const API_KEY = window.APP_CONFIG?.API_KEY || "58FFDC24770CFFAE2401E741B7AC51EADD22CA59539BCEFBAFEA0229E011D700";
@@ -382,5 +382,134 @@ window.RetopoAPI = {
                 });
             }
         }, 70);
+    }
+};
+
+
+/* ═════════════════════════════════════════════════════════════════
+ *  MESH QA / DSS API SERVICE
+ *  Auditoria de integridade e qualidade de malhas 3D (suporta snapshots)
+ * ═════════════════════════════════════════════════════════════════
+ */
+window.MeshQAAPI = {
+    /**
+     * Inicia uma nova análise assíncrona de QA para a mesh (ou snapshot específico).
+     * POST /v1/analyses/{mesh_id}?snapshot={snapshot}
+     */
+    createAnalysis: async function(meshId, options = {}, snapshot = null) {
+        const body = {
+            skip: Array.isArray(options.skip) ? options.skip : [],
+            regular_valence: options.regular_valence !== undefined ? parseInt(options.regular_valence, 10) : 0,
+            min_angle: options.min_angle !== undefined ? parseFloat(options.min_angle) : 20.0,
+            max_angle: options.max_angle !== undefined ? parseFloat(options.max_angle) : 160.0
+        };
+
+        const query = (snapshot !== null && snapshot !== undefined) ? `?snapshot=${encodeURIComponent(snapshot)}` : "";
+        const response = await fetch(`${API_BASE_URL}/v1/analyses/${encodeURIComponent(meshId)}${query}`, {
+            method: "POST",
+            headers: baseHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok && response.status !== 202) {
+            let errorMsg = `Erro HTTP ${response.status}`;
+            try {
+                const errData = await response.json();
+                errorMsg = errData.message || errData.detail || errorMsg;
+            } catch (_) {}
+            throw new Error(errorMsg);
+        }
+
+        return response.json();
+    },
+
+    /**
+     * Consulta o estado de uma análise (ou de um snapshot).
+     * GET /v1/analyses/{mesh_id}?snapshot={snapshot}
+     */
+    getAnalysisStatus: async function(meshId, snapshot = null) {
+        const query = (snapshot !== null && snapshot !== undefined) ? `?snapshot=${encodeURIComponent(snapshot)}` : "";
+        const response = await fetch(`${API_BASE_URL}/v1/analyses/${encodeURIComponent(meshId)}${query}`, {
+            headers: baseHeaders()
+        });
+
+        if (!response.ok) {
+            let errorMsg = `Erro HTTP ${response.status}`;
+            try {
+                const errData = await response.json();
+                errorMsg = errData.message || errData.detail || errorMsg;
+            } catch (_) {}
+            throw new Error(errorMsg);
+        }
+
+        return response.json();
+    },
+
+    /**
+     * Descarrega o resultado detalhado (result.json).
+     * GET /v1/analyses/{mesh_id}/download?snapshot={snapshot}&geometry={boolean}
+     */
+    downloadAnalysisResult: async function(meshId, includeGeometry = false, snapshot = null) {
+        const params = new URLSearchParams();
+        if (snapshot !== null && snapshot !== undefined) params.append("snapshot", snapshot);
+        if (includeGeometry) params.append("geometry", "true");
+        const query = params.toString() ? `?${params.toString()}` : "";
+
+        const response = await fetch(`${API_BASE_URL}/v1/analyses/${encodeURIComponent(meshId)}/download${query}`, {
+            headers: baseHeaders()
+        });
+
+        if (!response.ok) {
+            let errorMsg = `Erro HTTP ${response.status}`;
+            try {
+                const errData = await response.json();
+                errorMsg = errData.message || errData.detail || errorMsg;
+            } catch (_) {}
+            throw new Error(errorMsg);
+        }
+
+        return response.json();
+    },
+
+    /**
+     * Executa o fluxo completo com polling: cria a análise e aguarda até 'done' ou 'failed'.
+     */
+    runFullAnalysis: async function(meshId, options = {}, snapshot = null, onStatusUpdate = null, timeoutMs = 60000) {
+        await this.createAnalysis(meshId, options, snapshot);
+
+        const startTime = Date.now();
+        while (Date.now() - startTime < timeoutMs) {
+            const statusData = await this.getAnalysisStatus(meshId, snapshot);
+            if (onStatusUpdate) onStatusUpdate(statusData);
+
+            if (statusData.status === "done" || statusData.status === "failed") {
+                return statusData;
+            }
+
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        throw new Error("Tempo limite de análise excedido (timeout de 60 segundos).");
+    },
+
+    /**
+     * Carrega as fixtures de teste locais
+     */
+    loadLocalFixtures: async function() {
+        const [statRes, resRes, objRes] = await Promise.all([
+            fetch("fixtures/status.json"),
+            fetch("fixtures/result.json"),
+            fetch("fixtures/simplified.obj")
+        ]);
+
+        if (!statRes.ok || !resRes.ok || !objRes.ok) {
+            throw new Error("Não foi possível carregar os ficheiros de fixture locais.");
+        }
+
+        const status = await statRes.json();
+        const result = await resRes.json();
+        const objText = await objRes.text();
+
+        return { status, result, objText };
     }
 };
