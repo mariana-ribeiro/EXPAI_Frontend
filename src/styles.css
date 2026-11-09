@@ -255,6 +255,13 @@ canvas#canvas3d:active {
     box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
 }
 
+.view-btn-mode#btn-triangles.active {
+    background: rgba(168, 85, 247, 0.16);
+    color: #c084fc;
+    border: 1px solid rgba(168, 85, 247, 0.45);
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+}
+
 .view-btn-mode#btn-verts.active {
     background: rgba(245, 158, 11, 0.16);
     color: #fbbf24;

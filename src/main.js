@@ -286,11 +286,18 @@
             polygonOffsetUnits: 1
         });
 
-        // Materiais para Arestas (Linhas) e Vértices (Pontos)
+        // Materiais para Arestas Reais (Topologia), Triângulos (GPU) e Vértices
         const edgesMaterial = new THREE.LineBasicMaterial({
-            color: 0x38bdf8,
+            color: 0x38bdf8, // Ciano vivo para topologia real (quads/polígonos)
             transparent: true,
             opacity: 0.85,
+            depthTest: true
+        });
+
+        const trianglesMaterial = new THREE.LineBasicMaterial({
+            color: 0xa855f7, // Púrpura para visualização da triangulação da GPU
+            transparent: true,
+            opacity: 0.55,
             depthTest: true
         });
 
@@ -331,14 +338,101 @@
         const size = new THREE.Vector3();
         highPolyGeo.boundingBox.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = maxDim > 0 ? (16 / maxDim) : 1;
         if (maxDim > 0) {
-            const scale = 16 / maxDim;
             highPolyGeo.scale(scale, scale, scale);
         }
         highPolyGeo.computeVertexNormals();
 
+        if (!highPolyGeo.userData) highPolyGeo.userData = {};
+        highPolyGeo.userData.center = center;
+        highPolyGeo.userData.scale = scale;
+        highPolyGeo.userData.rawObjText = rawObjText;
+
         const mesh = new THREE.Mesh(highPolyGeo, baseMaterial);
         scene.add(mesh);
+
+        /**
+         * Extrai e constrói as arestas reais dos polígonos (quads, n-gons) a partir do ficheiro OBJ,
+         * sem qualquer corte diagonal de triangulação artificial!
+         */
+        function parseObjToRealEdgesGeometry(objText, centerVec, scaleVal) {
+            if (!objText || !objText.includes("f ")) return null;
+            const lines = objText.split(/\r?\n/);
+            const rawVerts = [];
+            const edgeSet = new Set();
+            const linePositions = [];
+
+            const cx = centerVec ? centerVec.x : 0;
+            const cy = centerVec ? centerVec.y : 0;
+            const cz = centerVec ? centerVec.z : 0;
+            const sc = scaleVal || 1;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line.startsWith("v ")) {
+                    const parts = line.split(/\s+/).slice(1);
+                    const x = (parseFloat(parts[0]) - cx) * sc;
+                    const y = (parseFloat(parts[1]) - cy) * sc;
+                    const z = (parseFloat(parts[2]) - cz) * sc;
+                    rawVerts.push([x, y, z]);
+                } else if (line.startsWith("f ")) {
+                    const tokens = line.split(/\s+/).slice(1);
+                    const vIdxs = [];
+                    for (let t = 0; t < tokens.length; t++) {
+                        const p = tokens[t].split("/")[0];
+                        const idx = parseInt(p, 10);
+                        if (!isNaN(idx)) {
+                            vIdxs.push(idx > 0 ? idx - 1 : rawVerts.length + idx);
+                        }
+                    }
+                    const count = vIdxs.length;
+                    for (let j = 0; j < count; j++) {
+                        const a = vIdxs[j];
+                        const b = vIdxs[(j + 1) % count];
+                        const key = a < b ? (a + "_" + b) : (b + "_" + a);
+                        if (!edgeSet.has(key)) {
+                            edgeSet.add(key);
+                            const vA = rawVerts[a];
+                            const vB = rawVerts[b];
+                            if (vA && vB) {
+                                linePositions.push(vA[0], vA[1], vA[2], vB[0], vB[1], vB[2]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (linePositions.length === 0) return null;
+            const edgeGeo = new THREE.BufferGeometry();
+            edgeGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(linePositions), 3));
+            return edgeGeo;
+        }
+
+        function getOrCreateRealEdgesGeo(geo) {
+            if (!geo) return null;
+            if (!geo.userData) geo.userData = {};
+            if (!geo.userData._realEdgesGeo) {
+                let realGeo = null;
+                if (geo.userData.rawObjText) {
+                    try {
+                        realGeo = parseObjToRealEdgesGeometry(
+                            geo.userData.rawObjText,
+                            geo.userData.center,
+                            geo.userData.scale
+                        );
+                    } catch (e) {
+                        console.warn("[Edges] Erro ao extrair arestas reais do OBJ:", e.message);
+                    }
+                }
+                // Fallback automático com EdgesGeometry (15 graus) para suprimir diagonais coplanares de quads
+                if (!realGeo) {
+                    realGeo = new THREE.EdgesGeometry(geo, 15);
+                }
+                geo.userData._realEdgesGeo = realGeo;
+            }
+            return geo.userData._realEdgesGeo;
+        }
 
         function getOrCreateWireframeGeo(geo) {
             if (!geo) return null;
@@ -349,10 +443,14 @@
             return geo.userData._wireGeo;
         }
 
-        // Overlay de Arestas e Vértices
-        const edgesMesh = new THREE.LineSegments(getOrCreateWireframeGeo(highPolyGeo), edgesMaterial);
+        // Overlays: Arestas Reais (Topologia), Triângulos da GPU e Vértices
+        const edgesMesh = new THREE.LineSegments(getOrCreateRealEdgesGeo(highPolyGeo), edgesMaterial);
         edgesMesh.visible = false;
         scene.add(edgesMesh);
+
+        const trianglesMesh = new THREE.LineSegments(getOrCreateWireframeGeo(highPolyGeo), trianglesMaterial);
+        trianglesMesh.visible = false;
+        scene.add(trianglesMesh);
 
         const pointsMesh = new THREE.Points(highPolyGeo, pointsMaterial);
         pointsMesh.visible = false;
@@ -399,6 +497,7 @@
                 targetMesh.rotation.y += deltaX * 0.008;
                 targetMesh.rotation.x += deltaY * 0.008;
                 if (edgesMesh) edgesMesh.rotation.copy(targetMesh.rotation);
+                if (trianglesMesh) trianglesMesh.rotation.copy(targetMesh.rotation);
                 if (pointsMesh) pointsMesh.rotation.copy(targetMesh.rotation);
             });
 
@@ -430,14 +529,16 @@
         const btnSnapPoly   = document.getElementById("btn-snap-poly");
         const btnSurface    = document.getElementById("btn-surface");
         const btnEdges      = document.getElementById("btn-edges");
+        const btnTriangles  = document.getElementById("btn-triangles");
         const btnVerts      = document.getElementById("btn-verts");
         const btnWire       = document.getElementById("btn-wireframe"); // fallback para compatibilidade
         const btnHeatmap    = document.getElementById("btn-heatmap");
         const heatmapSubbar = document.getElementById("heatmap-subbar");
 
-        let showSurface = true;
-        let showEdges   = false;
-        let showVerts   = false;
+        let showSurface   = true;
+        let showEdges     = false;
+        let showTriangles = false;
+        let showVerts     = false;
 
         function updateSurfaceMaterial() {
             if (!showSurface) {
@@ -452,10 +553,28 @@
             mesh.material.needsUpdate = true;
         }
 
+        function disposeGeo(geo) {
+            if (!geo) return;
+            if (geo.userData) {
+                if (geo.userData._realEdgesGeo) {
+                    geo.userData._realEdgesGeo.dispose();
+                    geo.userData._realEdgesGeo = null;
+                }
+                if (geo.userData._wireGeo) {
+                    geo.userData._wireGeo.dispose();
+                    geo.userData._wireGeo = null;
+                }
+            }
+            geo.dispose();
+        }
+
         function syncVisualOverlays() {
             const activeGeo = mesh.geometry;
             if (edgesMesh) {
-                edgesMesh.geometry = getOrCreateWireframeGeo(activeGeo);
+                edgesMesh.geometry = getOrCreateRealEdgesGeo(activeGeo);
+            }
+            if (trianglesMesh) {
+                trianglesMesh.geometry = getOrCreateWireframeGeo(activeGeo);
             }
             if (pointsMesh) {
                 pointsMesh.geometry = activeGeo;
@@ -517,11 +636,7 @@
         // ══════════════════════════════════════════════════════
         btnHigh.addEventListener("click", () => {
             if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo) {
-                if (currentSnapGeo.userData && currentSnapGeo.userData._wireGeo) {
-                    currentSnapGeo.userData._wireGeo.dispose();
-                    currentSnapGeo.userData._wireGeo = null;
-                }
-                currentSnapGeo.dispose();
+                disposeGeo(currentSnapGeo);
                 currentSnapGeo = null;
             }
             mesh.geometry = highPolyGeo;
@@ -542,11 +657,7 @@
         btnLow.addEventListener("click", () => {
             if (btnLow.disabled || !lowPolyGeo) return;
             if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo) {
-                if (currentSnapGeo.userData && currentSnapGeo.userData._wireGeo) {
-                    currentSnapGeo.userData._wireGeo.dispose();
-                    currentSnapGeo.userData._wireGeo = null;
-                }
-                currentSnapGeo.dispose();
+                disposeGeo(currentSnapGeo);
                 currentSnapGeo = null;
             }
             mesh.geometry = lowPolyGeo;
@@ -587,16 +698,16 @@
             });
         }
 
-        // Toggles de Modo: Superfície, Arestas e Vértices
+        // Toggles de Modo: Superfície, Arestas Reais, Triângulos e Vértices
         if (btnSurface) {
             btnSurface.addEventListener("click", () => {
-                if (showSurface && !showEdges && !showVerts) {
+                if (showSurface && !showEdges && !showTriangles && !showVerts) {
                     // Evita ecrã completamente vazio: se desligar a superfície, ativa as arestas
                     showEdges = true;
                     if (btnEdges) btnEdges.classList.add("active");
                     if (edgesMesh) {
                         edgesMesh.visible = true;
-                        edgesMesh.geometry = getOrCreateWireframeGeo(mesh.geometry);
+                        edgesMesh.geometry = getOrCreateRealEdgesGeo(mesh.geometry);
                     }
                 }
                 showSurface = !showSurface;
@@ -612,10 +723,28 @@
                 if (edgesMesh) {
                     edgesMesh.visible = showEdges;
                     if (showEdges) {
-                        edgesMesh.geometry = getOrCreateWireframeGeo(mesh.geometry);
+                        edgesMesh.geometry = getOrCreateRealEdgesGeo(mesh.geometry);
                     }
                 }
-                if (!showEdges && !showSurface && !showVerts) {
+                if (!showEdges && !showSurface && !showTriangles && !showVerts) {
+                    showSurface = true;
+                    if (btnSurface) btnSurface.classList.add("active");
+                    updateSurfaceMaterial();
+                }
+            });
+        }
+
+        if (btnTriangles) {
+            btnTriangles.addEventListener("click", () => {
+                showTriangles = !showTriangles;
+                btnTriangles.classList.toggle("active", showTriangles);
+                if (trianglesMesh) {
+                    trianglesMesh.visible = showTriangles;
+                    if (showTriangles) {
+                        trianglesMesh.geometry = getOrCreateWireframeGeo(mesh.geometry);
+                    }
+                }
+                if (!showTriangles && !showSurface && !showEdges && !showVerts) {
                     showSurface = true;
                     if (btnSurface) btnSurface.classList.add("active");
                     updateSurfaceMaterial();
@@ -633,7 +762,7 @@
                         pointsMesh.geometry = mesh.geometry;
                     }
                 }
-                if (!showVerts && !showSurface && !showEdges) {
+                if (!showVerts && !showSurface && !showEdges && !showTriangles) {
                     showSurface = true;
                     if (btnSurface) btnSurface.classList.add("active");
                     updateSurfaceMaterial();
@@ -947,10 +1076,16 @@
                                 const lowSize = new THREE.Vector3();
                                 parsedLowGeo.boundingBox.getSize(lowSize);
                                 const lowMaxDim = Math.max(lowSize.x, lowSize.y, lowSize.z);
+                                const lowScale = lowMaxDim > 0 ? (16 / lowMaxDim) : 1;
                                 if (lowMaxDim > 0) {
-                                    parsedLowGeo.scale(16 / lowMaxDim, 16 / lowMaxDim, 16 / lowMaxDim);
+                                    parsedLowGeo.scale(lowScale, lowScale, lowScale);
                                 }
                                 parsedLowGeo.computeVertexNormals();
+
+                                if (!parsedLowGeo.userData) parsedLowGeo.userData = {};
+                                parsedLowGeo.userData.center = lowCenter;
+                                parsedLowGeo.userData.scale = lowScale;
+                                parsedLowGeo.userData.rawObjText = lowPolyText;
 
                                 lowPolyGeo = parsedLowGeo;
                             }
@@ -996,6 +1131,15 @@
                         downloadObjFile(filename, result);
                         return;
                     }
+                }
+                if (activeView === "high" && rawObjText) {
+                    downloadObjFile("retopo_highpoly.obj", rawObjText);
+                    return;
+                }
+                // Descarregar o ficheiro OBJ original retornado pela API sem passar pelo conversor Three.js
+                if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
+                    downloadObjFile("retopo_lowpoly.obj", cachedSimplifiedObjText);
+                    return;
                 }
                 if (!window.THREE.OBJExporter) return;
                 const exporter = new THREE.OBJExporter();
@@ -1779,10 +1923,16 @@
                 const snapSize = new THREE.Vector3();
                 snapGeo.boundingBox.getSize(snapSize);
                 const snapMaxDim = Math.max(snapSize.x, snapSize.y, snapSize.z);
+                const snapScale = snapMaxDim > 0 ? (16 / snapMaxDim) : 1;
                 if (snapMaxDim > 0) {
-                    snapGeo.scale(16 / snapMaxDim, 16 / snapMaxDim, 16 / snapMaxDim);
+                    snapGeo.scale(snapScale, snapScale, snapScale);
                 }
                 snapGeo.computeVertexNormals();
+
+                if (!snapGeo.userData) snapGeo.userData = {};
+                snapGeo.userData.center = snapCenter;
+                snapGeo.userData.scale = snapScale;
+                snapGeo.userData.rawObjText = objText;
 
                 const intermStats = computeObjStats(objText);
                 loadGeometryIntoViewport(snapGeo, intermStats, label, dissolves);
