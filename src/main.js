@@ -286,18 +286,11 @@
             polygonOffsetUnits: 1
         });
 
-        // Materiais para Arestas Reais (Topologia), Triângulos (GPU) e Vértices
+        // Materiais para Arestas Reais (Topologia / Quads) e Vértices
         const edgesMaterial = new THREE.LineBasicMaterial({
             color: 0x38bdf8, // Ciano vivo para topologia real (quads/polígonos)
             transparent: true,
             opacity: 0.85,
-            depthTest: true
-        });
-
-        const trianglesMaterial = new THREE.LineBasicMaterial({
-            color: 0xa855f7, // Púrpura para visualização da triangulação da GPU
-            transparent: true,
-            opacity: 0.55,
             depthTest: true
         });
 
@@ -434,23 +427,10 @@
             return geo.userData._realEdgesGeo;
         }
 
-        function getOrCreateWireframeGeo(geo) {
-            if (!geo) return null;
-            if (!geo.userData) geo.userData = {};
-            if (!geo.userData._wireGeo) {
-                geo.userData._wireGeo = new THREE.WireframeGeometry(geo);
-            }
-            return geo.userData._wireGeo;
-        }
-
-        // Overlays: Arestas Reais (Topologia), Triângulos da GPU e Vértices
+        // Overlays: Arestas Reais (Topologia / Quads) e Vértices
         const edgesMesh = new THREE.LineSegments(getOrCreateRealEdgesGeo(highPolyGeo), edgesMaterial);
         edgesMesh.visible = false;
         scene.add(edgesMesh);
-
-        const trianglesMesh = new THREE.LineSegments(getOrCreateWireframeGeo(highPolyGeo), trianglesMaterial);
-        trianglesMesh.visible = false;
-        scene.add(trianglesMesh);
 
         const pointsMesh = new THREE.Points(highPolyGeo, pointsMaterial);
         pointsMesh.visible = false;
@@ -497,7 +477,6 @@
                 targetMesh.rotation.y += deltaX * 0.008;
                 targetMesh.rotation.x += deltaY * 0.008;
                 if (edgesMesh) edgesMesh.rotation.copy(targetMesh.rotation);
-                if (trianglesMesh) trianglesMesh.rotation.copy(targetMesh.rotation);
                 if (pointsMesh) pointsMesh.rotation.copy(targetMesh.rotation);
             });
 
@@ -529,16 +508,14 @@
         const btnSnapPoly   = document.getElementById("btn-snap-poly");
         const btnSurface    = document.getElementById("btn-surface");
         const btnEdges      = document.getElementById("btn-edges");
-        const btnTriangles  = document.getElementById("btn-triangles");
         const btnVerts      = document.getElementById("btn-verts");
         const btnWire       = document.getElementById("btn-wireframe"); // fallback para compatibilidade
         const btnHeatmap    = document.getElementById("btn-heatmap");
         const heatmapSubbar = document.getElementById("heatmap-subbar");
 
-        let showSurface   = true;
-        let showEdges     = false;
-        let showTriangles = false;
-        let showVerts     = false;
+        let showSurface = true;
+        let showEdges   = false;
+        let showVerts   = false;
 
         function updateSurfaceMaterial() {
             if (!showSurface) {
@@ -555,15 +532,9 @@
 
         function disposeGeo(geo) {
             if (!geo) return;
-            if (geo.userData) {
-                if (geo.userData._realEdgesGeo) {
-                    geo.userData._realEdgesGeo.dispose();
-                    geo.userData._realEdgesGeo = null;
-                }
-                if (geo.userData._wireGeo) {
-                    geo.userData._wireGeo.dispose();
-                    geo.userData._wireGeo = null;
-                }
+            if (geo.userData && geo.userData._realEdgesGeo) {
+                geo.userData._realEdgesGeo.dispose();
+                geo.userData._realEdgesGeo = null;
             }
             geo.dispose();
         }
@@ -572,9 +543,6 @@
             const activeGeo = mesh.geometry;
             if (edgesMesh) {
                 edgesMesh.geometry = getOrCreateRealEdgesGeo(activeGeo);
-            }
-            if (trianglesMesh) {
-                trianglesMesh.geometry = getOrCreateWireframeGeo(activeGeo);
             }
             if (pointsMesh) {
                 pointsMesh.geometry = activeGeo;
@@ -698,10 +666,10 @@
             });
         }
 
-        // Toggles de Modo: Superfície, Arestas Reais, Triângulos e Vértices
+        // Toggles de Modo: Superfície, Arestas Reais e Vértices
         if (btnSurface) {
             btnSurface.addEventListener("click", () => {
-                if (showSurface && !showEdges && !showTriangles && !showVerts) {
+                if (showSurface && !showEdges && !showVerts) {
                     // Evita ecrã completamente vazio: se desligar a superfície, ativa as arestas
                     showEdges = true;
                     if (btnEdges) btnEdges.classList.add("active");
@@ -726,25 +694,7 @@
                         edgesMesh.geometry = getOrCreateRealEdgesGeo(mesh.geometry);
                     }
                 }
-                if (!showEdges && !showSurface && !showTriangles && !showVerts) {
-                    showSurface = true;
-                    if (btnSurface) btnSurface.classList.add("active");
-                    updateSurfaceMaterial();
-                }
-            });
-        }
-
-        if (btnTriangles) {
-            btnTriangles.addEventListener("click", () => {
-                showTriangles = !showTriangles;
-                btnTriangles.classList.toggle("active", showTriangles);
-                if (trianglesMesh) {
-                    trianglesMesh.visible = showTriangles;
-                    if (showTriangles) {
-                        trianglesMesh.geometry = getOrCreateWireframeGeo(mesh.geometry);
-                    }
-                }
-                if (!showTriangles && !showSurface && !showEdges && !showVerts) {
+                if (!showEdges && !showSurface && !showVerts) {
                     showSurface = true;
                     if (btnSurface) btnSurface.classList.add("active");
                     updateSurfaceMaterial();
@@ -762,7 +712,7 @@
                         pointsMesh.geometry = mesh.geometry;
                     }
                 }
-                if (!showVerts && !showSurface && !showEdges && !showTriangles) {
+                if (!showVerts && !showSurface && !showEdges) {
                     showSurface = true;
                     if (btnSurface) btnSurface.classList.add("active");
                     updateSurfaceMaterial();
