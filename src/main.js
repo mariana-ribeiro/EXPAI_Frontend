@@ -387,6 +387,7 @@
             polygonOffsetFactor: 1,
             polygonOffsetUnits: 1
         });
+        heatmapMaterial.color.setHex(0xffffff);
 
         // Material Oclusor (para quando a superfície está invisível, ocultando faces traseiras para NUNCA piscar)
         const occluderMaterial = new THREE.MeshBasicMaterial({
@@ -421,9 +422,102 @@
 
         const objLoader = new THREE.OBJLoader();
 
+        function buildCustomOBJGeometry(objText) {
+            if (!objText || !objText.includes("v ")) return null;
+
+            const lines = objText.split(/\r?\n/);
+            const rawVerts = [];
+            const polygonFaces = [];
+
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line.startsWith("v ")) {
+                    const parts = line.split(/\s+/).slice(1).map(Number);
+                    const vx = parts[0], vy = parts[1], vz = parts[2];
+                    if (!isNaN(vx) && !isNaN(vy) && !isNaN(vz)) {
+                        if (vx < minX) minX = vx; if (vx > maxX) maxX = vx;
+                        if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
+                        if (vz < minZ) minZ = vz; if (vz > maxZ) maxZ = vz;
+                        rawVerts.push([vx, vy, vz]);
+                    }
+                } else if (line.startsWith("f ")) {
+                    const tokens = line.split(/\s+/).slice(1);
+                    const vIdxs = [];
+                    for (let t = 0; t < tokens.length; t++) {
+                        if (!tokens[t]) continue;
+                        const p = tokens[t].split("/")[0];
+                        const idx = parseInt(p, 10);
+                        if (!isNaN(idx)) {
+                            vIdxs.push(idx > 0 ? idx - 1 : rawVerts.length + idx);
+                        }
+                    }
+                    if (vIdxs.length >= 3) {
+                        polygonFaces.push(vIdxs);
+                    }
+                }
+            }
+
+            if (rawVerts.length === 0 || polygonFaces.length === 0) return null;
+
+            const cx = (minX + maxX) / 2;
+            const cy = (minY + maxY) / 2;
+            const cz = (minZ + maxZ) / 2;
+            const maxDim = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+            const scale = maxDim > 0 ? (16 / maxDim) : 1;
+
+            const positions = [];
+            const vertexIndices = [];
+            const triangleToFace = [];
+
+            for (let f = 0; f < polygonFaces.length; f++) {
+                const poly = polygonFaces[f];
+                const v0 = poly[0];
+                for (let j = 1; j < poly.length - 1; j++) {
+                    const v1 = poly[j];
+                    const v2 = poly[j + 1];
+
+                    const p0 = rawVerts[v0];
+                    const p1 = rawVerts[v1];
+                    const p2 = rawVerts[v2];
+
+                    if (!p0 || !p1 || !p2) continue;
+
+                    positions.push(
+                        (p0[0] - cx) * scale, (p0[1] - cy) * scale, (p0[2] - cz) * scale,
+                        (p1[0] - cx) * scale, (p1[1] - cy) * scale, (p1[2] - cz) * scale,
+                        (p2[0] - cx) * scale, (p2[1] - cy) * scale, (p2[2] - cz) * scale
+                    );
+                    vertexIndices.push(v0, v1, v2);
+                    triangleToFace.push(f);
+                }
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+            geo.computeVertexNormals();
+
+            const initCols = new Float32Array(positions.length);
+            initCols.fill(1.0);
+            geo.setAttribute("color", new THREE.BufferAttribute(initCols, 3));
+
+            if (!geo.userData) geo.userData = {};
+            geo.userData.center = new THREE.Vector3(cx, cy, cz);
+            geo.userData.scale = scale;
+            geo.userData.rawObjText = objText;
+            geo.userData.vertexIndices = vertexIndices;
+            geo.userData.triangleToFace = triangleToFace;
+            geo.userData.polygonFaces = polygonFaces;
+            geo.userData.rawVerts = rawVerts;
+
+            return geo;
+        }
+
         function buildHighPolyGeo(objText) {
-            let geo = null;
-            if (objText) {
+            let geo = buildCustomOBJGeometry(objText);
+            if (!geo && objText) {
                 try {
                     const parsedObj = objLoader.parse(objText);
                     parsedObj.traverse((child) => {
@@ -431,41 +525,33 @@
                             geo = child.geometry;
                         }
                     });
+                    if (geo) {
+                        geo.computeBoundingBox();
+                        const center = new THREE.Vector3();
+                        geo.boundingBox.getCenter(center);
+                        geo.translate(-center.x, -center.y, -center.z);
+                        const size = new THREE.Vector3();
+                        geo.boundingBox.getSize(size);
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const scale = maxDim > 0 ? (16 / maxDim) : 1;
+                        if (maxDim > 0) geo.scale(scale, scale, scale);
+                        geo.computeVertexNormals();
+                    }
                 } catch (err) {
                     console.warn("[Init] Erro ao parsear OBJ inicial:", err);
                 }
             }
-
             if (!geo) {
                 geo = new THREE.TorusKnotGeometry(8, 2.5, 128, 32);
+                geo.computeVertexNormals();
             }
-
-            // Centrar e normalizar escala da malha High Poly
-            geo.computeBoundingBox();
-            const center = new THREE.Vector3();
-            geo.boundingBox.getCenter(center);
-            geo.translate(-center.x, -center.y, -center.z);
-
-            const size = new THREE.Vector3();
-            geo.boundingBox.getSize(size);
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const scale = maxDim > 0 ? (16 / maxDim) : 1;
-            if (maxDim > 0) {
-                geo.scale(scale, scale, scale);
-            }
-            geo.computeVertexNormals();
-
-            // Garantir que a geometria tem o atributo color para suportar vertexColors instantâneo
             const posAttr = geo.attributes.position;
             if (posAttr && !geo.attributes.color) {
                 const initCols = new Float32Array(posAttr.count * 3);
                 initCols.fill(1.0);
                 geo.setAttribute("color", new THREE.BufferAttribute(initCols, 3));
             }
-
             if (!geo.userData) geo.userData = {};
-            geo.userData.center = center;
-            geo.userData.scale = scale;
             geo.userData.rawObjText = objText;
             return geo;
         }
@@ -643,9 +729,17 @@
         const sideBtnHeatmap = document.getElementById("side-btn-heatmap");
 
         let isGNNHeatmapActive = false;
+        let isDSSHeatmapActive = false;
+
+        function setDSSHeatmapActive(isActive) {
+            isDSSHeatmapActive = !!isActive;
+            if (isDSSHeatmapActive) isGNNHeatmapActive = false;
+            updateSurfaceMaterial();
+        }
 
         function setGNNHeatmapActive(isActive) {
             isGNNHeatmapActive = !!isActive;
+            if (isGNNHeatmapActive) isDSSHeatmapActive = false;
             const qaLegend = document.getElementById("qa-heatmap-legend");
             const qaLegendTitle = document.getElementById("qa-legend-title");
             const qaLegendMin = document.getElementById("qa-legend-min");
@@ -672,14 +766,8 @@
                     qaLegendMax.textContent = "1.0 (Alta)";
                     qaLegend.style.display = "flex";
                 }
-            } else {
-                const dssAngleBtn = document.getElementById("btn-dss-heatmap-angle");
-                const dssValBtn = document.getElementById("btn-dss-heatmap-valence");
-                const isDSSHeatmapActive = (dssAngleBtn && dssAngleBtn.classList.contains("active")) ||
-                                          (dssValBtn && dssValBtn.classList.contains("active"));
-                if (!isDSSHeatmapActive && qaLegend) {
-                    qaLegend.style.display = "none";
-                }
+            } else if (!isDSSHeatmapActive && qaLegend) {
+                qaLegend.style.display = "none";
             }
 
             updateSurfaceMaterial();
@@ -694,16 +782,38 @@
         let showVerts   = false;
 
         function updateSurfaceMaterial() {
+            const isHeatmapActive = (activeView === "high" && isGNNHeatmapActive) ||
+                                    ((activeView === "low" || activeView === "snapshot") && isDSSHeatmapActive);
+
             if (!showSurface) {
                 mesh.material = occluderMaterial;
             } else {
-                if (activeView === "high" && isGNNHeatmapActive) {
+                if (isHeatmapActive) {
                     mesh.material = heatmapMaterial;
+                    heatmapMaterial.vertexColors = true;
+                    heatmapMaterial.color.setHex(0xffffff);
+                    heatmapMaterial.needsUpdate = true;
                 } else {
                     mesh.material = baseMaterial;
                 }
             }
             mesh.material.needsUpdate = true;
+
+            // Quando o heatmap está ativo, oculta os pontos amarelos e suaviza as arestas para não degradar a visualização térmica
+            if (isHeatmapActive) {
+                if (pointsMesh) pointsMesh.visible = false;
+                if (edgesMesh && showEdges) {
+                    edgesMaterial.color.setHex(0x0f172a);
+                    edgesMaterial.opacity = 0.35;
+                }
+            } else {
+                if (pointsMesh) pointsMesh.visible = showVerts;
+                if (edgesMesh) {
+                    edgesMesh.visible = showEdges;
+                    edgesMaterial.color.setHex(0x38bdf8);
+                    edgesMaterial.opacity = 0.85;
+                }
+            }
         }
 
         function disposeGeo(geo) {
@@ -733,8 +843,16 @@
             }
         }
 
-        let currentSnapGeo   = null;
-        let currentSnapStats = null;
+        let currentSnapGeo        = null;
+        let currentSnapStats      = null;
+        let currentSnapDissolves  = null;
+        let currentSnapStep       = null;
+        let currentSnapEfficiency = null;
+
+        window.getActiveView = () => activeView;
+        window.getCurrentSnapDissolves = () => currentSnapDissolves;
+        window.getCurrentSnapStats = () => currentSnapStats;
+        window.getCurrentSnapObjText = () => currentSnapGeo?.userData?.rawObjText || null;
 
         const valTris       = document.getElementById("val-tris");
         const valVerts      = document.getElementById("val-verts");
@@ -760,6 +878,19 @@
         const sideGnnBarLow   = document.getElementById("side-gnn-bar-low");
         const sideGnnBadge    = document.getElementById("side-gnn-badge");
 
+        // Elementos Expandidos do Painel Lateral
+        const origFacesVal         = document.getElementById("orig-faces-val");
+        const origVertsVal         = document.getElementById("orig-verts-val");
+        const origEdgesVal         = document.getElementById("orig-edges-val");
+        const origWatertightVal    = document.getElementById("orig-watertight-val");
+        const origManifoldVal      = document.getElementById("orig-manifold-val");
+        const origBoundaryVal      = document.getElementById("orig-boundary-val");
+        const sideOrigStepsVal     = document.getElementById("side-orig-steps-val");
+
+        const sideCompFacesBefore  = document.getElementById("side-comp-faces-before");
+        const sideCompFacesAfter   = document.getElementById("side-comp-faces-after");
+        const sideRLEfficiency     = document.getElementById("side-rl-efficiency");
+
         const sideHighInfo  = document.getElementById("side-high-info");
         const sideLowInfo   = document.getElementById("side-low-info");
 
@@ -784,6 +915,20 @@
             realStats.low.faces = 0;
 
             updateFloatingStats(realStats.high.verts, realStats.high.faces);
+
+            // Estatísticas da Malha Original
+            if (origFacesVal) origFacesVal.textContent = realStats.high.faces.toLocaleString();
+            if (origVertsVal) origVertsVal.textContent = realStats.high.verts.toLocaleString();
+            if (origEdgesVal) origEdgesVal.textContent = Math.round(realStats.high.faces * 1.5).toLocaleString();
+            if (origWatertightVal) origWatertightVal.textContent = "Sim";
+            if (origManifoldVal) origManifoldVal.textContent = "Sim";
+            if (origBoundaryVal) origBoundaryVal.textContent = "0";
+            if (sideOrigStepsVal) sideOrigStepsVal.textContent = `${inputMaxSteps?.value || 100} iterações`;
+
+            // Comparativos RL
+            if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
+            if (sideCompFacesAfter) sideCompFacesAfter.textContent = "⏳ A otimizar...";
+            if (sideRLEfficiency) sideRLEfficiency.textContent = "--%";
 
             if (sideHighInfo) {
                 sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} vértices`;
@@ -952,6 +1097,19 @@
             lowPolyGeo = null;
             currentSnapGeo = null;
             currentSnapStats = null;
+            currentSnapDissolves = null;
+            currentSnapStep = null;
+            currentSnapEfficiency = null;
+            realStats.low.faces = 0;
+            realStats.low.verts = 0;
+            realStats.low.dissolves = 0;
+            realStats.low.steps = 0;
+            realStats.low.efficiencyText = "--%";
+            realStats.low.reduction = "0%";
+            if (btnSnapPoly) {
+                btnSnapPoly.style.display = "none";
+                btnSnapPoly.classList.remove("active");
+            }
             activeView = "high";
 
             mesh.geometry = highPolyGeo;
@@ -969,11 +1127,6 @@
             ensureGNNHeatmap().catch(err => console.warn("[GNN Auto] Erro no cálculo automático:", err));
             const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
             runRLDecimation(initialSteps);
-
-            // 4. Iniciar análise DSS da nova malha original (snapshot 0)
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                window.MeshQA.runAnalysis(newModelId, 0);
-            }
         }
 
         window.RetopoViewer = {
@@ -987,6 +1140,9 @@
             baseMaterial: baseMaterial,
             heatmapMaterial: heatmapMaterial,
             occluderMaterial: occluderMaterial,
+            setDSSHeatmapActive: setDSSHeatmapActive,
+            isDSSHeatmapActive: () => isDSSHeatmapActive,
+            updateSurfaceMaterial: updateSurfaceMaterial,
             getHighPolyGeo: () => highPolyGeo,
             getLowPolyGeo: () => lowPolyGeo,
             setLowPolyGeo: (geo) => { lowPolyGeo = geo; },
@@ -1018,43 +1174,261 @@
         btnLow.innerText = "🔒 A Otimizar...";
 
         // ══════════════════════════════════════════════════════
-        //  CONTROLOS DE VISUALIZAÇÃO (ORIGINAL, LOW, SNAPSHOT, MODOS)
+        //  CONTROLOS DE VISUALIZAÇÃO (ORIGINAL, LOW, SNAPSHOT, DSS)
         // ══════════════════════════════════════════════════════
+        let previousSidebarContext = "low";
+        let activeSidebarContext = "high";
+
         function updateSidebarContext(viewMode) {
-            const secGnn = document.getElementById("section-gnn");
-            const secRl = document.getElementById("section-rl");
-            const secDss = document.getElementById("section-dss");
-            const secExport = document.getElementById("section-export");
+            const contextHigh = document.getElementById("sidebar-context-high");
+            const contextLow  = document.getElementById("sidebar-context-low");
+            const contextDss  = document.getElementById("sidebar-context-dss");
+
+            if (viewMode !== "dss") {
+                previousSidebarContext = viewMode;
+            }
+            activeSidebarContext = viewMode;
 
             if (viewMode === "high") {
-                if (secGnn) secGnn.style.display = "block";
-                if (secRl) secRl.style.display = "none";
-                if (secDss) secDss.style.display = "none";
-                if (secExport) secExport.style.display = "none";
+                if (btnHigh) btnHigh.classList.add("active");
+                if (btnLow) btnLow.classList.remove("active");
+                if (btnSnapPoly) btnSnapPoly.classList.remove("active");
+                if (contextHigh) contextHigh.style.setProperty("display", "flex", "important");
+                if (contextLow) contextLow.style.setProperty("display", "none", "important");
+                if (contextDss) contextDss.style.setProperty("display", "none", "important");
             } else if (viewMode === "low") {
-                if (secGnn) secGnn.style.display = "none";
-                if (secRl) secRl.style.display = "block";
-                if (secDss) secDss.style.display = "block";
-                if (secExport) secExport.style.display = "block";
+                if (btnLow) btnLow.classList.add("active");
+                if (btnHigh) btnHigh.classList.remove("active");
+                if (btnSnapPoly) btnSnapPoly.classList.remove("active");
+                if (contextHigh) contextHigh.style.setProperty("display", "none", "important");
+                if (contextLow) contextLow.style.setProperty("display", "flex", "important");
+                if (contextDss) contextDss.style.setProperty("display", "none", "important");
+
+                // Banner
+                const optTitle = document.getElementById("side-opt-title");
+                const optSub = document.getElementById("side-opt-subtitle");
+                const optTag = document.getElementById("side-opt-tag");
+                const optIcon = document.getElementById("side-opt-icon");
+                if (optTitle) optTitle.textContent = "Otimizado (Low Poly)";
+                if (optSub) optSub.textContent = "Topologia Simplificada por Reinforcement Learning";
+                if (optTag) { optTag.textContent = "OTIMIZADO"; optTag.className = "badge-tag green"; }
+                if (optIcon) optIcon.textContent = "⚡";
+
+                // Módulo A: Performance RL
+                if (sideReduction) {
+                    sideReduction.textContent = realStats.low.reduction || (realStats.high.faces > 0 && realStats.low.faces > 0 
+                        ? `${Math.max(0, (1 - (realStats.low.faces / realStats.high.faces)) * 100).toFixed(1)}%`
+                        : "--");
+                    sideReduction.className = "cell-val text-green";
+                }
+                if (sideDissolves) {
+                    sideDissolves.textContent = realStats.low.dissolves ?? "--";
+                }
+                if (sideSteps) {
+                    sideSteps.textContent = realStats.low.steps ?? "--";
+                }
+                if (sideCompFacesBefore) {
+                    sideCompFacesBefore.textContent = realStats.high.faces > 0 ? realStats.high.faces.toLocaleString() : "--";
+                }
+                if (sideCompFacesAfter) {
+                    sideCompFacesAfter.textContent = realStats.low.faces > 0 ? realStats.low.faces.toLocaleString() : "--";
+                    sideCompFacesAfter.style.color = "#34d399";
+                }
+                if (sideRLEfficiency) {
+                    sideRLEfficiency.textContent = realStats.low.efficiencyText || "--%";
+                }
+
+                // Módulo B: Auditoria DSS
+                const qaTitle = document.getElementById("qa-target-title");
+                if (qaTitle) {
+                    qaTitle.textContent = "Malha Otimizada";
+                    qaTitle.style.color = "#38bdf8";
+                }
+                const dssDrawerTitle = document.getElementById("dss-drawer-target-title");
+                if (dssDrawerTitle) dssDrawerTitle.textContent = "Malha Otimizada Final";
+                if (window.MeshQA && typeof window.MeshQA.syncTargetMesh === "function") {
+                    window.MeshQA.syncTargetMesh(null);
+                }
+
+                // Módulo C: Exportação
+                const sideLowLabel = document.getElementById("side-low-info-label");
+                if (sideLowLabel) sideLowLabel.textContent = "OTIMIZADO (LOW):";
+                if (sideHighInfo) {
+                    sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} v`;
+                }
+                if (sideLowInfo) {
+                    sideLowInfo.textContent = realStats.low.faces > 0 
+                        ? `${realStats.low.faces.toLocaleString()} faces / ${realStats.low.verts.toLocaleString()} vértices`
+                        : "--";
+                    sideLowInfo.style.color = "#34d399";
+                }
+                const expBtn = document.getElementById("btn-export");
+                if (expBtn) expBtn.innerHTML = "<span>💾 Exportar Low Poly (.obj)</span>";
+
             } else if (viewMode === "snapshot") {
-                if (secGnn) secGnn.style.display = "none";
-                if (secRl) secRl.style.display = "block";
-                if (secDss) secDss.style.display = "block";
-                if (secExport) secExport.style.display = "block";
+                if (btnSnapPoly) btnSnapPoly.classList.add("active");
+                if (btnHigh) btnHigh.classList.remove("active");
+                if (btnLow) btnLow.classList.remove("active");
+                if (contextHigh) contextHigh.style.setProperty("display", "none", "important");
+                if (contextLow) contextLow.style.setProperty("display", "flex", "important");
+                if (contextDss) contextDss.style.setProperty("display", "none", "important");
+
+                const snapFaces = currentSnapStats?.faces || (currentSnapGeo?.attributes?.position ? Math.round(currentSnapGeo.attributes.position.count / 3) : 0);
+                const snapVerts = currentSnapStats?.verts || (currentSnapGeo?.attributes?.position ? currentSnapGeo.attributes.position.count : 0);
+                const snapDiss = (currentSnapDissolves !== null && currentSnapDissolves !== undefined) ? currentSnapDissolves : "--";
+
+                // Banner
+                const optTitle = document.getElementById("side-opt-title");
+                const optSub = document.getElementById("side-opt-subtitle");
+                const optTag = document.getElementById("side-opt-tag");
+                const optIcon = document.getElementById("side-opt-icon");
+                if (optTitle) optTitle.textContent = `Snapshot #${snapDiss} (${snapDiss} Dissolves)`;
+                if (optSub) optSub.textContent = `Marco Intermédio da Execução RL • ${snapFaces ? snapFaces.toLocaleString() : "--"} Faces`;
+                if (optTag) { optTag.textContent = "SNAPSHOT"; optTag.className = "badge-tag purple"; }
+                if (optIcon) optIcon.textContent = "📸";
+
+                // Módulo A: Performance RL
+                if (sideReduction) {
+                    if (realStats.high.faces > 0 && snapFaces > 0) {
+                        const rawRed = ((1 - (snapFaces / realStats.high.faces)) * 100);
+                        sideReduction.textContent = rawRed >= 1 ? `${Math.round(rawRed)}%` : `${Math.max(0, rawRed).toFixed(1)}%`;
+                    } else {
+                        sideReduction.textContent = "--%";
+                    }
+                    sideReduction.className = "cell-val text-purple";
+                }
+                if (sideDissolves) {
+                    sideDissolves.textContent = snapDiss;
+                }
+                if (sideSteps) {
+                    sideSteps.textContent = currentSnapStep || snapDiss || "--";
+                }
+                if (sideCompFacesBefore) {
+                    sideCompFacesBefore.textContent = realStats.high.faces > 0 ? realStats.high.faces.toLocaleString() : "--";
+                }
+                if (sideCompFacesAfter) {
+                    sideCompFacesAfter.textContent = snapFaces > 0 ? snapFaces.toLocaleString() : "--";
+                    sideCompFacesAfter.style.color = "#c084fc";
+                }
+                if (sideRLEfficiency) {
+                    if (currentSnapEfficiency) {
+                        sideRLEfficiency.textContent = currentSnapEfficiency;
+                    } else if (currentSnapStep && currentSnapDissolves) {
+                        const eff = Math.min(100, Math.round((currentSnapDissolves / currentSnapStep) * 100));
+                        sideRLEfficiency.textContent = `${eff}% aceites`;
+                    } else {
+                        sideRLEfficiency.textContent = "Intermédio";
+                    }
+                }
+
+                // Módulo B: Auditoria DSS
+                const qaTitle = document.getElementById("qa-target-title");
+                if (qaTitle) {
+                    qaTitle.textContent = `Snapshot #${snapDiss}`;
+                    qaTitle.style.color = "#c084fc";
+                }
+                const dssDrawerTitle = document.getElementById("dss-drawer-target-title");
+                if (dssDrawerTitle) dssDrawerTitle.textContent = `Snapshot #${snapDiss} (${snapDiss} Dissolves)`;
+                if (window.MeshQA && typeof window.MeshQA.syncTargetMesh === "function") {
+                    window.MeshQA.syncTargetMesh(currentSnapDissolves);
+                }
+
+                // Módulo C: Exportação
+                const sideLowLabel = document.getElementById("side-low-info-label");
+                if (sideLowLabel) sideLowLabel.textContent = `SNAPSHOT (#${snapDiss}):`;
+                if (sideHighInfo) {
+                    sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} v`;
+                }
+                if (sideLowInfo) {
+                    sideLowInfo.textContent = snapFaces > 0 
+                        ? `${snapFaces.toLocaleString()} faces / ${snapVerts.toLocaleString()} vértices`
+                        : "--";
+                    sideLowInfo.style.color = "#c084fc";
+                }
+                const expBtn = document.getElementById("btn-export");
+                if (expBtn) expBtn.innerHTML = `<span>💾 Descarregar Snapshot #${snapDiss} (.obj)</span>`;
+
+            } else if (viewMode === "dss") {
+                if (contextHigh) contextHigh.style.setProperty("display", "none", "important");
+                if (contextLow) contextLow.style.setProperty("display", "none", "important");
+                if (contextDss) contextDss.style.setProperty("display", "flex", "important");
             }
         }
 
-        btnHigh.addEventListener("click", () => {
-            if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo) {
-                disposeGeo(currentSnapGeo);
-                currentSnapGeo = null;
+        window.updateSidebarContext = updateSidebarContext;
+        window.getPreviousSidebarContext = () => previousSidebarContext;
+
+        async function loadSnapshotInto3D(snap, dissolves) {
+            let loaded = false;
+            const stepNum = snap?.step || (snap?.is_intermediate ? Math.round((realStats.low.steps || 100) / 2) : realStats.low.steps || dissolves);
+            const effTxt = (snap?.step && dissolves) ? `${Math.min(100, Math.round((dissolves / snap.step) * 100))}% aceites` : null;
+
+            if (snap?.is_current && lowPolyGeo) {
+                loadGeometryIntoViewport(
+                    lowPolyGeo,
+                    { faces: realStats.low.faces || realStats.high.faces, verts: realStats.low.verts || realStats.high.verts },
+                    `Malha Otimizada Atual (${dissolves} dissolves)`,
+                    dissolves,
+                    stepNum,
+                    effTxt
+                );
+                return true;
             }
-            mesh.geometry = highPolyGeo;
-            updateSurfaceMaterial();
-            syncVisualOverlays();
-            btnHigh.classList.add("active");
-            btnLow.classList.remove("active");
-            if (btnSnapPoly) btnSnapPoly.classList.remove("active");
+
+            let objText = null;
+            if (!snap?.is_current) {
+                try {
+                    const snapData = await RetopoAPI.getRLSnapshot(currentModelId, dissolves);
+                    objText = extractObjFromSnap(snapData);
+                } catch (e) {
+                    console.warn(`[Snapshot] Endpoint /snapshots/${dissolves}:`, e.message);
+                }
+            }
+
+            if (!objText || !objText.includes("v ")) {
+                if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
+                    objText = cachedSimplifiedObjText;
+                } else {
+                    try {
+                        objText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
+                        if (objText && objText.includes("v ")) {
+                            cachedSimplifiedObjText = objText;
+                        }
+                    } catch (_) {}
+                }
+            }
+
+            if (objText && objText.includes("v ")) {
+                loadMeshIntoViewport(objText, `Snapshot ${dissolves} Dissolves`, dissolves, stepNum, effTxt);
+                return true;
+            }
+
+            if (highPolyGeo) {
+                const fallbackGeo = lowPolyGeo ? lowPolyGeo.clone() : highPolyGeo.clone();
+                const estFaces = realStats.low.faces || Math.max(1, realStats.high.faces - (dissolves * 2));
+                const estVerts = realStats.low.verts || Math.max(1, realStats.high.verts - dissolves);
+                loadGeometryIntoViewport(fallbackGeo, { faces: estFaces, verts: estVerts }, `Snapshot (${dissolves} dissolves)`, dissolves, stepNum, effTxt);
+                return true;
+            }
+            return false;
+        }
+
+        function renderDssSnapshotTimeline() {}
+        window.renderDssSnapshotTimeline = renderDssSnapshotTimeline;
+
+        btnHigh.addEventListener("click", () => {
+            try {
+                mesh.geometry = highPolyGeo;
+                setDSSHeatmapActive(false);
+                if (window.MeshQA && typeof window.MeshQA.resetViewMode === "function") {
+                    window.MeshQA.resetViewMode();
+                }
+                updateSurfaceMaterial();
+                syncVisualOverlays();
+            } catch (err) {
+                console.warn("[btnHigh] Erro Three.js:", err);
+            }
+
             activeView = "high";
             updateSidebarContext("high");
             updateFloatingStats(realStats.high.verts, realStats.high.faces);
@@ -1062,23 +1436,42 @@
                 rlStatusBadge.className = "status-badge online";
                 rlStatusBadge.textContent = "Visualizando: Original (High Poly)";
             }
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && currentModelId) {
-                window.MeshQA.runAnalysis(currentModelId, 0);
-            }
         });
 
         btnLow.addEventListener("click", () => {
-            if (btnLow.disabled || !lowPolyGeo) return;
-            if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo) {
-                disposeGeo(currentSnapGeo);
-                currentSnapGeo = null;
+            if (btnLow.disabled || !lowPolyGeo) {
+                if (rlStatusBadge) {
+                    rlStatusBadge.className = "status-badge working";
+                    rlStatusBadge.textContent = "⏳ RL a decorrer... A malha otimizada estará disponível em instantes";
+                }
+                return;
             }
-            mesh.geometry = lowPolyGeo;
-            updateSurfaceMaterial();
-            syncVisualOverlays();
-            btnLow.classList.add("active");
-            btnHigh.classList.remove("active");
-            if (btnSnapPoly) btnSnapPoly.classList.remove("active");
+
+            try {
+                mesh.geometry = lowPolyGeo;
+
+                // O low poly aparece automaticamente com Superfície + Arestas + Vértices
+                showSurface = true;
+                showEdges = true;
+                showVerts = true;
+                if (btnSurface) btnSurface.classList.add("active");
+                if (btnEdges) btnEdges.classList.add("active");
+                if (btnVerts) btnVerts.classList.add("active");
+                if (edgesMesh) edgesMesh.visible = true;
+                if (pointsMesh) pointsMesh.visible = true;
+
+                // O low poly NÃO pode aparecer automaticamente com o DSS (apenas se ativado expressamente)
+                setDSSHeatmapActive(false);
+                if (window.MeshQA && typeof window.MeshQA.resetViewMode === "function") {
+                    window.MeshQA.resetViewMode();
+                }
+
+                updateSurfaceMaterial();
+                syncVisualOverlays();
+            } catch (err) {
+                console.warn("[btnLow] Erro Three.js:", err);
+            }
+
             activeView = "low";
             updateSidebarContext("low");
             updateFloatingStats(realStats.low.verts, realStats.low.faces);
@@ -1086,20 +1479,41 @@
                 rlStatusBadge.className = "status-badge online";
                 rlStatusBadge.textContent = "Visualizando: Otimizado (Low Poly)";
             }
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && currentModelId) {
-                window.MeshQA.runAnalysis(currentModelId, null);
-            }
         });
 
         if (btnSnapPoly) {
             btnSnapPoly.addEventListener("click", () => {
                 if (!currentSnapGeo) return;
-                mesh.geometry = currentSnapGeo;
-                updateSurfaceMaterial();
-                syncVisualOverlays();
-                btnSnapPoly.classList.add("active");
-                btnHigh.classList.remove("active");
-                btnLow.classList.remove("active");
+                try {
+                    mesh.geometry = currentSnapGeo;
+
+                    // Snapshot intermédio também com Superfície + Arestas + Vértices
+                    showSurface = true;
+                    showEdges = true;
+                    showVerts = true;
+                    if (btnSurface) btnSurface.classList.add("active");
+                    if (btnEdges) btnEdges.classList.add("active");
+                    if (btnVerts) btnVerts.classList.add("active");
+                    if (edgesMesh) {
+                        edgesMesh.visible = true;
+                        edgesMesh.geometry = getOrCreateRealEdgesGeo(currentSnapGeo);
+                    }
+                    if (pointsMesh) {
+                        pointsMesh.visible = true;
+                        pointsMesh.geometry = currentSnapGeo;
+                    }
+
+                    setDSSHeatmapActive(false);
+                    if (window.MeshQA && typeof window.MeshQA.resetViewMode === "function") {
+                        window.MeshQA.resetViewMode();
+                    }
+
+                    updateSurfaceMaterial();
+                    syncVisualOverlays();
+                } catch (err) {
+                    console.warn("[btnSnapPoly] Erro Three.js:", err);
+                }
+
                 activeView = "snapshot";
                 updateSidebarContext("snapshot");
                 if (currentSnapStats) {
@@ -1206,7 +1620,9 @@
         }
 
         function createHeatmapColors(scoreEntries) {
+            if (!highPolyGeo) return;
             const posAttr = highPolyGeo.attributes.position;
+            const vertexIndices = highPolyGeo.userData ? highPolyGeo.userData.vertexIndices : null;
             const colors = new Float32Array(posAttr.count * 3);
 
             let minImp = Infinity;
@@ -1223,7 +1639,8 @@
             for (let i = 0; i < posAttr.count; i++) {
                 let norm = 0.5;
                 if (scoreEntries && scoreEntries.length > 0) {
-                    const s = scoreEntries[i < scoreEntries.length ? i : (i % scoreEntries.length)];
+                    const origV = vertexIndices ? vertexIndices[i] : (i % scoreEntries.length);
+                    const s = (origV !== undefined && origV < scoreEntries.length) ? scoreEntries[origV] : scoreEntries[origV % scoreEntries.length];
                     norm = (s.imp - minImp) / (maxImp - minImp || 1);
                 } else {
                     const y = posAttr.getY(i);
@@ -1238,6 +1655,7 @@
             highPolyGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
             highPolyGeo.attributes.color.needsUpdate = true;
             heatmapMaterial.vertexColors = true;
+            heatmapMaterial.color.setHex(0xffffff);
             heatmapMaterial.needsUpdate = true;
             if (isGNNHeatmapActive && activeView === "high") {
                 applyHeatmapToMesh();
@@ -1453,6 +1871,19 @@
 
                     realStats.low.faces = typeof finalFaces === "number" ? finalFaces : realStats.high.faces;
                     realStats.low.verts = typeof finalVerts === "number" ? finalVerts : realStats.high.verts;
+                    realStats.low.dissolves = acceptedDissolves;
+                    realStats.low.steps = simplifyResult?.steps || stepsToRun || 100;
+
+                    if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
+                    if (sideCompFacesAfter) {
+                        sideCompFacesAfter.textContent = typeof finalFaces === "number" ? finalFaces.toLocaleString() : finalFaces;
+                    }
+                    if (sideRLEfficiency) {
+                        const totalSteps = simplifyResult?.steps || stepsToRun || 100;
+                        const eff = Math.min(100, Math.round(((acceptedDissolves || 0) / totalSteps) * 100));
+                        sideRLEfficiency.textContent = `${eff}% aceites`;
+                        realStats.low.efficiencyText = `${eff}% aceites`;
+                    }
 
                     if (sideLowInfo) {
                         const fStr = typeof finalFaces === "number" ? finalFaces.toLocaleString() : finalFaces;
@@ -1467,12 +1898,15 @@
                                 ? `${Math.round(rawRed)}%`
                                 : `${Math.max(0, rawRed).toFixed(1)}%`;
                             sideReduction.textContent = formatted;
+                            realStats.low.reduction = formatted;
                         } else if (realStats.high.faces > 0 && typeof finalFaces === "number") {
                             const rawRed = ((1 - (finalFaces / realStats.high.faces)) * 100);
                             const formatted = rawRed >= 1 ? `${Math.round(rawRed)}%` : `${Math.max(0, rawRed).toFixed(1)}%`;
                             sideReduction.textContent = formatted;
+                            realStats.low.reduction = formatted;
                         } else {
                             sideReduction.textContent = "0%";
+                            realStats.low.reduction = "0%";
                         }
                     }
 
@@ -1512,38 +1946,17 @@
                                     ? `${Math.round(rawRed)}%`
                                     : `${Math.max(0, rawRed).toFixed(1)}%`;
                                 sideReduction.textContent = formatted;
+                                realStats.low.reduction = formatted;
                             }
 
-                            // Carregar geometria no Three.js
-                            const parsedLow = objLoader.parse(lowPolyText);
-                            let parsedLowGeo = null;
-                            parsedLow.traverse((child) => {
-                                if (child.isMesh && !parsedLowGeo) {
-                                    parsedLowGeo = child.geometry;
-                                }
-                            });
-
+                            // Carregar geometria no Three.js com mapeamento estrito de topologia
+                            const parsedLowGeo = buildCustomOBJGeometry(lowPolyText);
                             if (parsedLowGeo) {
-                                parsedLowGeo.computeBoundingBox();
-                                const lowCenter = new THREE.Vector3();
-                                parsedLowGeo.boundingBox.getCenter(lowCenter);
-                                parsedLowGeo.translate(-lowCenter.x, -lowCenter.y, -lowCenter.z);
-
-                                const lowSize = new THREE.Vector3();
-                                parsedLowGeo.boundingBox.getSize(lowSize);
-                                const lowMaxDim = Math.max(lowSize.x, lowSize.y, lowSize.z);
-                                const lowScale = lowMaxDim > 0 ? (16 / lowMaxDim) : 1;
-                                if (lowMaxDim > 0) {
-                                    parsedLowGeo.scale(lowScale, lowScale, lowScale);
+                                if (lowPolyGeo && lowPolyGeo !== highPolyGeo && lowPolyGeo !== currentSnapGeo) {
+                                    disposeGeo(lowPolyGeo);
                                 }
-                                parsedLowGeo.computeVertexNormals();
-
-                                if (!parsedLowGeo.userData) parsedLowGeo.userData = {};
-                                parsedLowGeo.userData.center = lowCenter;
-                                parsedLowGeo.userData.scale = lowScale;
-                                parsedLowGeo.userData.rawObjText = lowPolyText;
-
                                 lowPolyGeo = parsedLowGeo;
+                                getOrCreateRealEdgesGeo(lowPolyGeo);
                             }
                         }
                     } catch (err) {
@@ -1553,19 +1966,15 @@
                     // Fallback para geometria Low Poly caso a API ainda não tenha o ficheiro OBJ gerado
                     if (!lowPolyGeo && highPolyGeo) {
                         lowPolyGeo = highPolyGeo.clone();
-                    }
-
-                    // Executar auditoria DSS simultânea da malha otimizada resultante
-                    if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                        window.MeshQA.runAnalysis(currentModelId);
+                        getOrCreateRealEdgesGeo(lowPolyGeo);
                     }
 
                     // Desbloquear botão Low Poly
                     btnLow.disabled = false;
                     btnLow.style.opacity = "1";
                     btnLow.style.cursor = "pointer";
-                    btnLow.innerText = "Otimizado (Low)";
-                    btnLow.style.boxShadow = "0 0 10px rgba(59, 130, 246, 0.5)";
+                    btnLow.innerText = "⚡ Otimizado (Low)";
+                    btnLow.style.boxShadow = "";
 
                     // Apresentar automaticamente a malha otimizada ao utilizador!
                     btnLow.click();
@@ -1578,9 +1987,6 @@
         if (currentModelId) {
             const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
             runRLDecimation(initialSteps);
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                window.MeshQA.runAnalysis(currentModelId, 0);
-            }
             updateSidebarContext("high");
         }
 
@@ -1591,10 +1997,15 @@
         if (btnExport) {
             btnExport.addEventListener("click", () => {
                 if (activeView === "snapshot" && currentSnapGeo) {
+                    const snapDiss = (currentSnapDissolves !== null && currentSnapDissolves !== undefined) ? currentSnapDissolves : (currentSnapStats?.faces || "snap");
+                    if (currentSnapGeo.userData && currentSnapGeo.userData.rawObjText) {
+                        downloadObjFile(`retopo_snapshot_${snapDiss}dissolves.obj`, currentSnapGeo.userData.rawObjText);
+                        return;
+                    }
                     if (window.THREE.OBJExporter) {
                         const exporter = new THREE.OBJExporter();
                         const result = exporter.parse(mesh);
-                        const filename = `retopo_snapshot_${currentSnapStats?.faces || "intermedio"}_faces.obj`;
+                        const filename = `retopo_snapshot_${snapDiss}dissolves.obj`;
                         downloadObjFile(filename, result);
                         return;
                     }
@@ -1798,12 +2209,11 @@
 
             const lightboxBtnDSS = document.getElementById("lightbox-btn-dss");
             if (lightboxBtnDSS) {
-                lightboxBtnDSS.onclick = () => {
+                lightboxBtnDSS.onclick = async () => {
                     closeSnapshotLightbox();
                     closeActionLog();
-                    if (window.MeshQA && window.MeshQA.switchSidebarTab) {
-                        window.MeshQA.switchSidebarTab("dss");
-                    }
+                    await loadSnapshotInto3D(info, info.dissolves);
+                    updateSidebarContext("dss");
                     if (window.MeshQA && window.MeshQA.runAnalysis) {
                         window.MeshQA.runAnalysis(currentModelId, info.dissolves);
                     }
@@ -2047,9 +2457,8 @@
                     btnDSS.addEventListener("click", async (e) => {
                         e.stopPropagation();
                         closeActionLog();
-                        if (window.MeshQA && window.MeshQA.switchSidebarTab) {
-                            window.MeshQA.switchSidebarTab("dss");
-                        }
+                        await loadSnapshotInto3D(snap, dissolves);
+                        updateSidebarContext("dss");
                         if (window.MeshQA && window.MeshQA.runAnalysis) {
                             window.MeshQA.runAnalysis(currentModelId, dissolves);
                         }
@@ -2156,6 +2565,7 @@
 
                     try {
                         let loaded = false;
+                        const effTxt = `${Math.min(100, Math.round((dissolves / (stepNum || 1)) * 100))}% aceites`;
 
                         // 1. Se for o estado atual e já temos lowPolyGeo carregado em memória
                         if (snap.is_current && lowPolyGeo) {
@@ -2163,7 +2573,9 @@
                                 lowPolyGeo,
                                 { faces: realStats.low.faces || realStats.high.faces, verts: realStats.low.verts || realStats.high.verts },
                                 `Malha Otimizada Atual (${dissolves} dissolves)`,
-                                dissolves
+                                dissolves,
+                                stepNum,
+                                effTxt
                             );
                             loaded = true;
                         }
@@ -2193,7 +2605,7 @@
 
                         // 4. Carregar o OBJ recuperado no Three.js
                         if (!loaded && objText && objText.includes("v ")) {
-                            loadMeshIntoViewport(objText, `Snapshot ${dissolves} Dissolves`, dissolves);
+                            loadMeshIntoViewport(objText, `Snapshot ${dissolves} Dissolves`, dissolves, stepNum, effTxt);
                             loaded = true;
                         }
 
@@ -2206,7 +2618,9 @@
                                 fallbackGeo,
                                 { faces: estFaces, verts: estVerts },
                                 `Snapshot ${dissolves} Dissolves`,
-                                dissolves
+                                dissolves,
+                                stepNum,
+                                effTxt
                             );
                             loaded = true;
                         }
@@ -2369,10 +2783,43 @@
             });
         }
 
-        function loadGeometryIntoViewport(geo, stats, label, dissolves) {
+        function loadGeometryIntoViewport(geo, stats, label, dissolves, step, efficiency) {
             if (!geo) return;
+
+            // Mantém no máximo 3 malhas em memória (High, Low e o Snapshot ativo atual).
+            // Liberta o snapshot anterior se estivermos a carregar um novo snapshot diferente.
+            if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo && currentSnapGeo !== geo) {
+                disposeGeo(currentSnapGeo);
+            }
             currentSnapGeo = geo;
+            currentSnapDissolves = dissolves;
+            currentSnapStep = step || null;
+            currentSnapEfficiency = efficiency || null;
+            // Pré-computa arestas na primeira carga para garantir troca instantânea (0ms)
+            getOrCreateRealEdgesGeo(geo);
             mesh.geometry = geo;
+
+            // Ativa Superfície + Arestas + Vértices ao carregar a malha
+            showSurface = true;
+            showEdges = true;
+            showVerts = true;
+            if (btnSurface) btnSurface.classList.add("active");
+            if (btnEdges) btnEdges.classList.add("active");
+            if (btnVerts) btnVerts.classList.add("active");
+            if (edgesMesh) {
+                edgesMesh.visible = true;
+                edgesMesh.geometry = getOrCreateRealEdgesGeo(geo);
+            }
+            if (pointsMesh) {
+                pointsMesh.visible = true;
+                pointsMesh.geometry = geo;
+            }
+
+            setDSSHeatmapActive(false);
+            if (window.MeshQA && typeof window.MeshQA.resetViewMode === "function") {
+                window.MeshQA.resetViewMode();
+            }
+
             updateSurfaceMaterial();
             syncVisualOverlays();
 
@@ -2404,39 +2851,12 @@
             }
         }
 
-        function loadMeshIntoViewport(objText, label, dissolves) {
+        function loadMeshIntoViewport(objText, label, dissolves, step, efficiency) {
             if (!objText) return;
-            const parsed = objLoader.parse(objText);
-            let snapGeo = null;
-
-            parsed.traverse((child) => {
-                if (child.isMesh && !snapGeo) {
-                    snapGeo = child.geometry;
-                }
-            });
-
+            const snapGeo = buildCustomOBJGeometry(objText);
             if (snapGeo) {
-                snapGeo.computeBoundingBox();
-                const snapCenter = new THREE.Vector3();
-                snapGeo.boundingBox.getCenter(snapCenter);
-                snapGeo.translate(-snapCenter.x, -snapCenter.y, -snapCenter.z);
-
-                const snapSize = new THREE.Vector3();
-                snapGeo.boundingBox.getSize(snapSize);
-                const snapMaxDim = Math.max(snapSize.x, snapSize.y, snapSize.z);
-                const snapScale = snapMaxDim > 0 ? (16 / snapMaxDim) : 1;
-                if (snapMaxDim > 0) {
-                    snapGeo.scale(snapScale, snapScale, snapScale);
-                }
-                snapGeo.computeVertexNormals();
-
-                if (!snapGeo.userData) snapGeo.userData = {};
-                snapGeo.userData.center = snapCenter;
-                snapGeo.userData.scale = snapScale;
-                snapGeo.userData.rawObjText = objText;
-
                 const intermStats = computeObjStats(objText);
-                loadGeometryIntoViewport(snapGeo, intermStats, label, dissolves);
+                loadGeometryIntoViewport(snapGeo, intermStats, label, dissolves, step, efficiency);
             }
         }
 

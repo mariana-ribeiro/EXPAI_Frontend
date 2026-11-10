@@ -189,7 +189,7 @@
         },
 
         enabledChecks: {},
-        activeViewMode: "errors", // 'errors' | 'min_angle' | 'max_angle' | 'valence' | 'none'
+        activeViewMode: "none", // 'errors' | 'min_angle' | 'max_angle' | 'valence' | 'none'
         showEdges: true,
         showPoles: true,
         showSurface: true,
@@ -210,6 +210,7 @@
     let qaPolygonFaces = [];
     let qaTriangleToFaceMap = [];
     let qaFaceToTrianglesMap = [];
+    let qaTriangleVertexIndices = [];
     let qaRaycaster = null;
     let qaMouse = new THREE.Vector2();
 
@@ -217,6 +218,89 @@
     let openDSSWindow = null;
     let closeDSSWindow = null;
     let cameraTweenId = null;
+    const dssAnalysisCache = new Map(); // Cache por malha e snapshot: `${meshId}_${snapshot ?? 'final'}`
+    const dssInFlight = new Map(); // Promessas ativas para evitar múltiplos pedidos simultâneos
+    let lastSelectedDSSMode = "errors"; // Modo topológico preferido para o botão de toggle (Topologia por defeito)
+
+    // Atualização global e síncrona da UI dos Botões de Mapas DSS (Sidebar & Drawer)
+    function updateDSSMapUI() {
+        const mode = QAState.activeViewMode;
+
+        const sideBtnToggle = document.getElementById("side-btn-dss-toggle");
+        const sideBtnAngle = document.getElementById("side-btn-dss-angle");
+        const sideBtnValence = document.getElementById("side-btn-dss-valence");
+        const sideBtnErrors = document.getElementById("side-btn-dss-errors");
+        const sideMapBadge = document.getElementById("side-dss-map-badge");
+
+        const drawerBtnToggle = document.getElementById("dss-drawer-btn-toggle");
+        const drawerBtnAngle = document.getElementById("dss-drawer-btn-angle");
+        const drawerBtnValence = document.getElementById("dss-drawer-btn-valence");
+        const drawerBtnErrors = document.getElementById("dss-drawer-btn-errors");
+
+        [sideBtnAngle, sideBtnValence, sideBtnErrors, drawerBtnAngle, drawerBtnValence, drawerBtnErrors].forEach(b => b?.classList.remove("active"));
+
+        const isMapActive = (mode && mode !== "none");
+
+        // Atualização dos botões gerais de Ativar / Desativar Mapa de Cores DSS
+        [sideBtnToggle, drawerBtnToggle].forEach(btn => {
+            if (!btn) return;
+            if (isMapActive) {
+                btn.classList.add("active");
+                btn.classList.remove("btn-outline");
+                btn.classList.add("btn-primary");
+                btn.innerHTML = `<span>🎨 Desativar Mapa de Cores DSS</span>`;
+                btn.style.background = "linear-gradient(135deg, #0284c7, #2563eb)";
+                btn.style.borderColor = "#38bdf8";
+                btn.style.boxShadow = "0 0 10px rgba(56, 189, 248, 0.4)";
+                btn.style.color = "#ffffff";
+            } else {
+                btn.classList.remove("active");
+                btn.classList.remove("btn-primary");
+                btn.classList.add("btn-outline");
+                btn.innerHTML = `<span>🎨 Ativar Mapa de Cores DSS</span>`;
+                btn.style.background = "rgba(255, 255, 255, 0.03)";
+                btn.style.borderColor = "rgba(56, 189, 248, 0.35)";
+                btn.style.boxShadow = "none";
+                btn.style.color = "#93c5fd";
+            }
+        });
+
+        if (mode === "min_angle" || mode === "angles") {
+            if (sideBtnAngle) sideBtnAngle.classList.add("active");
+            if (drawerBtnAngle) drawerBtnAngle.classList.add("active");
+            if (sideMapBadge) {
+                sideMapBadge.textContent = "Ângulos";
+                sideMapBadge.style.color = "#38bdf8";
+                sideMapBadge.style.background = "rgba(56, 189, 248, 0.15)";
+                sideMapBadge.style.borderColor = "rgba(56, 189, 248, 0.35)";
+            }
+        } else if (mode === "valence") {
+            if (sideBtnValence) sideBtnValence.classList.add("active");
+            if (drawerBtnValence) drawerBtnValence.classList.add("active");
+            if (sideMapBadge) {
+                sideMapBadge.textContent = "Valência";
+                sideMapBadge.style.color = "#c084fc";
+                sideMapBadge.style.background = "rgba(168, 85, 247, 0.15)";
+                sideMapBadge.style.borderColor = "rgba(168, 85, 247, 0.35)";
+            }
+        } else if (mode === "errors") {
+            if (sideBtnErrors) sideBtnErrors.classList.add("active");
+            if (drawerBtnErrors) drawerBtnErrors.classList.add("active");
+            if (sideMapBadge) {
+                sideMapBadge.textContent = "Topologia";
+                sideMapBadge.style.color = "#f87171";
+                sideMapBadge.style.background = "rgba(239, 68, 68, 0.15)";
+                sideMapBadge.style.borderColor = "rgba(239, 68, 68, 0.35)";
+            }
+        } else {
+            if (sideMapBadge) {
+                sideMapBadge.textContent = "Desativado";
+                sideMapBadge.style.color = "#94a3b8";
+                sideMapBadge.style.background = "rgba(255, 255, 255, 0.06)";
+                sideMapBadge.style.borderColor = "rgba(255, 255, 255, 0.1)";
+            }
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     //  4. ESCALAS DE COR (HEATMAPS CONTÍNUOS)
@@ -244,6 +328,16 @@
         } else {
             return interpolateColor([0.95, 0.70, 0.03], [0.93, 0.26, 0.26], (t - 0.66) / 0.34);
         }
+    }
+
+    function getValenceColor(val) {
+        if (val === null || val === undefined || isNaN(val)) return [0.25, 0.28, 0.35];
+        if (val === 4) return [0.06, 0.72, 0.50]; // Regular quad: Verde esmeralda (#10b981)
+        if (val === 3) return [0.23, 0.51, 0.96]; // Pólo 3: Azul (#3b82f6)
+        if (val === 5) return [0.95, 0.70, 0.03]; // Pólo 5: Âmbar/Amarelo (#f59e0b)
+        if (val === 2) return [0.06, 0.71, 0.83]; // Valência 2: Ciano (#06b6d4)
+        if (val >= 6) return [0.93, 0.26, 0.26]; // Valência 6+: Vermelho (#ef4444)
+        return [0.7, 0.7, 0.7];
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -330,6 +424,7 @@
         const triColors = [];
         qaTriangleToFaceMap = [];
         qaFaceToTrianglesMap = [];
+        qaTriangleVertexIndices = [];
 
         for (let f = 0; f < polygonFaces.length; f++) {
             qaFaceToTrianglesMap[f] = [];
@@ -350,6 +445,7 @@
 
                 const currentTriIdx = qaTriangleToFaceMap.length;
                 qaTriangleToFaceMap.push(f);
+                qaTriangleVertexIndices.push(i0, i1, i2);
                 qaFaceToTrianglesMap[f].push(currentTriIdx);
             }
         }
@@ -405,13 +501,13 @@
     //  6. COLORIZAÇÃO E MODOS VISUAIS (OVERLAYS & HEATMAPS)
     // ═══════════════════════════════════════════════════════════════════
     function updateDSSColors() {
-        if (!dssMesh) return;
-        const colorAttr = dssMesh.geometry.attributes.color;
-        const colors = colorAttr.array;
-        const mode = QAState.activeViewMode;
+        const viewer = getViewer();
+        if (!viewer || !viewer.mesh || !viewer.mesh.geometry) return;
+        const geo = viewer.mesh.geometry;
+        const posAttr = geo.attributes.position;
+        if (!posAttr) return;
 
-        const res = QAState.resultData;
-        const numFaces = qaPolygonFaces.length;
+        const mode = QAState.activeViewMode;
 
         // Atualizar visibilidade da legenda
         const legendEl = document.getElementById("qa-heatmap-legend");
@@ -419,14 +515,57 @@
         const legendMin = document.getElementById("qa-legend-min");
         const legendMax = document.getElementById("qa-legend-max");
 
-        if (mode === "min_angle" || mode === "max_angle" || mode === "valence") {
-            if (legendEl) legendEl.style.display = "block";
-        } else {
+        if (mode === "none") {
             if (legendEl) legendEl.style.display = "none";
+            if (typeof viewer.setDSSHeatmapActive === "function") {
+                viewer.setDSSHeatmapActive(false);
+            }
+            if (geo.attributes.color) {
+                geo.attributes.color.array.fill(1.0);
+                geo.attributes.color.needsUpdate = true;
+            }
+            return;
         }
 
-        // MODO 1: OVERLAYS DE ERRO CATEGÓRICOS
+        const res = QAState.resultData;
+        if (!res) {
+            if (legendEl) legendEl.style.display = "none";
+            if (typeof viewer.setDSSHeatmapActive === "function") {
+                viewer.setDSSHeatmapActive(false);
+            }
+            if (geo.attributes.color) {
+                geo.attributes.color.array.fill(1.0);
+                geo.attributes.color.needsUpdate = true;
+            }
+            return;
+        }
+
+        let colorAttr = geo.attributes.color;
+        if (!colorAttr || colorAttr.count !== posAttr.count) {
+            colorAttr = new THREE.BufferAttribute(new Float32Array(posAttr.count * 3), 3);
+            geo.setAttribute("color", colorAttr);
+        }
+        const colors = colorAttr.array;
+
+        // Metadados estritos de polígonos e mapeamento da malha ativa
+        const triangleToFace = geo.userData?.triangleToFace || qaTriangleToFaceMap;
+        const vertexIndices  = geo.userData?.vertexIndices  || qaTriangleVertexIndices;
+        const polygonFaces   = geo.userData?.polygonFaces   || qaPolygonFaces;
+
+        const numFaces = polygonFaces ? polygonFaces.length : (qaPolygonFaces ? qaPolygonFaces.length : 1);
+        const maxTris = Math.min(triangleToFace ? triangleToFace.length : qaTriangleToFaceMap.length, Math.floor(posAttr.count / 3));
+
+        if (legendEl) legendEl.style.display = "flex";
+        if (typeof viewer.setDSSHeatmapActive === "function") {
+            viewer.setDSSHeatmapActive(true);
+        }
+
+        // MODO 1: OVERLAYS DE ERRO E CONFORMIDADE TOPOLÓGICA (QUADS, TRIS, N-GONS)
         if (mode === "errors") {
+            if (legendTitle) legendTitle.textContent = "DSS: Conformidade Topológica";
+            if (legendMin) legendMin.textContent = "Quads (Verde) / Tris (Azul)";
+            if (legendMax) legendMax.textContent = "N-gons / Anomalias (Vermelho)";
+
             const faceErrorMap = new Array(numFaces).fill(null);
             const priorityOrder = ["degenerate", "nonmanifold", "flipped", "overlap", "t_junction", "open_edges", "bad_quads", "dup_faces", "ngons"];
 
@@ -435,7 +574,7 @@
                     if (QAState.enabledChecks[checkKey] === false) continue;
                     const checkData = res.checks[checkKey];
                     if (checkData && Array.isArray(checkData.faces)) {
-                        const checkColorHex = QA_EXPLANATIONS[checkKey]?.color || "#eab308";
+                        const checkColorHex = QA_EXPLANATIONS[checkKey]?.color || "#ef4444";
                         const c = new THREE.Color(checkColorHex);
                         const rgb = [c.r, c.g, c.b];
                         for (const fIdx of checkData.faces) {
@@ -447,47 +586,61 @@
                 }
             }
 
-            for (let f = 0; f < numFaces; f++) {
-                const col = faceErrorMap[f] || [0.22, 0.27, 0.35]; // Azul-ardósia escuro por omissão
-                const triIndices = qaFaceToTrianglesMap[f] || [];
-                for (const triIdx of triIndices) {
-                    const offset = triIdx * 9;
-                    for (let v = 0; v < 3; v++) {
-                        colors[offset + v * 3] = col[0];
-                        colors[offset + v * 3 + 1] = col[1];
-                        colors[offset + v * 3 + 2] = col[2];
+            for (let triIdx = 0; triIdx < maxTris; triIdx++) {
+                const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
+                const poly = polygonFaces ? polygonFaces[f] : (qaPolygonFaces ? qaPolygonFaces[f] : null);
+                const numVerts = poly ? poly.length : 4;
+
+                let col = (f < faceErrorMap.length) ? faceErrorMap[f] : null;
+                if (!col) {
+                    if (numVerts === 4) {
+                        col = [0.06, 0.72, 0.50]; // Quads ideais: Verde esmeralda (#10b981)
+                    } else if (numVerts === 3) {
+                        col = [0.23, 0.51, 0.96]; // Triângulos: Azul (#3b82f6)
+                    } else {
+                        col = [0.93, 0.26, 0.26]; // N-gons: Vermelho (#ef4444)
                     }
+                }
+
+                const offset = triIdx * 9;
+                for (let v = 0; v < 3; v++) {
+                    colors[offset + v * 3]     = col[0];
+                    colors[offset + v * 3 + 1] = col[1];
+                    colors[offset + v * 3 + 2] = col[2];
                 }
             }
         }
 
         // MODO 2: HEATMAP DE ÂNGULO MÍNIMO
-        else if (mode === "min_angle") {
+        else if (mode === "min_angle" || mode === "angles") {
             const angles = res?.per_face?.min_angle || [];
-            let minVal = Infinity, maxVal = -Infinity;
-            for (let a of angles) {
-                if (a !== null && !isNaN(a)) {
-                    if (a < minVal) minVal = a;
-                    if (a > maxVal) maxVal = a;
+            let minVal = 0, maxVal = 180;
+            if (angles.length > 0) {
+                let actualMin = Infinity, actualMax = -Infinity;
+                for (let a of angles) {
+                    if (a !== null && !isNaN(a)) {
+                        if (a < actualMin) actualMin = a;
+                        if (a > actualMax) actualMax = a;
+                    }
+                }
+                if (actualMin < Infinity && actualMax > actualMin) {
+                    minVal = Math.floor(actualMin);
+                    maxVal = Math.ceil(actualMax);
                 }
             }
-            if (minVal === Infinity) { minVal = 0; maxVal = 90; }
+            if (legendTitle) legendTitle.textContent = "DSS: Ângulo Mínimo por Face";
+            if (legendMin) legendMin.textContent = `${minVal}° (Crítico)`;
+            if (legendMax) legendMax.textContent = `${maxVal}° (Ortogonal ~90°)`;
 
-            if (legendTitle) legendTitle.textContent = "Ângulo Mínimo por Face";
-            if (legendMin) legendMin.textContent = `${minVal.toFixed(1)}°`;
-            if (legendMax) legendMax.textContent = `${maxVal.toFixed(1)}°`;
-
-            for (let f = 0; f < numFaces; f++) {
-                const val = angles[f];
+            for (let triIdx = 0; triIdx < maxTris; triIdx++) {
+                const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
+                const val = (f < angles.length) ? angles[f] : 90;
                 const col = getHeatmapColor(val, minVal, maxVal);
-                const triIndices = qaFaceToTrianglesMap[f] || [];
-                for (const triIdx of triIndices) {
-                    const offset = triIdx * 9;
-                    for (let v = 0; v < 3; v++) {
-                        colors[offset + v * 3] = col[0];
-                        colors[offset + v * 3 + 1] = col[1];
-                        colors[offset + v * 3 + 2] = col[2];
-                    }
+                const offset = triIdx * 9;
+                for (let v = 0; v < 3; v++) {
+                    colors[offset + v * 3]     = col[0];
+                    colors[offset + v * 3 + 1] = col[1];
+                    colors[offset + v * 3 + 2] = col[2];
                 }
             }
         }
@@ -495,35 +648,38 @@
         // MODO 3: HEATMAP DE ÂNGULO MÁXIMO
         else if (mode === "max_angle") {
             const angles = res?.per_face?.max_angle || [];
-            let minVal = Infinity, maxVal = -Infinity;
-            for (let a of angles) {
-                if (a !== null && !isNaN(a)) {
-                    if (a < minVal) minVal = a;
-                    if (a > maxVal) maxVal = a;
+            let minVal = 0, maxVal = 180;
+            if (angles.length > 0) {
+                let actualMin = Infinity, actualMax = -Infinity;
+                for (let a of angles) {
+                    if (a !== null && !isNaN(a)) {
+                        if (a < actualMin) actualMin = a;
+                        if (a > actualMax) actualMax = a;
+                    }
+                }
+                if (actualMin < Infinity && actualMax > actualMin) {
+                    minVal = Math.floor(actualMin);
+                    maxVal = Math.ceil(actualMax);
                 }
             }
-            if (minVal === Infinity) { minVal = 90; maxVal = 180; }
+            if (legendTitle) legendTitle.textContent = "DSS: Ângulo Máximo por Face";
+            if (legendMin) legendMin.textContent = `${minVal}° (Ortogonal ~90°)`;
+            if (legendMax) legendMax.textContent = `${maxVal}° (Colinear ~180°)`;
 
-            if (legendTitle) legendTitle.textContent = "Ângulo Máximo por Face";
-            if (legendMin) legendMin.textContent = `${minVal.toFixed(1)}°`;
-            if (legendMax) legendMax.textContent = `${maxVal.toFixed(1)}°`;
-
-            for (let f = 0; f < numFaces; f++) {
-                const val = angles[f];
+            for (let triIdx = 0; triIdx < maxTris; triIdx++) {
+                const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
+                const val = (f < angles.length) ? angles[f] : 90;
                 const col = getHeatmapColor(val, minVal, maxVal);
-                const triIndices = qaFaceToTrianglesMap[f] || [];
-                for (const triIdx of triIndices) {
-                    const offset = triIdx * 9;
-                    for (let v = 0; v < 3; v++) {
-                        colors[offset + v * 3] = col[0];
-                        colors[offset + v * 3 + 1] = col[1];
-                        colors[offset + v * 3 + 2] = col[2];
-                    }
+                const offset = triIdx * 9;
+                for (let v = 0; v < 3; v++) {
+                    colors[offset + v * 3]     = col[0];
+                    colors[offset + v * 3 + 1] = col[1];
+                    colors[offset + v * 3 + 2] = col[2];
                 }
             }
         }
 
-        // MODO 4: HEATMAP DE VALÊNCIA POR VÉRTICE
+        // MODO 4: HEATMAP DE VALÊNCIA POR VÉRTICE (COM PÓLOS)
         else if (mode === "valence") {
             const valences = res?.per_vertex?.valence || [];
             let minVal = Infinity, maxVal = -Infinity;
@@ -535,30 +691,19 @@
             }
             if (minVal === Infinity) { minVal = 2; maxVal = 8; }
 
-            if (legendTitle) legendTitle.textContent = "Valência por Vértice";
-            if (legendMin) legendMin.textContent = `Val ${minVal}`;
-            if (legendMax) legendMax.textContent = `Val ${maxVal}`;
+            if (legendTitle) legendTitle.textContent = "DSS: Valência dos Vértices & Pólos";
+            if (legendMin) legendMin.textContent = `Val 3 (Pólo Azul) / Val 4 (Verde)`;
+            if (legendMax) legendMax.textContent = `Val 5 (Amarelo) / ≥6 (Vermelho)`;
 
-            for (let f = 0; f < numFaces; f++) {
-                const fVerts = qaPolygonFaces[f];
-                const triIndices = qaFaceToTrianglesMap[f] || [];
-
-                for (let j = 1; j < fVerts.length - 1; j++) {
-                    const triIdx = triIndices[j - 1];
-                    if (triIdx === undefined) continue;
-
-                    const i0 = fVerts[0];
-                    const i1 = fVerts[j];
-                    const i2 = fVerts[j + 1];
-
-                    const c0 = getHeatmapColor(valences[i0], minVal, maxVal);
-                    const c1 = getHeatmapColor(valences[i1], minVal, maxVal);
-                    const c2 = getHeatmapColor(valences[i2], minVal, maxVal);
-
-                    const offset = triIdx * 9;
-                    colors[offset + 0] = c0[0]; colors[offset + 1] = c0[1]; colors[offset + 2] = c0[2];
-                    colors[offset + 3] = c1[0]; colors[offset + 4] = c1[1]; colors[offset + 5] = c1[2];
-                    colors[offset + 6] = c2[0]; colors[offset + 7] = c2[1]; colors[offset + 8] = c2[2];
+            for (let triIdx = 0; triIdx < maxTris; triIdx++) {
+                for (let v = 0; v < 3; v++) {
+                    const vertIdx = (triIdx * 3) + v;
+                    const origV = vertexIndices ? vertexIndices[vertIdx] : (qaTriangleVertexIndices[vertIdx] ?? vertIdx);
+                    const val = (origV < valences.length) ? valences[origV] : 4;
+                    const c = getValenceColor(val);
+                    colors[vertIdx * 3 + 0] = c[0];
+                    colors[vertIdx * 3 + 1] = c[1];
+                    colors[vertIdx * 3 + 2] = c[2];
                 }
             }
         }
@@ -594,14 +739,14 @@
         canvas.addEventListener("pointerup", (e) => {
             if (isDragging) return;
             const viewer = getViewer();
-            if (!viewer || !dssMesh || !dssMesh.visible) return;
+            if (!viewer || !viewer.mesh || QAState.activeViewMode === "none") return;
 
             const rect = canvas.getBoundingClientRect();
             qaMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
             qaMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
             qaRaycaster.setFromCamera(qaMouse, viewer.camera);
-            const intersects = qaRaycaster.intersectObject(dssMesh, false);
+            const intersects = qaRaycaster.intersectObject(viewer.mesh, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
@@ -616,7 +761,7 @@
 
     function selectFaceInQA(faceIdx) {
         const viewer = getViewer();
-        if (!viewer || faceIdx === null || faceIdx >= qaPolygonFaces.length) return;
+        if (!viewer || !viewer.mesh || !viewer.mesh.geometry || faceIdx === null || faceIdx >= qaPolygonFaces.length) return;
 
         QAState.selectedFaceIdx = faceIdx;
         const fVerts = qaPolygonFaces[faceIdx];
@@ -630,7 +775,8 @@
         }
 
         const triIndices = qaFaceToTrianglesMap[faceIdx] || [];
-        const posAttr = dssMesh.geometry.attributes.position;
+        const posAttr = viewer.mesh.geometry.attributes.position;
+        if (!posAttr) return;
         const linePositions = [];
 
         // Contorno do perímetro poligonal
@@ -770,13 +916,24 @@
         const durationEl = document.getElementById("qa-header-duration");
         const verdictEl = document.getElementById("qa-header-verdict");
         const topChip = document.getElementById("top-active-mesh-chip");
+        const drawerTitle = document.getElementById("dss-drawer-target-title");
+        const drawerStatus = document.getElementById("dss-drawer-status");
+        const drawerVerdict = document.getElementById("dss-drawer-verdict");
 
-        if (titleEl) titleEl.textContent = QAState.activeMeshName || "Malha Analisada";
-        if (topChip) topChip.textContent = QAState.activeMeshName || "Malha Analisada";
+        const targetName = QAState.activeMeshName || "Malha Analisada";
+        if (titleEl) titleEl.textContent = targetName;
+        if (topChip) topChip.textContent = targetName;
+        if (drawerTitle) drawerTitle.textContent = targetName;
         
+        const statusClass = `status-badge ${stat.status === 'done' ? 'online' : (stat.status === 'failed' ? 'error' : 'working')}`;
+        const statusTxt = stat.status === 'done' ? 'Concluído' : (stat.status === 'failed' ? 'Falhou' : 'A Processar');
         if (statusEl) {
-            statusEl.className = `status-badge ${stat.status === 'done' ? 'online' : (stat.status === 'failed' ? 'error' : 'working')}`;
-            statusEl.textContent = stat.status === 'done' ? 'Concluído' : (stat.status === 'failed' ? 'Falhou' : 'A Processar');
+            statusEl.className = statusClass;
+            statusEl.textContent = statusTxt;
+        }
+        if (drawerStatus) {
+            drawerStatus.className = statusClass;
+            drawerStatus.textContent = statusTxt;
         }
 
         if (durationEl && stat.created_at && stat.finished_at) {
@@ -786,8 +943,12 @@
             durationEl.textContent = diffMs > 1000 ? `${(diffMs / 1000).toFixed(2)}s` : `${diffMs}ms`;
         }
 
+        const verdictTxt = deriveQAVerdict(summary);
         if (verdictEl) {
-            verdictEl.textContent = deriveQAVerdict(summary);
+            verdictEl.textContent = verdictTxt;
+        }
+        if (drawerVerdict) {
+            drawerVerdict.textContent = verdictTxt;
         }
 
         // Atualizar Crachá de Erros na Aba
@@ -870,6 +1031,28 @@
         if (cntTris) cntTris.textContent = `${tris} (${trisPct}%)`;
         if (cntQuads) cntQuads.textContent = `${quads} (${quadsPct}%)`;
         if (cntNgons) cntNgons.textContent = `${ngons} (${ngonsPct}%)`;
+
+        // Atualizar também os cartões no menu lateral unificado
+        const sideQuadsEl = document.getElementById("side-dss-quads");
+        const sideTrisEl = document.getElementById("side-dss-tris");
+        const sideNgonsEl = document.getElementById("side-dss-ngons");
+        const sideBarQuads = document.getElementById("side-bar-quads");
+        const sideBarTris = document.getElementById("side-bar-tris");
+        const sideBarNgons = document.getElementById("side-bar-ngons");
+
+        if (sideQuadsEl) sideQuadsEl.textContent = `${quadsPct}%`;
+        if (sideTrisEl) sideTrisEl.textContent = `${trisPct}%`;
+        if (sideNgonsEl) sideNgonsEl.textContent = `${ngonsPct}%`;
+        if (sideBarQuads) sideBarQuads.style.width = `${quadsPct}%`;
+        if (sideBarTris) sideBarTris.style.width = `${trisPct}%`;
+        if (sideBarNgons) sideBarNgons.style.width = `${ngonsPct}%`;
+
+        const origWtEl = document.getElementById("orig-watertight-val");
+        const origMfEl = document.getElementById("orig-manifold-val");
+        const origBdEl = document.getElementById("orig-boundary-val");
+        if (origWtEl) origWtEl.innerHTML = topo.is_watertight ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
+        if (origMfEl) origMfEl.innerHTML = topo.is_manifold ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
+        if (origBdEl) origBdEl.textContent = (topo.boundary_edges || 0).toLocaleString();
 
         // Ângulos
         if (angles) {
@@ -1160,6 +1343,9 @@
         const { vertices, faces } = extractPolygonsAndVertices(rawObjText, resultJson?.geometry);
         buildDSSGeometry(vertices, faces);
         renderDSSUI();
+        if (QAState.activeViewMode && QAState.activeViewMode !== "none") {
+            updateDSSColors();
+        }
     }
 
     function resetAllDSSState() {
@@ -1180,6 +1366,7 @@
         qaPolygonFaces = [];
         qaTriangleToFaceMap = [];
         qaFaceToTrianglesMap = [];
+        qaTriangleVertexIndices = [];
 
         QAState.statusData = null;
         QAState.resultData = null;
@@ -1188,6 +1375,7 @@
         QAState.activeMeshId = null;
         QAState.activeSnapshot = null;
         QAState.activeViewMode = "none";
+        dssAnalysisCache.clear();
 
         // Fechar gaveta DSS e painel de detalhes se abertos
         if (typeof closeDSSWindow === "function") closeDSSWindow();
@@ -1197,11 +1385,11 @@
         const legendEl = document.getElementById("qa-heatmap-legend");
         if (legendEl) legendEl.style.display = "none";
 
-        // Desativar botões de visualização DSS
-        const btnDssOverlay = document.getElementById("btn-dss-overlay");
-        const btnDssAngle = document.getElementById("btn-dss-heatmap-angle");
-        const btnDssValence = document.getElementById("btn-dss-heatmap-valence");
-        [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
+        // Desativar botões de mapas DSS
+        updateDSSMapUI();
+        if (viewer && typeof viewer.setDSSHeatmapActive === "function") {
+            viewer.setDSSHeatmapActive(false);
+        }
 
         // Reset de cabeçalho e estatísticas no Sidebar e Drawer
         const titleEl = document.getElementById("qa-target-title");
@@ -1244,40 +1432,32 @@
         const warnListEl = document.getElementById("qa-warnings-list");
         if (warnListEl) warnListEl.innerHTML = "";
 
-        // Desativar botões de download e run
-        const btnDownloadJson = document.getElementById("btn-qa-download-result");
-        if (btnDownloadJson) btnDownloadJson.disabled = true;
-        const btnDrawerDownload = document.getElementById("btn-dss-drawer-download");
-        if (btnDrawerDownload) btnDrawerDownload.disabled = true;
-        const btnRun = document.getElementById("btn-qa-run");
-        if (btnRun) {
-            btnRun.disabled = true;
-            btnRun.innerHTML = `<span>🔒 Aguarda RL</span>`;
-        }
     }
 
     function setWaitingRLState() {
         const titleEl = document.getElementById("qa-target-title");
         const statusEl = document.getElementById("qa-header-status");
         const verdictEl = document.getElementById("qa-header-verdict");
-        const btnRun = document.getElementById("btn-qa-run");
-        const btnDownloadJson = document.getElementById("btn-qa-download-result");
+        const drawerTitle = document.getElementById("dss-drawer-target-title");
+        const drawerStatus = document.getElementById("dss-drawer-status");
+        const drawerVerdict = document.getElementById("dss-drawer-verdict");
 
         if (titleEl) titleEl.textContent = "Aguardando Decimação RL";
+        if (drawerTitle) drawerTitle.textContent = "Aguardando Decimação RL";
         if (statusEl) {
             statusEl.className = "status-badge working";
             statusEl.textContent = "A aguardar RL";
         }
+        if (drawerStatus) {
+            drawerStatus.className = "status-badge working";
+            drawerStatus.textContent = "A aguardar RL";
+        }
+        const waitMsg = `<span style="color:#94a3b8;">A auditoria DSS inicia automaticamente assim que o agente RL gerar a malha otimizada ou ao inspecionar um snapshot.</span>`;
         if (verdictEl) {
-            verdictEl.innerHTML = `<span style="color:#94a3b8;">A auditoria DSS inicia automaticamente assim que o agente RL gerar a malha otimizada ou ao inspecionar um snapshot.</span>`;
+            verdictEl.innerHTML = waitMsg;
         }
-        if (btnRun) {
-            btnRun.disabled = true;
-            btnRun.innerHTML = `<span>🔒 Aguarda RL</span>`;
-            btnRun.title = "A análise DSS necessita que a decimação RL gere a malha otimizada.";
-        }
-        if (btnDownloadJson) {
-            btnDownloadJson.disabled = true;
+        if (drawerVerdict) {
+            drawerVerdict.innerHTML = waitMsg;
         }
     }
 
@@ -1298,76 +1478,159 @@
             QAState.activeMeshName = "Malha Otimizada Final";
         }
 
-        const btnRun = document.getElementById("btn-qa-run");
-        const statusEl = document.getElementById("qa-header-status");
-
-        if (btnRun) {
-            btnRun.disabled = true;
-            btnRun.innerHTML = `<span>⏳ A Auditar ${snapshot === 0 ? 'Original...' : (snapshot ? `#${snapshot}...` : '...')}</span>`;
-        }
-        if (statusEl) {
-            statusEl.className = "status-badge working";
-            statusEl.textContent = "A Analisar...";
+        const cacheKey = `${idToRun}_${snapshot ?? 'final'}`;
+        if (dssAnalysisCache.has(cacheKey)) {
+            const cached = dssAnalysisCache.get(cacheKey);
+            await loadDSSData(cached.statusData, cached.resultData, cached.rawObjText);
+            return;
         }
 
-        try {
-            // Polling até terminar (suportando query param ?snapshot=N)
-            const statusResult = await window.MeshQAAPI.runFullAnalysis(
-                idToRun,
-                QAState.params,
-                snapshot,
-                (statusUpdate) => {
-                    if (statusEl) {
-                        statusEl.className = "status-badge working";
-                        statusEl.textContent = statusUpdate.status === "queued" ? "Em Fila..." : "A Processar...";
+        if (dssInFlight.has(cacheKey)) {
+            return dssInFlight.get(cacheKey);
+        }
+
+        const fetchPromise = (async () => {
+            const statusEl = document.getElementById("qa-header-status");
+            const drawerStatusEl = document.getElementById("dss-drawer-status");
+            const drawerVerdictEl = document.getElementById("dss-drawer-verdict");
+
+            if (statusEl) {
+                statusEl.className = "status-badge working";
+                statusEl.textContent = "A Analisar...";
+            }
+            if (drawerStatusEl) {
+                drawerStatusEl.className = "status-badge working";
+                drawerStatusEl.textContent = "A Extrair Análise...";
+            }
+            if (drawerVerdictEl) {
+                drawerVerdictEl.innerHTML = `<span class="loading-spin" style="display:inline-block;margin-right:0.35rem;">🔄</span> A extrair conformidade topológica e auditoria DSS da malha...`;
+                drawerVerdictEl.style.color = "#38bdf8";
+            }
+
+            try {
+                // Polling até terminar (suportando query param ?snapshot=N)
+                const statusResult = await window.MeshQAAPI.runFullAnalysis(
+                    idToRun,
+                    QAState.params,
+                    snapshot,
+                    (statusUpdate) => {
+                        if (statusEl) {
+                            statusEl.className = "status-badge working";
+                            statusEl.textContent = statusUpdate.status === "queued" ? "Em Fila..." : "A Processar...";
+                        }
+                    }
+                );
+
+                if (statusResult && statusResult.status === "failed") {
+                    renderDSSFailed(statusResult);
+                    return;
+                }
+
+                // Descarregar resultado detalhado com geometria incluída
+                const resultData = await window.MeshQAAPI.downloadAnalysisResult(idToRun, true, snapshot);
+
+                let objText = null;
+                if (snapshot === 0) {
+                    objText = window.currentUploadedObjText || QAState.rawObjText;
+                } else if (snapshot === null) {
+                    objText = window.cachedSimplifiedObjText;
+                } else {
+                    if (typeof window.getCurrentSnapObjText === "function") {
+                        objText = window.getCurrentSnapObjText();
                     }
                 }
-            );
+                if (!objText && !resultData?.geometry) {
+                    try {
+                        objText = await window.RetopoAPI.downloadSimplifiedMesh(idToRun);
+                    } catch (_) {}
+                }
 
-            if (statusResult && statusResult.status === "failed") {
-                renderDSSFailed(statusResult);
-                return;
+                dssAnalysisCache.set(cacheKey, { statusData: statusResult, resultData, rawObjText: objText });
+                await loadDSSData(statusResult, resultData, objText);
+
+            } catch (err) {
+                console.warn("[DSS] Falha na API ao auditar:", err.message);
+                const verdictEl = document.getElementById("qa-header-verdict");
+                if (statusEl) {
+                    statusEl.className = "status-badge offline";
+                    statusEl.textContent = "Falhou";
+                }
+                if (verdictEl) {
+                    verdictEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">❌ Aviso da API:</span> <span style="color:#fca5a5;">${err.message}</span>`;
+                }
+            } finally {
+                dssInFlight.delete(cacheKey);
             }
+        })();
 
-            // Descarregar resultado detalhado com geometria incluída
-            const resultData = await window.MeshQAAPI.downloadAnalysisResult(idToRun, true, snapshot);
+        dssInFlight.set(cacheKey, fetchPromise);
+        return fetchPromise;
+    }
 
-            let objText = null;
-            if (snapshot === 0) {
-                objText = window.currentUploadedObjText || QAState.rawObjText;
-            } else if (snapshot === null) {
-                objText = window.cachedSimplifiedObjText;
+    function syncTargetMesh(snapshotId) {
+        QAState.activeSnapshot = snapshotId;
+        const isSnap = (snapshotId !== null && snapshotId !== undefined && snapshotId !== 0);
+        QAState.activeMeshName = isSnap
+            ? `Snapshot #${snapshotId} (${snapshotId} Dissolves)`
+            : (snapshotId === 0 ? "Malha Original (Upload)" : "Malha Otimizada Final");
+
+        const titleEl = document.getElementById("qa-target-title");
+        const topChip = document.getElementById("top-active-mesh-chip");
+        const drawerTitle = document.getElementById("dss-drawer-target-title");
+        const statusEl = document.getElementById("qa-header-status");
+        const verdictEl = document.getElementById("qa-header-verdict");
+
+        if (titleEl) {
+            titleEl.textContent = isSnap ? `Snapshot #${snapshotId}` : "Malha Otimizada";
+            titleEl.style.color = isSnap ? "#c084fc" : "#38bdf8";
+        }
+        if (topChip) topChip.textContent = QAState.activeMeshName;
+        if (drawerTitle) drawerTitle.textContent = QAState.activeMeshName;
+
+        const idToRun = QAState.activeMeshId || window.currentActiveModelId;
+        const cacheKey = `${idToRun}_${snapshotId ?? 'final'}`;
+
+        if (dssAnalysisCache.has(cacheKey)) {
+            const cached = dssAnalysisCache.get(cacheKey);
+            QAState.statusData = cached.statusData;
+            QAState.resultData = cached.resultData;
+            QAState.rawObjText = cached.rawObjText;
+            renderDSSUI();
+            if (QAState.activeViewMode && QAState.activeViewMode !== "none") {
+                updateDSSColors();
             }
-            if (!objText && !resultData?.geometry) {
-                try {
-                    objText = await window.RetopoAPI.downloadSimplifiedMesh(idToRun);
-                } catch (_) {}
-            }
-
-            await loadDSSData(statusResult, resultData, objText);
-
-        } catch (err) {
-            console.warn("[DSS] Falha na API ao auditar:", err.message);
-            const verdictEl = document.getElementById("qa-header-verdict");
+        } else {
+            QAState.statusData = null;
+            QAState.resultData = null;
+            QAState.rawObjText = null;
             if (statusEl) {
-                statusEl.className = "status-badge offline";
-                statusEl.textContent = "Falhou";
+                statusEl.className = "status-badge working";
+                statusEl.textContent = "A Analisar...";
             }
             if (verdictEl) {
-                verdictEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">❌ Aviso da API:</span> <span style="color:#fca5a5;">${err.message}</span>`;
+                verdictEl.innerHTML = `<span class="loading-spin" style="display:inline-block;margin-right:0.35rem;">🔄</span> <span style="color:#94a3b8;">A calcular auditoria DSS ${isSnap ? `para Snapshot #${snapshotId}` : 'da malha otimizada'}...</span>`;
             }
-        } finally {
-            if (btnRun) {
-                btnRun.disabled = false;
-                btnRun.innerHTML = snapshot === 0
-                    ? `<span>⚡ Reanalisar Original</span>`
-                    : (snapshot !== null && snapshot !== undefined ? `<span>⚡ Reanalisar Snapshot</span>` : `<span>⚡ Reanalisar Malha</span>`);
-            }
-            const btnDownloadJson = document.getElementById("btn-qa-download-result");
-            if (btnDownloadJson && QAState.resultData) {
-                btnDownloadJson.disabled = false;
+            const sideQuadsEl = document.getElementById("side-dss-quads");
+            const sideTrisEl = document.getElementById("side-dss-tris");
+            const sideNgonsEl = document.getElementById("side-dss-ngons");
+            const sideBarQuads = document.getElementById("side-bar-quads");
+            const sideBarTris = document.getElementById("side-bar-tris");
+            const sideBarNgons = document.getElementById("side-bar-ngons");
+            if (sideQuadsEl) sideQuadsEl.textContent = "...";
+            if (sideTrisEl) sideTrisEl.textContent = "...";
+            if (sideNgonsEl) sideNgonsEl.textContent = "...";
+            if (sideBarQuads) sideBarQuads.style.width = "0%";
+            if (sideBarTris) sideBarTris.style.width = "0%";
+            if (sideBarNgons) sideBarNgons.style.width = "0%";
+
+            // Disparar automaticamente a auditoria DSS em background assim que a malha entra no visualizador!
+            if (idToRun) {
+                runDSSAnalysis(idToRun, snapshotId).catch(err => {
+                    console.warn("[DSS] Auditoria automática de fundo falhou:", err);
+                });
             }
         }
+        updateDSSMapUI();
     }
 
     function renderDSSFailed(statusData) {
@@ -1430,117 +1693,142 @@
         if (subTopo) subTopo.addEventListener("click", () => setDSSSubtab("topology"));
         if (subLim) subLim.addEventListener("click", () => setDSSSubtab("limitations"));
 
-        // Botões de Ação Rápida no Card do DSS
-        const btnRun = document.getElementById("btn-qa-run");
-        if (btnRun) btnRun.addEventListener("click", () => runDSSAnalysis());
-
         const btnFixture = document.getElementById("btn-qa-fixture");
         if (btnFixture) btnFixture.addEventListener("click", () => loadDSSFromFixtures());
 
-        const btnDownloadJson = document.getElementById("btn-qa-download-result");
-        if (btnDownloadJson) {
-            btnDownloadJson.addEventListener("click", () => {
-                if (!QAState.resultData) return;
-                const blob = new Blob([JSON.stringify(QAState.resultData, null, 2)], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `dss_result_${QAState.activeMeshId || "mesh"}${QAState.activeSnapshot ? `_snap${QAState.activeSnapshot}` : ''}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-            });
-        }
-
-        // Toggles das Camadas Visuais do Viewport 3D
-        const btnDssOverlay = document.getElementById("btn-dss-overlay");
-        const btnDssAngle = document.getElementById("btn-dss-heatmap-angle");
-        const btnDssValence = document.getElementById("btn-dss-heatmap-valence");
-
-        // Controlo da Janela / Drawer Dedicado de Auditoria DSS
-        const dssOverlay = document.getElementById("dss-window-overlay");
+        // Controlo da Vista DSS no Menu Lateral Direito
         const btnOpenModal = document.getElementById("btn-open-dss-modal");
         const btnOpenWin = document.getElementById("btn-open-dss-window");
         const btnCloseWin = document.getElementById("btn-close-dss-window");
-        const btnDrawerDownload = document.getElementById("btn-dss-drawer-download");
+        const btnDssBack = document.getElementById("btn-dss-back");
 
         openDSSWindow = function() {
-            if (dssOverlay) dssOverlay.classList.add("open");
+            if (window.updateSidebarContext) {
+                window.updateSidebarContext("dss");
+            }
+            const isSnap = (typeof window.getActiveView === "function" && window.getActiveView() === "snapshot");
+            const snapToAudit = isSnap && typeof window.getCurrentSnapDissolves === "function" ? window.getCurrentSnapDissolves() : null;
+            if (!QAState.resultData || QAState.activeSnapshot !== snapToAudit) {
+                runDSSAnalysis(QAState.activeMeshId || window.currentActiveModelId, snapToAudit);
+            }
         };
 
         closeDSSWindow = function() {
-            if (dssOverlay) dssOverlay.classList.remove("open");
+            if (window.updateSidebarContext) {
+                const prev = window.getPreviousSidebarContext ? window.getPreviousSidebarContext() : "low";
+                window.updateSidebarContext(prev);
+            }
         };
 
         if (btnOpenModal) btnOpenModal.addEventListener("click", openDSSWindow);
         if (btnOpenWin) btnOpenWin.addEventListener("click", openDSSWindow);
         if (btnCloseWin) btnCloseWin.addEventListener("click", closeDSSWindow);
-
-        if (dssOverlay) {
-            dssOverlay.addEventListener("click", (e) => {
-                if (e.target === dssOverlay) closeDSSWindow();
-            });
-        }
+        if (btnDssBack) btnDssBack.addEventListener("click", closeDSSWindow);
 
         window.addEventListener("keydown", (e) => {
-            if (e.key === "Escape") {
-                closeDSSWindow();
+            if (e.key === "Escape" && QAState.activeViewMode !== "none") {
+                setViewMode("none");
             }
         });
 
-        if (btnDrawerDownload && btnDownloadJson) {
-            btnDrawerDownload.addEventListener("click", () => {
-                btnDownloadJson.click();
-            });
-        }
-
         setViewMode = function(mode) {
-            const isSame = QAState.activeViewMode === mode && (
-                (mode === "errors" && btnDssOverlay?.classList.contains("active")) ||
-                (mode.includes("angle") && btnDssAngle?.classList.contains("active")) ||
-                (mode === "valence" && btnDssValence?.classList.contains("active"))
-            );
+            // Se estiver em High Poly e for ativar um modo DSS, muda automaticamente para Low Poly (onde incide a auditoria DSS)
+            if (mode !== "none" && typeof window.getActiveView === "function" && window.getActiveView() === "high") {
+                const btnLow = document.getElementById("btn-low-poly");
+                if (btnLow && !btnLow.disabled) {
+                    btnLow.click();
+                }
+            }
 
-            // Toggle on/off se clicou no mesmo
-            if (isSame) {
+            const isSame = QAState.activeViewMode === mode;
+            if (isSame || mode === "none") {
                 QAState.activeViewMode = "none";
-                [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
-                const legendEl = document.getElementById("qa-heatmap-legend");
-                if (legendEl) legendEl.style.display = "none";
+                updateDSSMapUI();
+                updateDSSColors();
                 closeQADetailPanel();
-
-                if (dssMesh) dssMesh.visible = false;
-                if (dssEdgesMesh) dssEdgesMesh.visible = false;
-                if (dssPolesPoints) dssPolesPoints.visible = false;
-                if (dssSelectionLine) dssSelectionLine.visible = false;
-
-                const viewer = getViewer();
-                if (viewer && viewer.mesh) {
-                    viewer.mesh.visible = true;
-                    viewer.syncVisualOverlays();
+                if (dssSelectionLine && getViewer()?.scene) {
+                    getViewer().scene.remove(dssSelectionLine);
+                    dssSelectionLine.geometry.dispose();
+                    dssSelectionLine = null;
                 }
                 return;
             }
 
+            lastSelectedDSSMode = mode;
             QAState.activeViewMode = mode;
-            [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
+            updateDSSMapUI();
 
-            const viewer = getViewer();
-            if (viewer && viewer.mesh) {
-                viewer.mesh.visible = true;
+            // Se não houver dados DSS ainda ou for de snapshot diferente, disparar auditoria da malha/snapshot ativo
+            const isSnap = (typeof window.getActiveView === "function" && window.getActiveView() === "snapshot");
+            const snapToAudit = isSnap && typeof window.getCurrentSnapDissolves === "function" ? window.getCurrentSnapDissolves() : null;
+
+            if ((!QAState.resultData || QAState.activeSnapshot !== snapToAudit) && (QAState.activeMeshId || window.currentActiveModelId)) {
+                runDSSAnalysis(QAState.activeMeshId || window.currentActiveModelId, snapToAudit).then(() => {
+                    updateDSSColors();
+                });
+                return;
             }
+
+            updateDSSColors();
         };
 
-        if (btnDssOverlay) btnDssOverlay.addEventListener("click", () => setViewMode("errors"));
-        if (btnDssAngle) btnDssAngle.addEventListener("click", () => {
-            const nextMode = QAState.activeViewMode === "min_angle" ? "max_angle" : "min_angle";
-            btnDssAngle.textContent = nextMode === "min_angle" ? "🌡️ Ângulo Mín" : "🌡️ Ângulo Máx";
-            setViewMode(nextMode);
-        });
-        if (btnDssValence) btnDssValence.addEventListener("click", () => setViewMode("valence"));
+        // Função de alternância do Mapa de Cores DSS (Toggle)
+        function toggleDSSColorMap() {
+            if (QAState.activeViewMode && QAState.activeViewMode !== "none") {
+                setViewMode("none");
+            } else {
+                setViewMode(lastSelectedDSSMode || "errors");
+            }
+        }
+
+        const sideBtnToggle = document.getElementById("side-btn-dss-toggle");
+        if (sideBtnToggle) sideBtnToggle.addEventListener("click", toggleDSSColorMap);
+
+        const drawerBtnToggle = document.getElementById("dss-drawer-btn-toggle");
+        if (drawerBtnToggle) drawerBtnToggle.addEventListener("click", toggleDSSColorMap);
+
+        // Botões de Modo Específico no Sidebar Contextual
+        const sideBtnAngle = document.getElementById("side-btn-dss-angle");
+        const sideBtnValence = document.getElementById("side-btn-dss-valence");
+        const sideBtnErrors = document.getElementById("side-btn-dss-errors");
+
+        if (sideBtnAngle) sideBtnAngle.addEventListener("click", () => setViewMode("min_angle"));
+        if (sideBtnValence) sideBtnValence.addEventListener("click", () => setViewMode("valence"));
+        if (sideBtnErrors) sideBtnErrors.addEventListener("click", () => setViewMode("errors"));
+
+        // Botões de Modo Específico na Janela / Drawer Dedicado
+        const drawerBtnAngle = document.getElementById("dss-drawer-btn-angle");
+        const drawerBtnValence = document.getElementById("dss-drawer-btn-valence");
+        const drawerBtnErrors = document.getElementById("dss-drawer-btn-errors");
+
+        if (drawerBtnAngle) drawerBtnAngle.addEventListener("click", () => setViewMode("min_angle"));
+        if (drawerBtnValence) drawerBtnValence.addEventListener("click", () => setViewMode("valence"));
+        if (drawerBtnErrors) drawerBtnErrors.addEventListener("click", () => setViewMode("errors"));
 
         // Botão Fechar Painel Raycaster
         const btnCloseDetail = document.getElementById("qa-detail-close");
         if (btnCloseDetail) btnCloseDetail.addEventListener("click", closeQADetailPanel);
+
+        // Estado inicial da interface de mapas DSS (desativado por defeito)
+        updateDSSMapUI();
+    }
+
+    function resetDSSViewMode() {
+        QAState.activeViewMode = "none";
+        try {
+            if (typeof updateDSSMapUI === "function") {
+                updateDSSMapUI();
+            }
+            updateDSSColors();
+            closeQADetailPanel();
+            if (dssSelectionLine && getViewer()?.scene) {
+                getViewer().scene.remove(dssSelectionLine);
+                dssSelectionLine.geometry.dispose();
+                dssSelectionLine = null;
+            }
+        } catch (e) {
+            console.warn("[DSS] resetDSSViewMode:", e);
+        }
     }
 
     // Inicialização ao carregar
@@ -1559,6 +1847,10 @@
         openWindow: () => (openDSSWindow ? openDSSWindow() : null),
         closeWindow: () => (closeDSSWindow ? closeDSSWindow() : null),
         resetAll: resetAllDSSState,
+        syncTargetMesh: syncTargetMesh,
+        updateColors: updateDSSColors,
+        setViewMode: (mode) => (setViewMode ? setViewMode(mode) : null),
+        resetViewMode: resetDSSViewMode,
         state: QAState
     };
 

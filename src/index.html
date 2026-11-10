@@ -113,11 +113,11 @@
                 <h1>Retopo Tool</h1>
             </div>
 
-            <!-- Seletores de Malha na Barra Superior (Original, Otimizado, e Intermédio no fim) -->
+            <!-- Seletores de Malha na Barra Superior (Original, Snapshot intermédio no meio, e Otimizado) -->
             <div class="topbar-mesh-controls">
-                <button id="btn-high-poly" class="view-btn active">Original (High)</button>
-                <button id="btn-low-poly" class="view-btn">Otimizado (Low)</button>
+                <button id="btn-high-poly" class="view-btn active">🏛️ Original (High)</button>
                 <button id="btn-snap-poly" class="view-btn view-btn-snap" style="display:none;">📸 Snapshot</button>
+                <button id="btn-low-poly" class="view-btn">⚡ Otimizado (Low)</button>
             </div>
 
             <div class="topbar-actions">
@@ -309,275 +309,431 @@
             </section>
 
             <!-- Painel Lateral: Estúdio Modular Descomplicado -->
+            <!-- Painel Lateral: Estúdio Modular Reestruturado -->
             <aside class="sidebar glass" id="app-sidebar">
 
-                <!-- ═══════════════ MÓDULO 1: GNN Saliency ═══════════════ -->
-                <div class="panel-section unified-card" id="section-gnn">
-                    <div class="panel-section-header">
-                        <div style="display:flex;align-items:center;gap:0.4rem;">
-                            <span style="font-size:0.9rem;">🧠</span>
-                            <h3 style="margin:0;font-size:0.84rem;color:#f8fafc;font-weight:700;">GNN Saliency</h3>
-                        </div>
-                        <span class="badge-tag purple" id="side-gnn-badge">IA / EGNN</span>
-                    </div>
-
-                    <!-- Métricas Principais da Predição GNN -->
-                    <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:0.35rem;margin-top:0.45rem;">
-                        <div class="metric-cell" style="padding:0.45rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
-                            <span class="cell-label" style="font-size:0.68rem;color:#94a3b8;display:block;">Vértices Analisados</span>
-                            <strong id="side-gnn-verts" class="cell-val text-blue" style="font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:#60a5fa;">--</strong>
-                        </div>
-                        <div class="metric-cell" style="padding:0.45rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
-                            <span class="cell-label" style="font-size:0.68rem;color:#94a3b8;display:block;">Score Médio Saliência</span>
-                            <strong id="side-gnn-avg-score" class="cell-val" style="font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:#cbd5e1;">--</strong>
-                        </div>
-                    </div>
-
-                    <!-- Cartões de Vértices Críticos vs Dispensáveis -->
-                    <div style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.45rem;">
-                        <div style="padding:0.45rem 0.6rem;background:rgba(239,68,68,0.06);border-radius:6px;border:1px solid rgba(239,68,68,0.22);display:flex;justify-content:space-between;align-items:center;">
+                <!-- ══════════════════════════════════════════════════════════
+                     CONTEXTO 1: MALHA ORIGINAL (HIGH POLY)
+                     ══════════════════════════════════════════════════════════ -->
+                <div id="sidebar-context-high" class="sidebar-context-view">
+                    
+                    <!-- Banner de Contexto -->
+                    <div class="sidebar-context-banner">
+                        <div style="display:flex;align-items:center;gap:0.45rem;">
+                            <span style="font-size:1.15rem;">🏛️</span>
                             <div>
-                                <span style="font-size:0.75rem;font-weight:600;color:#f87171;display:block;">Vértices Críticos (Keep = 1)</span>
-                                <span style="font-size:0.65rem;color:#94a3b8;">Silhueta & cantos a preservar</span>
+                                <h3 style="margin:0;font-size:0.86rem;color:#f8fafc;font-weight:700;">Original (High Poly)</h3>
+                                <span style="font-size:0.67rem;color:#94a3b8;">Malha de Entrada & Saliência IA</span>
                             </div>
-                            <div style="text-align:right;">
-                                <strong id="side-gnn-critical" style="color:#f87171;font-family:'JetBrains Mono',monospace;font-size:0.88rem;">--</strong>
-                                <span id="side-gnn-crit-pct" style="display:block;font-size:0.65rem;color:#fca5a5;">--%</span>
+                        </div>
+                        <span class="badge-tag purple">ORIGINAL</span>
+                    </div>
+
+                    <!-- Módulo A: Geometria de Entrada & Sanidade -->
+                    <div class="panel-section unified-card">
+                        <div class="panel-section-header">
+                            <div style="display:flex;align-items:center;gap:0.4rem;">
+                                <span style="font-size:0.88rem;">📐</span>
+                                <h4 style="margin:0;font-size:0.82rem;color:#f8fafc;font-weight:700;">Geometria de Entrada</h4>
+                            </div>
+                            <span class="badge-mini" style="background:rgba(255,255,255,0.06);color:#94a3b8;">Wavefront OBJ</span>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:0.35rem;margin-top:0.45rem;">
+                            <div class="metric-cell" style="padding:0.45rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span class="cell-label" style="font-size:0.66rem;color:#94a3b8;display:block;">Triângulos / Faces</span>
+                                <strong id="orig-faces-val" class="cell-val text-white" style="font-family:'JetBrains Mono',monospace;font-size:0.92rem;">--</strong>
+                            </div>
+                            <div class="metric-cell" style="padding:0.45rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span class="cell-label" style="font-size:0.66rem;color:#94a3b8;display:block;">Vértices Totais</span>
+                                <strong id="orig-verts-val" class="cell-val text-blue" style="font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:#60a5fa;">--</strong>
                             </div>
                         </div>
 
-                        <div style="padding:0.45rem 0.6rem;background:rgba(56,189,248,0.06);border-radius:6px;border:1px solid rgba(56,189,248,0.22);display:flex;justify-content:space-between;align-items:center;">
-                            <div>
-                                <span style="font-size:0.75rem;font-weight:600;color:#38bdf8;display:block;">Vértices Dispensáveis (Keep = 0)</span>
-                                <span style="font-size:0.65rem;color:#94a3b8;">Planos livres para decimação RL</span>
+                        <!-- Sanidade Topológica Inicial -->
+                        <div style="margin-top:0.45rem;padding:0.45rem 0.6rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:0.25rem;font-size:0.71rem;">
+                            <div style="display:flex;justify-content:space-between;">
+                                <span style="color:#94a3b8;">Estanque (Watertight):</span>
+                                <strong id="orig-watertight-val" style="color:#34d399;">Sim</strong>
                             </div>
-                            <div style="text-align:right;">
-                                <strong id="side-gnn-dispensable" style="color:#38bdf8;font-family:'JetBrains Mono',monospace;font-size:0.88rem;">--</strong>
-                                <span id="side-gnn-disp-pct" style="display:block;font-size:0.65rem;color:#7dd3fc;">--%</span>
+                            <div style="display:flex;justify-content:space-between;">
+                                <span style="color:#94a3b8;">Topologia (2-Manifold):</span>
+                                <strong id="orig-manifold-val" style="color:#34d399;">Sim</strong>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;">
+                                <span style="color:#94a3b8;">Arestas de Fronteira:</span>
+                                <strong id="orig-boundary-val" style="color:#cbd5e1;font-family:'JetBrains Mono',monospace;">0</strong>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Distribuição de Saliência (Segmented Bar) -->
-                    <div style="margin-top:0.45rem;padding:0.45rem 0.6rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
-                            <span style="font-size:0.7rem;font-weight:600;color:#cbd5e1;">Distribuição de Importância</span>
-                            <span style="font-size:0.65rem;color:#94a3b8;">Threshold EGNN: 0.50</span>
+                    <!-- Módulo B: GNN Saliency & Feature Importance (IA) -->
+                    <div class="panel-section unified-card" id="section-gnn">
+                        <div class="panel-section-header">
+                            <div style="display:flex;align-items:center;gap:0.4rem;">
+                                <span style="font-size:0.9rem;">🧠</span>
+                                <h4 style="margin:0;font-size:0.82rem;color:#f8fafc;font-weight:700;">GNN Feature Saliency</h4>
+                            </div>
+                            <span class="badge-tag purple" id="side-gnn-badge">IA / EGNN</span>
                         </div>
-                        <div style="height:6px;width:100%;border-radius:3px;display:flex;overflow:hidden;background:rgba(255,255,255,0.08);">
-                            <div id="side-gnn-bar-high" style="width:33%;background:#ef4444;" title="Alta Importância (>= 0.70)"></div>
-                            <div id="side-gnn-bar-mid" style="width:34%;background:#f59e0b;" title="Média Importância (0.30 - 0.70)"></div>
-                            <div id="side-gnn-bar-low" style="width:33%;background:#38bdf8;" title="Baixa Importância (< 0.30)"></div>
+
+                        <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:0.35rem;margin-top:0.45rem;">
+                            <div class="metric-cell" style="padding:0.45rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span class="cell-label" style="font-size:0.66rem;color:#94a3b8;display:block;">Vértices Analisados</span>
+                                <strong id="side-gnn-verts" class="cell-val text-blue" style="font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:#60a5fa;">--</strong>
+                            </div>
+                            <div class="metric-cell" style="padding:0.45rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span class="cell-label" style="font-size:0.66rem;color:#94a3b8;display:block;">Score Médio Saliência</span>
+                                <strong id="side-gnn-avg-score" class="cell-val" style="font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:#cbd5e1;">--</strong>
+                            </div>
                         </div>
-                        <div style="display:flex;justify-content:space-between;margin-top:0.35rem;font-size:0.65rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">
-                            <span style="color:#f87171;">🔴 Alta: <strong id="side-gnn-dist-high">--</strong></span>
-                            <span style="color:#fbbf24;">🟡 Média: <strong id="side-gnn-dist-mid">--</strong></span>
-                            <span style="color:#38bdf8;">🔵 Baixa: <strong id="side-gnn-dist-low">--</strong></span>
+
+                        <div style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.45rem;">
+                            <div style="padding:0.45rem 0.6rem;background:rgba(239,68,68,0.06);border-radius:6px;border:1px solid rgba(239,68,68,0.22);display:flex;justify-content:space-between;align-items:center;">
+                                <div>
+                                    <span style="font-size:0.74rem;font-weight:600;color:#f87171;display:block;">Vértices Críticos (Keep = 1)</span>
+                                    <span style="font-size:0.64rem;color:#94a3b8;">Silhueta & cantos a preservar</span>
+                                </div>
+                                <div style="text-align:right;">
+                                    <strong id="side-gnn-critical" style="color:#f87171;font-family:'JetBrains Mono',monospace;font-size:0.88rem;">--</strong>
+                                    <span id="side-gnn-crit-pct" style="display:block;font-size:0.64rem;color:#fca5a5;">--%</span>
+                                </div>
+                            </div>
+
+                            <div style="padding:0.45rem 0.6rem;background:rgba(56,189,248,0.06);border-radius:6px;border:1px solid rgba(56,189,248,0.22);display:flex;justify-content:space-between;align-items:center;">
+                                <div>
+                                    <span style="font-size:0.74rem;font-weight:600;color:#38bdf8;display:block;">Vértices Dispensáveis (Keep = 0)</span>
+                                    <span style="font-size:0.64rem;color:#94a3b8;">Planos livres para decimação RL</span>
+                                </div>
+                                <div style="text-align:right;">
+                                    <strong id="side-gnn-dispensable" style="color:#38bdf8;font-family:'JetBrains Mono',monospace;font-size:0.88rem;">--</strong>
+                                    <span id="side-gnn-disp-pct" style="display:block;font-size:0.64rem;color:#7dd3fc;">--%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Distribuição de Saliência -->
+                        <div style="margin-top:0.45rem;padding:0.45rem 0.6rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
+                                <span style="font-size:0.69rem;font-weight:600;color:#cbd5e1;">Distribuição de Importância</span>
+                                <span style="font-size:0.64rem;color:#94a3b8;">Threshold: 0.50</span>
+                            </div>
+                            <div style="height:6px;width:100%;border-radius:3px;display:flex;overflow:hidden;background:rgba(255,255,255,0.08);">
+                                <div id="side-gnn-bar-high" style="width:33%;background:#ef4444;" title="Alta Importância (>= 0.70)"></div>
+                                <div id="side-gnn-bar-mid" style="width:34%;background:#f59e0b;" title="Média Importância (0.30 - 0.70)"></div>
+                                <div id="side-gnn-bar-low" style="width:33%;background:#38bdf8;" title="Baixa Importância (< 0.30)"></div>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;margin-top:0.35rem;font-size:0.64rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">
+                                <span style="color:#f87171;">🔴 Alta: <strong id="side-gnn-dist-high">--</strong></span>
+                                <span style="color:#fbbf24;">🟡 Média: <strong id="side-gnn-dist-mid">--</strong></span>
+                                <span style="color:#38bdf8;">🔵 Baixa: <strong id="side-gnn-dist-low">--</strong></span>
+                            </div>
+                        </div>
+
+                        <div style="display:flex;gap:0.4rem;margin-top:0.6rem;">
+                            <button id="side-btn-heatmap" class="btn btn-outline btn-sm" style="flex:1;font-size:0.75rem;padding:0.45rem 0.5rem;display:flex;align-items:center;justify-content:center;gap:0.35rem;">
+                                <span>🔥 Ativar Heatmap GNN</span>
+                            </button>
+                            <button id="btn-gnn-explainer" class="btn btn-outline btn-sm" style="font-size:0.75rem;padding:0.45rem 0.6rem;" title="Como funciona o GNN Explainer?">
+                                <span>ℹ️ Explicador</span>
+                            </button>
                         </div>
                     </div>
 
-                    <!-- Botões de Ação GNN -->
-                    <div style="display:flex;gap:0.4rem;margin-top:0.6rem;">
-                        <button id="side-btn-heatmap" class="btn btn-outline btn-sm" style="flex:1;font-size:0.75rem;padding:0.45rem 0.5rem;display:flex;align-items:center;justify-content:center;gap:0.35rem;">
-                            <span>🔥 Ativar Heatmap GNN</span>
-                        </button>
-                        <button id="btn-gnn-explainer" class="btn btn-outline btn-sm" style="font-size:0.75rem;padding:0.45rem 0.6rem;" title="Como funciona o GNN Explainer?">
-                            <span>ℹ️ Explicador</span>
-                        </button>
+                    <!-- Módulo C: Agente de Simplificação RL -->
+                    <div class="panel-section unified-card" style="margin-top:auto;">
+                        <div class="panel-section-header">
+                            <div style="display:flex;align-items:center;gap:0.4rem;">
+                                <span style="font-size:0.88rem;">⚙️</span>
+                                <h4 style="margin:0;font-size:0.82rem;color:#f8fafc;font-weight:700;">Agente RL Configurado</h4>
+                            </div>
+                            <span class="badge-tag blue">MOTOR DE DECIMAÇÃO</span>
+                        </div>
+
+                        <div style="display:flex;flex-direction:column;gap:0.3rem;font-size:0.71rem;margin-top:0.4rem;">
+                            <div style="display:flex;justify-content:space-between;padding:0.35rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span style="color:#94a3b8;">Iterações Alvo:</span>
+                                <strong id="side-orig-steps-val" style="color:#38bdf8;font-family:'JetBrains Mono',monospace;">100 iterações</strong>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;padding:0.35rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span style="color:#94a3b8;">Política de Seleção:</span>
+                                <strong style="color:#cbd5e1;">Curvature-Guided Edge Dissolve</strong>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;padding:0.35rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span style="color:#94a3b8;">Recompensas Ativas:</span>
+                                <strong style="color:#4ade80;">Silhueta + Redução + UV</strong>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- ═══════════════ MÓDULO 2: RL Decimation & Snapshots ═══════════════ -->
-                <div class="panel-section unified-card" id="section-rl">
-                    <div class="panel-section-header">
-                        <div style="display:flex;align-items:center;gap:0.4rem;">
-                            <span style="font-size:0.9rem;">🔄</span>
-                            <h3 style="margin:0;font-size:0.84rem;color:#f8fafc;font-weight:700;">Decimação RL</h3>
+                <!-- ══════════════════════════════════════════════════════════
+                     CONTEXTO 2: MALHA OTIMIZADA OU SNAPSHOT
+                     ══════════════════════════════════════════════════════════ -->
+                <div id="sidebar-context-low" class="sidebar-context-view" style="display:none;">
+
+                    <!-- Banner de Contexto -->
+                    <div class="sidebar-context-banner">
+                        <div style="display:flex;align-items:center;gap:0.45rem;">
+                            <span style="font-size:1.15rem;" id="side-opt-icon">⚡</span>
+                            <div>
+                                <h3 style="margin:0;font-size:0.86rem;color:#f8fafc;font-weight:700;" id="side-opt-title">Otimizado (Low Poly)</h3>
+                                <span style="font-size:0.67rem;color:#94a3b8;" id="side-opt-subtitle">Topologia Simplificada por Reinforcement Learning</span>
+                            </div>
                         </div>
-                        <span class="badge-tag blue">AGENTE RL</span>
+                        <span class="badge-tag green" id="side-opt-tag">OTIMIZADO</span>
                     </div>
 
-                    <!-- Métricas de Decimação RL -->
-                    <div class="metrics-quad-grid" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.35rem;margin-top:0.4rem;">
-                        <div class="metric-cell">
-                            <span class="cell-label">Redução</span>
-                            <strong id="side-face-reduction" class="cell-val text-green">--</strong>
+                    <!-- Módulo A: Performance RL & Redução Real -->
+                    <div class="panel-section unified-card" id="section-rl">
+                        <div class="panel-section-header">
+                            <div style="display:flex;align-items:center;gap:0.4rem;">
+                                <span style="font-size:0.9rem;">🔄</span>
+                                <h4 style="margin:0;font-size:0.82rem;color:#f8fafc;font-weight:700;">Desempenho RL</h4>
+                            </div>
+                            <span class="badge-tag blue">RESULTADOS</span>
                         </div>
-                        <div class="metric-cell">
-                            <span class="cell-label">Dissolves</span>
-                            <strong id="side-dissolves" class="cell-val text-blue">--</strong>
+
+                        <!-- Métricas Principais RL -->
+                        <div class="metrics-quad-grid" style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.35rem;margin-top:0.4rem;">
+                            <div class="metric-cell" style="padding:0.45rem 0.4rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);text-align:center;">
+                                <span class="cell-label" style="font-size:0.65rem;color:#94a3b8;display:block;">Redução</span>
+                                <strong id="side-face-reduction" class="cell-val text-green" style="font-size:0.92rem;font-family:'JetBrains Mono',monospace;">--</strong>
+                            </div>
+                            <div class="metric-cell" style="padding:0.45rem 0.4rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);text-align:center;">
+                                <span class="cell-label" style="font-size:0.65rem;color:#94a3b8;display:block;">Dissolves</span>
+                                <strong id="side-dissolves" class="cell-val text-blue" style="font-size:0.92rem;font-family:'JetBrains Mono',monospace;">--</strong>
+                            </div>
+                            <div class="metric-cell" style="padding:0.45rem 0.4rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);text-align:center;">
+                                <span class="cell-label" style="font-size:0.65rem;color:#94a3b8;display:block;">Passos</span>
+                                <strong id="side-steps" class="cell-val text-white" style="font-size:0.92rem;font-family:'JetBrains Mono',monospace;">--</strong>
+                            </div>
                         </div>
-                        <div class="metric-cell">
-                            <span class="cell-label">Passos</span>
-                            <strong id="side-steps" class="cell-val text-white">--</strong>
+
+                        <!-- Comparativo Rápido & Eficiência -->
+                        <div style="margin-top:0.45rem;padding:0.45rem 0.6rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:0.3rem;font-size:0.71rem;">
+                            <div style="display:flex;justify-content:space-between;">
+                                <span style="color:#94a3b8;">Faces (Antes ➔ Depois):</span>
+                                <span style="font-family:'JetBrains Mono',monospace;"><strong id="side-comp-faces-before" style="color:#94a3b8;">--</strong> ➔ <strong id="side-comp-faces-after" style="color:#34d399;">--</strong></span>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;">
+                                <span style="color:#94a3b8;">Eficiência de Aceitação:</span>
+                                <strong id="side-rl-efficiency" style="color:#38bdf8;font-family:'JetBrains Mono',monospace;">--%</strong>
+                            </div>
                         </div>
+
+                        <button id="btn-side-report" class="btn btn-outline" style="width:100%;margin-top:0.55rem;font-size:0.77rem;padding:0.45rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;">
+                            <span>📋 Decimation Report & Gráficos</span>
+                        </button>
                     </div>
 
-                    <button id="btn-side-report" class="btn btn-outline" style="width:100%;margin-top:0.6rem;font-size:0.78rem;padding:0.5rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;">
-                        <span>📋 Relatório RL & Snapshots</span>
-                    </button>
-                </div>
-
-                <!-- ═══════════════ MÓDULO 3: Auditoria Topológica DSS ═══════════════ -->
-                <div class="panel-section unified-card dss-section" id="section-dss">
-                    <div class="panel-section-header">
-                        <div style="display:flex;align-items:center;gap:0.4rem;">
-                            <span style="font-size:0.9rem;">🛡️</span>
-                            <h3 style="margin:0;font-size:0.84rem;color:#38bdf8;font-weight:700;">Auditoria Topológica DSS</h3>
-                        </div>
-                        <span id="side-dss-badge" class="badge-mini" style="display:none;">0</span>
-                    </div>
-
-                    <div style="margin-top:0.4rem;padding:0.5rem 0.65rem;background:rgba(15,23,42,0.85);border-radius:8px;border:1px solid rgba(56,189,248,0.25);">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <span id="qa-target-title" style="font-size:0.76rem;font-weight:700;color:#38bdf8;">Malha Ativa</span>
+                    <!-- Módulo B: Auditoria Topológica DSS -->
+                    <div class="panel-section unified-card dss-section" id="section-dss">
+                        <div class="panel-section-header">
+                            <div style="display:flex;align-items:center;gap:0.4rem;">
+                                <span style="font-size:0.9rem;">🛡️</span>
+                                <h4 style="margin:0;font-size:0.82rem;color:#38bdf8;font-weight:700;">Auditoria Topológica DSS</h4>
+                            </div>
                             <span id="qa-header-status" class="status-badge online" style="font-size:0.65rem;padding:0.12rem 0.4rem;">Pronto</span>
                         </div>
-                        <p id="qa-header-verdict" class="qa-verdict-text" style="margin:0.3rem 0 0.45rem 0;font-size:0.75rem;line-height:1.35;">A calcular veredito...</p>
-                        
-                        <div style="display:flex;flex-direction:column;gap:0.35rem;">
-                            <button id="btn-open-dss-modal" class="btn btn-primary" style="width:100%;font-size:0.78rem;padding:0.5rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;background:linear-gradient(135deg,#0284c7,#2563eb);border-color:#38bdf8;">
-                                <span>🛡️ Abrir Janela de Auditoria DSS</span>
-                            </button>
-                            <div style="display:flex;gap:0.3rem;">
-                                <button id="btn-qa-run" class="btn btn-outline btn-sm" style="flex:1;font-size:0.72rem;padding:0.35rem 0.5rem;" title="Reanalisar malha atual">
-                                    <span>⚡ Reanalisar</span>
+
+                        <div style="margin-top:0.4rem;padding:0.5rem 0.65rem;background:rgba(15,23,42,0.85);border-radius:8px;border:1px solid rgba(56,189,248,0.25);">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span id="qa-target-title" style="font-size:0.74rem;font-weight:700;color:#38bdf8;">Malha Otimizada</span>
+                            </div>
+                            <p id="qa-header-verdict" class="qa-verdict-text" style="margin:0.25rem 0 0.4rem 0;font-size:0.73rem;line-height:1.35;">A calcular veredito...</p>
+                            
+                            <!-- Distribuição de Faces (Quad-Dominance) -->
+                            <div style="margin-bottom:0.5rem;">
+                                <div style="display:flex;justify-content:space-between;font-size:0.66rem;color:#94a3b8;margin-bottom:0.25rem;">
+                                    <span>Distribuição Topológica</span>
+                                    <span>Quad-Dominant</span>
+                                </div>
+                                <div style="height:6px;width:100%;border-radius:3px;display:flex;overflow:hidden;background:rgba(255,255,255,0.08);">
+                                    <div id="side-bar-quads" style="width:0%;background:#10b981;" title="Quads"></div>
+                                    <div id="side-bar-tris" style="width:0%;background:#f59e0b;" title="Triângulos"></div>
+                                    <div id="side-bar-ngons" style="width:0%;background:#ef4444;" title="N-gons"></div>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;margin-top:0.25rem;font-size:0.64rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">
+                                    <span style="color:#34d399;">🟩 Quads: <strong id="side-dss-quads">--%</strong></span>
+                                    <span style="color:#fbbf24;">🟧 Tris: <strong id="side-dss-tris">--%</strong></span>
+                                    <span style="color:#f87171;">🟥 N-gons: <strong id="side-dss-ngons">--%</strong></span>
+                                </div>
+                            </div>
+
+                            <!-- Opções de Aplicação do Mapa DSS ao Vértice / Malha Otimizada -->
+                            <div style="margin-top:0.5rem;padding:0.5rem 0.65rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(56,189,248,0.25);">
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                                    <span style="font-size:0.69rem;font-weight:700;color:#93c5fd;letter-spacing:0.04em;">APLICAR MAPA DSS AO 3D</span>
+                                    <span id="side-dss-map-badge" class="badge-mini" style="background:rgba(255,255,255,0.06);color:#94a3b8;border-color:rgba(255,255,255,0.1);">Desativado</span>
+                                </div>
+                                <button type="button" id="side-btn-dss-toggle" class="btn btn-outline btn-sm" style="width:100%;margin-bottom:0.4rem;font-size:0.75rem;padding:0.42rem;display:flex;align-items:center;justify-content:center;gap:0.35rem;border-radius:6px;transition:all 0.2s ease;">
+                                    <span>🎨 Ativar Mapa de Cores DSS</span>
                                 </button>
-                                <button id="btn-qa-download-result" class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:0.35rem 0.5rem;" title="Descarregar JSON da análise">
-                                    <span>💾 JSON</span>
+                                <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.35rem;">
+                                    <button id="side-btn-dss-angle" class="btn btn-outline btn-sm dss-map-btn" style="font-size:0.72rem;padding:0.42rem 0.25rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;" title="Heatmap de Ângulos Internos (Defeitos Min/Max nos Vértices e Faces)">
+                                        <span>🌡️ Ângulos</span>
+                                    </button>
+                                    <button id="side-btn-dss-valence" class="btn btn-outline btn-sm dss-map-btn" style="font-size:0.72rem;padding:0.42rem 0.25rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;" title="Heatmap de Valência por Vértice e Singularidades/Pólos">
+                                        <span>🟣 Valência</span>
+                                    </button>
+                                    <button id="side-btn-dss-errors" class="btn btn-outline btn-sm dss-map-btn" style="font-size:0.72rem;padding:0.42rem 0.25rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;" title="Mapa de Conformidade Topológica (Quads, Tris, N-gons, Aberturas)">
+                                        <span>⚠️ Topologia</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.5rem;">
+                                <button id="btn-open-dss-modal" class="btn btn-primary" style="width:100%;font-size:0.77rem;padding:0.45rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;background:linear-gradient(135deg,#0284c7,#2563eb);border-color:#38bdf8;">
+                                    <span>🛡️ Abrir Auditoria DSS Completa</span>
                                 </button>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- ═══════════════ MÓDULO 4: Exportação ═══════════════ -->
-                <div class="panel-section unified-card" id="section-export" style="margin-top:auto;margin-bottom:0;">
-                    <div style="display:flex;flex-direction:column;gap:0.35rem;font-size:0.75rem;">
-                        <div style="display:flex;justify-content:space-between;padding:0.35rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
-                            <span style="color:#64748b;">ORIGINAL (HIGH):</span>
-                            <span id="side-high-info" style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
+                    <!-- Módulo C: Exportação Low Poly -->
+                    <div class="panel-section unified-card" id="section-export" style="margin-top:auto;margin-bottom:0;">
+                        <div style="display:flex;flex-direction:column;gap:0.35rem;font-size:0.73rem;">
+                            <div style="display:flex;justify-content:space-between;padding:0.35rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span style="color:#64748b;">ORIGINAL (HIGH):</span>
+                                <span id="side-high-info" style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;padding:0.35rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
+                                <span id="side-low-info-label" style="color:#64748b;">OTIMIZADO (LOW):</span>
+                                <span id="side-low-info" style="font-family:'JetBrains Mono',monospace;color:#34d399;">--</span>
+                            </div>
                         </div>
-                        <div style="display:flex;justify-content:space-between;padding:0.35rem 0.55rem;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05);">
-                            <span style="color:#64748b;">OTIMIZADO (LOW):</span>
-                            <span id="side-low-info" style="font-family:'JetBrains Mono',monospace;color:#34d399;">--</span>
+
+                        <button id="btn-export" class="btn btn-primary" style="width:100%;margin-top:0.55rem;padding:0.55rem;font-size:0.8rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;">
+                            <span>💾 Exportar Low Poly (.obj)</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════════════════════════════════
+                     CONTEXTO 3: AUDITORIA TOPOLÓGICA DSS (DIRETO NO MENU LATERAL)
+                     ══════════════════════════════════════════════════════════ -->
+                <div id="sidebar-context-dss" class="sidebar-context-view" style="display:none;">
+
+                    <!-- Banner de Navegação DSS -->
+                    <div class="sidebar-context-banner" style="background: rgba(15, 23, 42, 0.85); border-color: rgba(56, 189, 248, 0.35);">
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <button type="button" id="btn-dss-back" class="btn btn-outline btn-sm" style="font-size:0.75rem;padding:0.3rem 0.55rem;border-color:rgba(255,255,255,0.2);" title="Voltar ao Estúdio Principal">
+                                <span>⬅ Voltar</span>
+                            </button>
+                            <div>
+                                <h3 style="margin:0;font-size:0.86rem;color:#f8fafc;font-weight:700;">Auditoria DSS</h3>
+                                <span id="dss-drawer-target-title" style="font-size:0.67rem;color:#38bdf8;">Malha Otimizada Final</span>
+                            </div>
                         </div>
-                    </div>
-
-                    <button id="btn-export" class="btn btn-primary" style="width:100%;margin-top:0.6rem;padding:0.6rem;font-size:0.82rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;">
-                        <span>💾 Exportar Low Poly (.obj)</span>
-                    </button>
-                </div>
-            </aside>
-        </main>
-    </div>
-
-    <!-- ═══════════════ JANELA DE AUDITORIA TOPOLÓGICA DSS (DRAWER DEDICADO) ═══════════════ -->
-    <div id="dss-window-overlay" class="dss-window-overlay">
-        <aside class="dss-window-drawer">
-            <!-- Header da Janela DSS -->
-            <div class="dss-window-header">
-                <div style="display:flex;align-items:center;gap:0.6rem;">
-                    <div style="width:34px;height:34px;border-radius:8px;background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.35);display:flex;align-items:center;justify-content:center;font-size:1.1rem;">
-                        🛡️
-                    </div>
-                    <div>
-                        <h2 style="font-size:0.95rem;margin:0;color:#f8fafc;font-weight:700;">Auditoria Topológica DSS</h2>
-                        <span id="dss-drawer-target-title" style="font-size:0.74rem;color:#38bdf8;">Malha Otimizada Final</span>
-                    </div>
-                </div>
-                <div style="display:flex;align-items:center;gap:0.4rem;">
-                    <button id="btn-dss-drawer-download" class="btn btn-outline btn-sm" style="font-size:0.75rem;padding:0.35rem 0.6rem;">
-                        <span>💾 Baixar JSON</span>
-                    </button>
-                    <button id="btn-close-dss-window" class="btn-icon-sidebar" style="font-size:1.1rem;width:32px;height:32px;" title="Fechar Janela">✕</button>
-                </div>
-            </div>
-
-            <!-- Conteúdo Scrollável da Janela DSS -->
-            <div class="dss-window-content">
-                <!-- Veredito Rápido -->
-                <div style="padding:0.6rem 0.8rem;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid rgba(56,189,248,0.25);">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-size:0.75rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Veredito da Malha</span>
                         <span id="dss-drawer-status" class="status-badge online" style="font-size:0.65rem;">Concluído</span>
                     </div>
-                    <p id="dss-drawer-verdict" class="qa-verdict-text" style="margin:0.3rem 0 0 0;font-size:0.8rem;line-height:1.4;">--</p>
-                </div>
 
-                <!-- Topologia Compacta -->
-                <div>
-                    <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Integridade & Estanquicidade</span>
-                    <div class="qa-metric-cards-grid">
-                        <div class="qa-metric-card">
-                            <span class="qa-mc-label">Hermética</span>
-                            <div id="qa-topo-watertight" class="qa-mc-val">--</div>
+                    <!-- Módulo A: Veredito & Mapas DSS no 3D -->
+                    <div class="panel-section unified-card dss-section">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+                            <span style="font-size:0.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Veredito da Malha</span>
+                            <span id="qa-header-duration" style="font-size:0.66rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">--</span>
                         </div>
-                        <div class="qa-metric-card">
-                            <span class="qa-mc-label">2-Manifold</span>
-                            <div id="qa-topo-manifold" class="qa-mc-val">--</div>
+                        <p id="dss-drawer-verdict" class="qa-verdict-text" style="margin:0 0 0.55rem 0;font-size:0.79rem;line-height:1.4;">--</p>
+                        
+                        <!-- Toggle de Visualização no 3D direto no Menu -->
+                        <div style="display:flex;flex-direction:column;gap:0.3rem;padding-top:0.45rem;border-top:1px solid rgba(255,255,255,0.08);">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span style="font-size:0.68rem;font-weight:700;color:#38bdf8;">MAPAS DSS NO VIEWPORT 3D</span>
+                                <span style="font-size:0.62rem;color:#94a3b8;">Clica para alternar</span>
+                            </div>
+                            <button type="button" id="dss-drawer-btn-toggle" class="btn btn-outline btn-sm" style="width:100%;margin-bottom:0.3rem;font-size:0.74rem;padding:0.38rem;display:flex;align-items:center;justify-content:center;gap:0.35rem;border-radius:6px;transition:all 0.2s ease;">
+                                <span>🎨 Ativar Mapa de Cores DSS</span>
+                            </button>
+                            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.35rem;">
+                                <button type="button" id="dss-drawer-btn-angle" class="btn btn-outline btn-sm dss-map-btn" style="font-size:0.72rem;padding:0.38rem 0.2rem;" title="Heatmap de Ângulos Internos (Defeitos Min/Max)">
+                                    <span>🌡️ Ângulos</span>
+                                </button>
+                                <button type="button" id="dss-drawer-btn-valence" class="btn btn-outline btn-sm dss-map-btn" style="font-size:0.72rem;padding:0.38rem 0.2rem;" title="Heatmap de Valência por Vértice e Pólos">
+                                    <span>🟣 Valência</span>
+                                </button>
+                                <button type="button" id="dss-drawer-btn-errors" class="btn btn-outline btn-sm dss-map-btn" style="font-size:0.72rem;padding:0.38rem 0.2rem;" title="Conformidade Topológica (Quads, Tris, N-gons)">
+                                    <span>⚠️ Topologia</span>
+                                </button>
+                            </div>
                         </div>
-                        <div class="qa-metric-card">
-                            <span class="qa-mc-label">Euler (χ)</span>
-                            <strong id="qa-topo-euler" class="qa-mc-num">--</strong>
+                    </div>
+
+                    <!-- Módulo C: Integridade & Estanquicidade -->
+                    <div class="panel-section unified-card">
+                        <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Integridade & Estanquicidade</span>
+                        <div class="qa-metric-cards-grid">
+                            <div class="qa-metric-card">
+                                <span class="qa-mc-label">Hermética</span>
+                                <div id="qa-topo-watertight" class="qa-mc-val">--</div>
+                            </div>
+                            <div class="qa-metric-card">
+                                <span class="qa-mc-label">2-Manifold</span>
+                                <div id="qa-topo-manifold" class="qa-mc-val">--</div>
+                            </div>
+                            <div class="qa-metric-card">
+                                <span class="qa-mc-label">Euler (χ)</span>
+                                <strong id="qa-topo-euler" class="qa-mc-num">--</strong>
+                            </div>
+                            <div class="qa-metric-card">
+                                <span class="qa-mc-label">Open Edges</span>
+                                <strong id="qa-topo-boundary-edges" class="qa-mc-num">--</strong>
+                            </div>
                         </div>
-                        <div class="qa-metric-card">
-                            <span class="qa-mc-label">Open Edges</span>
-                            <strong id="qa-topo-boundary-edges" class="qa-mc-num">--</strong>
+                    </div>
+
+                    <!-- Módulo D: Distribuição de Faces (Quads, Tris, N-gons) -->
+                    <div class="panel-section unified-card">
+                        <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-bottom:0.25rem;">
+                            <span style="font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;">Distribuição de Polígonos</span>
+                            <span id="qa-faces-summary" style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
+                        </div>
+                        <div class="qa-faces-bar">
+                            <div id="qa-bar-tris" class="qa-fb-segment tris" style="width: 0%;"></div>
+                            <div id="qa-bar-quads" class="qa-fb-segment quads" style="width: 0%;"></div>
+                            <div id="qa-bar-ngons" class="qa-fb-segment ngons" style="width: 0%;"></div>
+                        </div>
+                        <div class="qa-faces-legend">
+                            <div class="qa-fl-item"><span class="qa-fl-dot tris"></span> Tris: <strong id="qa-count-tris">--</strong></div>
+                            <div class="qa-fl-item"><span class="qa-fl-dot quads"></span> Quads: <strong id="qa-count-quads">--</strong></div>
+                            <div class="qa-fl-item"><span class="qa-fl-dot ngons"></span> N-gons: <strong id="qa-count-ngons">--</strong></div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Distribuição de Faces (Quads, Tris, N-gons) -->
-                <div>
-                    <div style="display:flex;justify-content:space-between;font-size:0.72rem;margin-bottom:0.25rem;">
-                        <span style="font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;">Distribuição de Polígonos</span>
-                        <span id="qa-faces-summary" style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
+                    <!-- Módulo E: Checklist de Verificações Topológicas Dinâmicas -->
+                    <div class="panel-section unified-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                            <span style="font-size:0.74rem;font-weight:700;text-transform:uppercase;color:#38bdf8;letter-spacing:0.04em;">Verificações Topológicas (Clica para focar no 3D)</span>
+                        </div>
+                        <div id="qa-checks-list" class="qa-checks-list"></div>
                     </div>
-                    <div class="qa-faces-bar">
-                        <div id="qa-bar-tris" class="qa-fb-segment tris" style="width: 0%;"></div>
-                        <div id="qa-bar-quads" class="qa-fb-segment quads" style="width: 0%;"></div>
-                        <div id="qa-bar-ngons" class="qa-fb-segment ngons" style="width: 0%;"></div>
-                    </div>
-                    <div class="qa-faces-legend">
-                        <div class="qa-fl-item"><span class="qa-fl-dot tris"></span> Tris: <strong id="qa-count-tris">--</strong></div>
-                        <div class="qa-fl-item"><span class="qa-fl-dot quads"></span> Quads: <strong id="qa-count-quads">--</strong></div>
-                        <div class="qa-fl-item"><span class="qa-fl-dot ngons"></span> N-gons: <strong id="qa-count-ngons">--</strong></div>
-                    </div>
-                </div>
 
-                <!-- Checklist de Verificações Topológicas Dinâmicas -->
-                <div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                        <span style="font-size:0.74rem;font-weight:700;text-transform:uppercase;color:#38bdf8;letter-spacing:0.04em;">Verificações Topológicas (Clica para focar no 3D)</span>
-                    </div>
-                    <div id="qa-checks-list" class="qa-checks-list"></div>
-                </div>
+                    <!-- Módulo F: Qualidade Angular & Histograma de Valência -->
+                    <div class="panel-section unified-card">
+                        <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Qualidade Angular (Graus)</span>
+                        <div class="qa-angles-grid">
+                            <div class="qa-angle-item"><span class="qa-ai-label">Mín:</span><strong id="qa-angle-min">--</strong></div>
+                            <div class="qa-angle-item"><span class="qa-ai-label">Méd:</span><strong id="qa-angle-mean">--</strong></div>
+                            <div class="qa-angle-item"><span class="qa-ai-label">Máx:</span><strong id="qa-angle-max">--</strong></div>
+                        </div>
 
-                <!-- Qualidade Angular -->
-                <div>
-                    <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Qualidade Angular (Graus)</span>
-                    <div class="qa-angles-grid">
-                        <div class="qa-angle-item"><span class="qa-ai-label">Mín:</span><strong id="qa-angle-min">--</strong></div>
-                        <div class="qa-angle-item"><span class="qa-ai-label">Méd:</span><strong id="qa-angle-mean">--</strong></div>
-                        <div class="qa-angle-item"><span class="qa-ai-label">Máx:</span><strong id="qa-angle-max">--</strong></div>
+                        <div style="margin-top:0.6rem;">
+                            <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Histograma de Valência por Vértice</span>
+                            <div id="qa-valence-histogram" class="qa-histogram-container" style="height:65px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Módulo G: Limitações & Avisos -->
+                    <div class="panel-section unified-card" style="margin-bottom:0;">
+                        <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.3rem;">⚠️ Limitações & Avisos do Pipeline</span>
+                        <ul id="qa-limitations-list" class="qa-bullet-list" style="margin:0;padding-left:1.1rem;font-size:0.74rem;color:#94a3b8;line-height:1.45;"></ul>
+                        <ul id="qa-warnings-list" class="qa-bullet-list" style="margin:0.3rem 0 0 0;padding-left:1.1rem;font-size:0.74rem;color:#94a3b8;line-height:1.45;"></ul>
                     </div>
                 </div>
 
-                <!-- Histograma de Valência -->
-                <div>
-                    <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Histograma de Valência por Vértice</span>
-                    <div id="qa-valence-histogram" class="qa-histogram-container" style="height:65px;"></div>
-                </div>
-
-                <!-- Limitações & Avisos -->
-                <div style="padding-top:0.6rem;border-top:1px solid rgba(255,255,255,0.08);">
-                    <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.3rem;">⚠️ Limitações & Avisos do Pipeline</span>
-                    <ul id="qa-limitations-list" class="qa-bullet-list" style="margin:0;padding-left:1.1rem;font-size:0.74rem;color:#94a3b8;line-height:1.45;"></ul>
-                    <ul id="qa-warnings-list" class="qa-bullet-list" style="margin:0.3rem 0 0 0;padding-left:1.1rem;font-size:0.74rem;color:#94a3b8;line-height:1.45;"></ul>
-                </div>
-            </div>
-        </aside>
+            </aside>
+        </main>
     </div>
 
     <!-- ═══════════════ MODAL DO GNN EXPLAINER ═══════════════ -->
