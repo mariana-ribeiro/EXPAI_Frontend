@@ -79,11 +79,17 @@
     //  CONTROLO DO PAINEL LATERAL (COLLAPSE / EXPAND)
     // ══════════════════════════════════════════════════════
     const appSidebar         = document.getElementById("app-sidebar");
+    const btnToggleSidebar   = document.getElementById("btn-toggle-sidebar");
     const btnCollapseSidebar = document.getElementById("btn-collapse-sidebar");
     const btnExpandSidebar   = document.getElementById("btn-expand-sidebar");
 
     function collapseSidebar() {
         if (appSidebar) appSidebar.classList.add("collapsed");
+        if (btnToggleSidebar) {
+            btnToggleSidebar.classList.remove("active");
+            const icon = btnToggleSidebar.querySelector(".sidebar-toggle-icon");
+            if (icon) icon.textContent = "◧";
+        }
         if (btnExpandSidebar) btnExpandSidebar.style.display = "flex";
         window.dispatchEvent(new Event("resize"));
         setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
@@ -92,12 +98,27 @@
 
     function expandSidebar() {
         if (appSidebar) appSidebar.classList.remove("collapsed");
+        if (btnToggleSidebar) {
+            btnToggleSidebar.classList.add("active");
+            const icon = btnToggleSidebar.querySelector(".sidebar-toggle-icon");
+            if (icon) icon.textContent = "◨";
+        }
         if (btnExpandSidebar) btnExpandSidebar.style.display = "none";
         window.dispatchEvent(new Event("resize"));
         setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
         setTimeout(() => window.dispatchEvent(new Event("resize")), 350);
     }
 
+    function toggleSidebar() {
+        if (!appSidebar) return;
+        if (appSidebar.classList.contains("collapsed")) {
+            expandSidebar();
+        } else {
+            collapseSidebar();
+        }
+    }
+
+    if (btnToggleSidebar) btnToggleSidebar.addEventListener("click", toggleSidebar);
     if (btnCollapseSidebar) btnCollapseSidebar.addEventListener("click", collapseSidebar);
     if (btnExpandSidebar) btnExpandSidebar.addEventListener("click", expandSidebar);
 
@@ -185,13 +206,20 @@
             mainApp.style.filter = "none";
             mainApp.style.pointerEvents = "all";
 
-            // 4. Iniciar visualizador 3D com a ÚNICA barra de progresso (otimização RL)
-            initThreeJS(modelId, fileUrl, fileText);
-
-            // 5. Iniciar análise DSS da malha que acabou de ser enviada (snapshot=0)
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                window.MeshQA.runAnalysis(modelId, 0);
+            // 4. Limpar campos de upload para ficar pronto para nova utilização
+            selectedFile = null;
+            if (fileInput) fileInput.value = "";
+            if (selectedFileInfo) selectedFileInfo.style.display = "none";
+            if (dropZone) dropZone.style.display = "block";
+            if (btnUploadNext) {
+                btnUploadNext.innerHTML = `<span>Seguinte</span> <span>➔</span>`;
+                btnUploadNext.disabled = true;
+                btnUploadNext.style.opacity = "0.45";
+                btnUploadNext.style.cursor = "not-allowed";
             }
+
+            // 5. Iniciar ou reiniciar o estúdio 3D com a nova malha (limpando relatórios e análises anteriores)
+            initThreeJS(modelId, fileUrl, fileText);
 
         } catch (error) {
             console.error("Erro no upload:", error);
@@ -235,6 +263,70 @@
     }, false);
 
     // ══════════════════════════════════════════════════════
+    //  TOPBAR LOGO & MODAIS (UPLOAD / GNN EXPLAINER)
+    // ══════════════════════════════════════════════════════
+    const topbarLogo          = document.getElementById("topbar-logo");
+    const btnCloseUploadModal = document.getElementById("btn-close-upload-modal");
+    const gnnExplainerModal   = document.getElementById("gnn-explainer-modal");
+    const btnGnnExplainer     = document.getElementById("btn-gnn-explainer");
+    const btnCloseGnnExpl     = document.getElementById("btn-close-gnn-explainer");
+    const btnOkGnnExpl        = document.getElementById("btn-ok-gnn-explainer");
+
+    function showUploadModal() {
+        if (uploadModal) {
+            uploadModal.classList.remove("hidden");
+            if (btnCloseUploadModal && window.RetopoViewer && window.RetopoViewer.mesh) {
+                btnCloseUploadModal.style.display = "flex";
+            }
+            if (mainApp) {
+                mainApp.style.filter = "blur(10px)";
+                mainApp.style.pointerEvents = "none";
+            }
+        }
+    }
+
+    function hideUploadModal() {
+        // Só permite fechar sem upload se já houver uma cena 3D carregada
+        if (uploadModal && window.RetopoViewer && window.RetopoViewer.mesh) {
+            uploadModal.classList.add("hidden");
+            if (mainApp) {
+                mainApp.style.filter = "none";
+                mainApp.style.pointerEvents = "all";
+            }
+        }
+    }
+
+    if (topbarLogo) topbarLogo.addEventListener("click", showUploadModal);
+    if (btnCloseUploadModal) btnCloseUploadModal.addEventListener("click", hideUploadModal);
+
+    function openGnnExplainer() {
+        if (gnnExplainerModal) gnnExplainerModal.classList.remove("hidden");
+    }
+    function closeGnnExplainer() {
+        if (gnnExplainerModal) gnnExplainerModal.classList.add("hidden");
+    }
+
+    if (btnGnnExplainer) btnGnnExplainer.addEventListener("click", openGnnExplainer);
+    if (btnCloseGnnExpl) btnCloseGnnExpl.addEventListener("click", closeGnnExplainer);
+    if (btnOkGnnExpl) btnOkGnnExpl.addEventListener("click", closeGnnExplainer);
+
+    if (gnnExplainerModal) {
+        gnnExplainerModal.addEventListener("click", (e) => {
+            if (e.target === gnnExplainerModal) closeGnnExplainer();
+        });
+    }
+
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+            if (gnnExplainerModal && !gnnExplainerModal.classList.contains("hidden")) {
+                closeGnnExplainer();
+            } else if (uploadModal && !uploadModal.classList.contains("hidden") && window.RetopoViewer?.mesh) {
+                hideUploadModal();
+            }
+        }
+    });
+
+    // ══════════════════════════════════════════════════════
     //  THREE.JS & APP PRINCIPAL
     // ══════════════════════════════════════════════════════
     window.initRetopoStudio = function(modelId, fileUrl, rawObjText) {
@@ -243,6 +335,12 @@
     window.initRetopoViewer = window.initRetopoStudio;
 
     function initThreeJS(modelId, fileUrl, rawObjText) {
+        if (window.RetopoViewer && typeof window.RetopoViewer.resetAndLoadModel === "function") {
+            window.RetopoViewer.resetAndLoadModel(modelId, fileUrl, rawObjText);
+            return;
+        }
+
+        let currentModelId = modelId;
         const canvas = document.getElementById("canvas3d");
         const container = canvas.parentElement;
 
@@ -321,44 +419,58 @@
         let lowPolyGeo  = null;
         let activeView  = "high"; // 'high' | 'low' | 'snapshot'
 
-        // Carregar OBJ real fornecido no upload
         const objLoader = new THREE.OBJLoader();
-        if (rawObjText) {
-            try {
-                const parsedObj = objLoader.parse(rawObjText);
-                parsedObj.traverse((child) => {
-                    if (child.isMesh && !highPolyGeo) {
-                        highPolyGeo = child.geometry;
-                    }
-                });
-            } catch (err) {
-                console.warn("[Init] Erro ao parsear OBJ inicial:", err);
+
+        function buildHighPolyGeo(objText) {
+            let geo = null;
+            if (objText) {
+                try {
+                    const parsedObj = objLoader.parse(objText);
+                    parsedObj.traverse((child) => {
+                        if (child.isMesh && !geo) {
+                            geo = child.geometry;
+                        }
+                    });
+                } catch (err) {
+                    console.warn("[Init] Erro ao parsear OBJ inicial:", err);
+                }
             }
+
+            if (!geo) {
+                geo = new THREE.TorusKnotGeometry(8, 2.5, 128, 32);
+            }
+
+            // Centrar e normalizar escala da malha High Poly
+            geo.computeBoundingBox();
+            const center = new THREE.Vector3();
+            geo.boundingBox.getCenter(center);
+            geo.translate(-center.x, -center.y, -center.z);
+
+            const size = new THREE.Vector3();
+            geo.boundingBox.getSize(size);
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = maxDim > 0 ? (16 / maxDim) : 1;
+            if (maxDim > 0) {
+                geo.scale(scale, scale, scale);
+            }
+            geo.computeVertexNormals();
+
+            // Garantir que a geometria tem o atributo color para suportar vertexColors instantâneo
+            const posAttr = geo.attributes.position;
+            if (posAttr && !geo.attributes.color) {
+                const initCols = new Float32Array(posAttr.count * 3);
+                initCols.fill(1.0);
+                geo.setAttribute("color", new THREE.BufferAttribute(initCols, 3));
+            }
+
+            if (!geo.userData) geo.userData = {};
+            geo.userData.center = center;
+            geo.userData.scale = scale;
+            geo.userData.rawObjText = objText;
+            return geo;
         }
 
-        if (!highPolyGeo) {
-            highPolyGeo = new THREE.TorusKnotGeometry(8, 2.5, 128, 32);
-        }
-
-        // Centrar e normalizar escala da malha High Poly
-        highPolyGeo.computeBoundingBox();
-        const center = new THREE.Vector3();
-        highPolyGeo.boundingBox.getCenter(center);
-        highPolyGeo.translate(-center.x, -center.y, -center.z);
-
-        const size = new THREE.Vector3();
-        highPolyGeo.boundingBox.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = maxDim > 0 ? (16 / maxDim) : 1;
-        if (maxDim > 0) {
-            highPolyGeo.scale(scale, scale, scale);
-        }
-        highPolyGeo.computeVertexNormals();
-
-        if (!highPolyGeo.userData) highPolyGeo.userData = {};
-        highPolyGeo.userData.center = center;
-        highPolyGeo.userData.scale = scale;
-        highPolyGeo.userData.rawObjText = rawObjText;
+        highPolyGeo = buildHighPolyGeo(rawObjText);
 
         const mesh = new THREE.Mesh(highPolyGeo, baseMaterial);
         scene.add(mesh);
@@ -528,8 +640,54 @@
         const btnEdges      = document.getElementById("btn-edges");
         const btnVerts      = document.getElementById("btn-verts");
         const btnWire       = document.getElementById("btn-wireframe"); // fallback para compatibilidade
-        const btnHeatmap    = document.getElementById("btn-heatmap");
-        const heatmapSubbar = document.getElementById("heatmap-subbar");
+        const sideBtnHeatmap = document.getElementById("side-btn-heatmap");
+
+        let isGNNHeatmapActive = false;
+
+        function setGNNHeatmapActive(isActive) {
+            isGNNHeatmapActive = !!isActive;
+            const qaLegend = document.getElementById("qa-heatmap-legend");
+            const qaLegendTitle = document.getElementById("qa-legend-title");
+            const qaLegendMin = document.getElementById("qa-legend-min");
+            const qaLegendMax = document.getElementById("qa-legend-max");
+
+            if (sideBtnHeatmap) {
+                if (isGNNHeatmapActive) {
+                    sideBtnHeatmap.classList.remove("btn-outline");
+                    sideBtnHeatmap.classList.add("btn-primary");
+                    sideBtnHeatmap.innerHTML = "<span>🔥 Desativar Heatmap</span>";
+                    sideBtnHeatmap.style.boxShadow = "0 0 12px rgba(56, 189, 248, 0.4)";
+                } else {
+                    sideBtnHeatmap.classList.remove("btn-primary");
+                    sideBtnHeatmap.classList.add("btn-outline");
+                    sideBtnHeatmap.innerHTML = "<span>🔥 Ativar Heatmap GNN</span>";
+                    sideBtnHeatmap.style.boxShadow = "none";
+                }
+            }
+
+            if (isGNNHeatmapActive && activeView === "high") {
+                if (qaLegend && qaLegendTitle && qaLegendMin && qaLegendMax) {
+                    qaLegendTitle.textContent = "Saliência GNN (Importância)";
+                    qaLegendMin.textContent = "0.0 (Baixa)";
+                    qaLegendMax.textContent = "1.0 (Alta)";
+                    qaLegend.style.display = "flex";
+                }
+            } else {
+                const dssAngleBtn = document.getElementById("btn-dss-heatmap-angle");
+                const dssValBtn = document.getElementById("btn-dss-heatmap-valence");
+                const isDSSHeatmapActive = (dssAngleBtn && dssAngleBtn.classList.contains("active")) ||
+                                          (dssValBtn && dssValBtn.classList.contains("active"));
+                if (!isDSSHeatmapActive && qaLegend) {
+                    qaLegend.style.display = "none";
+                }
+            }
+
+            updateSurfaceMaterial();
+        }
+
+        function syncHeatmapUI(isActive) {
+            setGNNHeatmapActive(isActive);
+        }
 
         let showSurface = true;
         let showEdges   = false;
@@ -539,7 +697,7 @@
             if (!showSurface) {
                 mesh.material = occluderMaterial;
             } else {
-                if (activeView === "high" && btnHeatmap && btnHeatmap.classList.contains("active")) {
+                if (activeView === "high" && isGNNHeatmapActive) {
                     mesh.material = heatmapMaterial;
                 } else {
                     mesh.material = baseMaterial;
@@ -567,6 +725,257 @@
             }
         }
 
+        function resetCamera() {
+            camera.position.set(0, 0, 40);
+            if (controls) {
+                controls.target.set(0, 0, 0);
+                controls.update();
+            }
+        }
+
+        let currentSnapGeo   = null;
+        let currentSnapStats = null;
+
+        const valTris       = document.getElementById("val-tris");
+        const valVerts      = document.getElementById("val-verts");
+
+        const sideReduction = document.getElementById("side-face-reduction");
+        const sideDissolves = document.getElementById("side-dissolves");
+        const sideSteps     = document.getElementById("side-steps");
+
+        const sideRlBar     = document.getElementById("side-rl-bar");
+        const sideRlPct     = document.getElementById("side-rl-pct");
+
+        const sideGnnVerts    = document.getElementById("side-gnn-verts");
+        const sideGnnAvgScore = document.getElementById("side-gnn-avg-score");
+        const sideGnnCrit     = document.getElementById("side-gnn-critical");
+        const sideGnnCritPct  = document.getElementById("side-gnn-crit-pct");
+        const sideGnnDisp     = document.getElementById("side-gnn-dispensable");
+        const sideGnnDispPct  = document.getElementById("side-gnn-disp-pct");
+        const sideGnnDistHigh = document.getElementById("side-gnn-dist-high");
+        const sideGnnDistMid  = document.getElementById("side-gnn-dist-mid");
+        const sideGnnDistLow  = document.getElementById("side-gnn-dist-low");
+        const sideGnnBarHigh  = document.getElementById("side-gnn-bar-high");
+        const sideGnnBarMid   = document.getElementById("side-gnn-bar-mid");
+        const sideGnnBarLow   = document.getElementById("side-gnn-bar-low");
+        const sideGnnBadge    = document.getElementById("side-gnn-badge");
+
+        const sideHighInfo  = document.getElementById("side-high-info");
+        const sideLowInfo   = document.getElementById("side-low-info");
+
+        const btnSideReport = document.getElementById("btn-side-report");
+        const inputMaxSteps = document.getElementById("input-max-steps");
+
+        const actionLogEntries = [];
+        let cachedSnapshots          = [];
+        let cachedResults            = null;
+        let cachedSimplifiedObjText  = null;
+
+        function updateFloatingStats(verts, tris) {
+            if (valVerts) valVerts.textContent = (verts || 0).toLocaleString();
+            if (valTris) valTris.textContent = (tris || 0).toLocaleString();
+        }
+
+        function resetSidebarAndReports(newObjText) {
+            const extracted = computeObjStats(newObjText);
+            realStats.high.verts = extracted.verts;
+            realStats.high.faces = extracted.faces;
+            realStats.low.verts = 0;
+            realStats.low.faces = 0;
+
+            updateFloatingStats(realStats.high.verts, realStats.high.faces);
+
+            if (sideHighInfo) {
+                sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} vértices`;
+            }
+            if (sideLowInfo) {
+                sideLowInfo.textContent = "⏳ A otimizar...";
+            }
+            if (sideReduction) {
+                sideReduction.textContent = "A calcular...";
+            }
+            if (sideDissolves) {
+                sideDissolves.textContent = "0";
+            }
+            if (sideSteps) {
+                sideSteps.textContent = "0";
+            }
+            if (sideRlBar) {
+                sideRlBar.style.width = "0%";
+            }
+            if (sideRlPct) {
+                sideRlPct.textContent = "0%";
+            }
+            if (sideGnnVerts) {
+                sideGnnVerts.textContent = realStats.high.verts.toLocaleString();
+            }
+            if (sideGnnAvgScore) {
+                sideGnnAvgScore.textContent = "--";
+            }
+            if (sideGnnCrit) {
+                sideGnnCrit.textContent = "--";
+            }
+            if (sideGnnCritPct) {
+                sideGnnCritPct.textContent = "--%";
+            }
+            if (sideGnnDisp) {
+                sideGnnDisp.textContent = "--";
+            }
+            if (sideGnnDispPct) {
+                sideGnnDispPct.textContent = "--%";
+            }
+            if (sideGnnDistHigh) {
+                sideGnnDistHigh.textContent = "--";
+            }
+            if (sideGnnDistMid) {
+                sideGnnDistMid.textContent = "--";
+            }
+            if (sideGnnDistLow) {
+                sideGnnDistLow.textContent = "--";
+            }
+            if (sideGnnBarHigh) {
+                sideGnnBarHigh.style.width = "33%";
+            }
+            if (sideGnnBarMid) {
+                sideGnnBarMid.style.width = "34%";
+            }
+            if (sideGnnBarLow) {
+                sideGnnBarLow.style.width = "33%";
+            }
+            if (sideGnnBadge) {
+                sideGnnBadge.textContent = "IA / EGNN";
+            }
+            if (rlStatusBadge) {
+                rlStatusBadge.className = "status-badge working";
+                rlStatusBadge.textContent = "A iniciar novo modelo...";
+            }
+
+            // Repor Botões de Seleção de Malha e Modos Visuais
+            btnHigh.classList.add("active");
+            btnLow.classList.remove("active");
+            btnLow.disabled = true;
+            btnLow.style.opacity = "0.45";
+            btnLow.style.cursor = "not-allowed";
+            btnLow.innerText = "🔒 A Otimizar...";
+            btnLow.style.boxShadow = "none";
+
+            if (btnSnapPoly) {
+                btnSnapPoly.classList.remove("active");
+                btnSnapPoly.style.display = "none";
+            }
+
+            setGNNHeatmapActive(false);
+
+            if (btnSurface) btnSurface.classList.add("active");
+            if (btnEdges) btnEdges.classList.remove("active");
+            if (btnVerts) btnVerts.classList.remove("active");
+            showSurface = true;
+            showEdges = false;
+            showVerts = false;
+            if (edgesMesh) edgesMesh.visible = false;
+            if (pointsMesh) pointsMesh.visible = false;
+
+            const btnDssOverlay = document.getElementById("btn-dss-overlay");
+            const btnDssAngle = document.getElementById("btn-dss-heatmap-angle");
+            const btnDssValence = document.getElementById("btn-dss-heatmap-valence");
+            [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
+
+            // Esvaziar arrays de dados e caches de Relatório
+            actionLogEntries.length = 0;
+            cachedSnapshots = [];
+            cachedResults = null;
+            cachedSimplifiedObjText = null;
+            if (typeof snapshotImagesMap !== "undefined" && snapshotImagesMap?.clear) {
+                snapshotImagesMap.clear();
+            }
+            latestActionsList = [];
+            currentEdgeFilter = "all";
+            gnnLoaded = false;
+            gnnScores = null;
+            gnnPromise = null;
+            isRLRunning = false;
+
+            // Fechar Gavetas se Abertas
+            const actionLogDrawer = document.getElementById("action-log-drawer");
+            if (actionLogDrawer) actionLogDrawer.classList.remove("open");
+            if (typeof closeSnapshotLightbox === "function") closeSnapshotLightbox();
+
+            // Reset completo do Drawer de Relatório RL
+            const repSteps = document.getElementById("rep-steps");
+            const repDissolves = document.getElementById("rep-dissolves");
+            const repReduction = document.getElementById("rep-reduction");
+            const repSnapshots = document.getElementById("rep-snapshots");
+            const actionLogCount = document.getElementById("action-log-count");
+            const snapshotsList = document.getElementById("snapshots-list");
+            const actionLogBody = document.getElementById("action-log-body");
+
+            if (repSteps) repSteps.textContent = "0";
+            if (repDissolves) repDissolves.textContent = "0";
+            if (repReduction) repReduction.textContent = "0%";
+            if (repSnapshots) repSnapshots.textContent = "0";
+            if (actionLogCount) actionLogCount.textContent = "0 acções";
+
+            const countAllEdges = document.getElementById("filter-all-edges-count");
+            const countAcceptedEdges = document.getElementById("filter-accepted-edges-count");
+            const countRejectedEdges = document.getElementById("filter-rejected-edges-count");
+            if (countAllEdges) countAllEdges.textContent = "0";
+            if (countAcceptedEdges) countAcceptedEdges.textContent = "0";
+            if (countRejectedEdges) countRejectedEdges.textContent = "0";
+
+            if (snapshotsList) {
+                snapshotsList.innerHTML = `<div class="action-log-empty"><span>⏳ A aguardar decimação RL para gerar snapshots...</span></div>`;
+            }
+            if (actionLogBody) {
+                actionLogBody.innerHTML = `<div class="action-log-empty"><span>⏳ Aguarda o início da simulação RL...</span></div>`;
+            }
+
+            // Reset completo do DSS
+            if (window.MeshQA && typeof window.MeshQA.resetAll === "function") {
+                window.MeshQA.resetAll();
+            }
+
+            // Adaptar contexto do menu lateral para a malha Original (High)
+            updateSidebarContext("high");
+        }
+
+        function resetAndLoadModel(newModelId, newFileUrl, newRawObjText) {
+            currentModelId = newModelId;
+            window.currentActiveModelId = newModelId;
+            window.currentUploadedObjText = newRawObjText;
+
+            // 1. Descartar geometrias antigas e carregar a nova malha no 3D
+            disposeGeo(highPolyGeo);
+            disposeGeo(lowPolyGeo);
+            disposeGeo(currentSnapGeo);
+
+            highPolyGeo = buildHighPolyGeo(newRawObjText);
+            lowPolyGeo = null;
+            currentSnapGeo = null;
+            currentSnapStats = null;
+            activeView = "high";
+
+            mesh.geometry = highPolyGeo;
+            mesh.material = baseMaterial;
+            mesh.material.needsUpdate = true;
+            mesh.visible = true;
+
+            syncVisualOverlays();
+            resetCamera();
+
+            // 2. Zerar completamente estados, relatórios, sidebar e DSS
+            resetSidebarAndReports(newRawObjText);
+
+            // 3. Iniciar cálculo GNN em background e decimação RL para o novo modelo
+            ensureGNNHeatmap().catch(err => console.warn("[GNN Auto] Erro no cálculo automático:", err));
+            const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
+            runRLDecimation(initialSteps);
+
+            // 4. Iniciar análise DSS da nova malha original (snapshot 0)
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
+                window.MeshQA.runAnalysis(newModelId, 0);
+            }
+        }
+
         window.RetopoViewer = {
             scene: scene,
             camera: camera,
@@ -585,44 +994,10 @@
             updateFloatingStats: updateFloatingStats,
             loadMeshIntoViewport: loadMeshIntoViewport,
             loadGeometryIntoViewport: loadGeometryIntoViewport,
-            resetCamera: () => {
-                camera.position.set(0, 0, 40);
-                controls.target.set(0, 0, 0);
-                controls.update();
-            }
+            resetCamera: resetCamera,
+            resetAndLoadModel: resetAndLoadModel,
+            resetSidebarAndReports: resetSidebarAndReports
         };
-
-        let currentSnapGeo   = null;
-        let currentSnapStats = null;
-
-        const valTris       = document.getElementById("val-tris");
-        const valVerts      = document.getElementById("val-verts");
-
-        const sideReduction = document.getElementById("side-face-reduction");
-        const sideDissolves = document.getElementById("side-dissolves");
-        const sideSteps     = document.getElementById("side-steps");
-
-        const sideRlBar     = document.getElementById("side-rl-bar");
-        const sideRlPct     = document.getElementById("side-rl-pct");
-
-        const sideGnnVerts  = document.getElementById("side-gnn-verts");
-        const sideGnnCrit   = document.getElementById("side-gnn-critical");
-
-        const sideHighInfo  = document.getElementById("side-high-info");
-        const sideLowInfo   = document.getElementById("side-low-info");
-
-        const btnSideReport = document.getElementById("btn-side-report");
-        const inputMaxSteps = document.getElementById("input-max-steps");
-
-        const actionLogEntries = [];
-        let cachedSnapshots          = [];
-        let cachedResults            = null;
-        let cachedSimplifiedObjText  = null;
-
-        function updateFloatingStats(verts, tris) {
-            if (valVerts) valVerts.textContent = (verts || 0).toLocaleString();
-            if (valTris) valTris.textContent = (tris || 0).toLocaleString();
-        }
 
         // Atualizar estatísticas iniciais reais do High Poly
         updateFloatingStats(realStats.high.verts, realStats.high.faces);
@@ -645,6 +1020,30 @@
         // ══════════════════════════════════════════════════════
         //  CONTROLOS DE VISUALIZAÇÃO (ORIGINAL, LOW, SNAPSHOT, MODOS)
         // ══════════════════════════════════════════════════════
+        function updateSidebarContext(viewMode) {
+            const secGnn = document.getElementById("section-gnn");
+            const secRl = document.getElementById("section-rl");
+            const secDss = document.getElementById("section-dss");
+            const secExport = document.getElementById("section-export");
+
+            if (viewMode === "high") {
+                if (secGnn) secGnn.style.display = "block";
+                if (secRl) secRl.style.display = "none";
+                if (secDss) secDss.style.display = "none";
+                if (secExport) secExport.style.display = "none";
+            } else if (viewMode === "low") {
+                if (secGnn) secGnn.style.display = "none";
+                if (secRl) secRl.style.display = "block";
+                if (secDss) secDss.style.display = "block";
+                if (secExport) secExport.style.display = "block";
+            } else if (viewMode === "snapshot") {
+                if (secGnn) secGnn.style.display = "none";
+                if (secRl) secRl.style.display = "block";
+                if (secDss) secDss.style.display = "block";
+                if (secExport) secExport.style.display = "block";
+            }
+        }
+
         btnHigh.addEventListener("click", () => {
             if (currentSnapGeo && currentSnapGeo !== highPolyGeo && currentSnapGeo !== lowPolyGeo) {
                 disposeGeo(currentSnapGeo);
@@ -657,14 +1056,14 @@
             btnLow.classList.remove("active");
             if (btnSnapPoly) btnSnapPoly.classList.remove("active");
             activeView = "high";
-            if (heatmapSubbar) heatmapSubbar.classList.remove("hidden");
+            updateSidebarContext("high");
             updateFloatingStats(realStats.high.verts, realStats.high.faces);
             if (rlStatusBadge) {
                 rlStatusBadge.className = "status-badge online";
                 rlStatusBadge.textContent = "Visualizando: Original (High Poly)";
             }
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && modelId) {
-                window.MeshQA.runAnalysis(modelId, 0);
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && currentModelId) {
+                window.MeshQA.runAnalysis(currentModelId, 0);
             }
         });
 
@@ -680,16 +1079,15 @@
             btnLow.classList.add("active");
             btnHigh.classList.remove("active");
             if (btnSnapPoly) btnSnapPoly.classList.remove("active");
-            if (heatmapSubbar) heatmapSubbar.classList.add("hidden");
-            if (btnHeatmap) btnHeatmap.classList.remove("active");
             activeView = "low";
+            updateSidebarContext("low");
             updateFloatingStats(realStats.low.verts, realStats.low.faces);
             if (rlStatusBadge) {
                 rlStatusBadge.className = "status-badge online";
                 rlStatusBadge.textContent = "Visualizando: Otimizado (Low Poly)";
             }
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && modelId) {
-                window.MeshQA.runAnalysis(modelId, null);
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function" && currentModelId) {
+                window.MeshQA.runAnalysis(currentModelId, null);
             }
         });
 
@@ -702,9 +1100,8 @@
                 btnSnapPoly.classList.add("active");
                 btnHigh.classList.remove("active");
                 btnLow.classList.remove("active");
-                if (heatmapSubbar) heatmapSubbar.classList.add("hidden");
-                if (btnHeatmap) btnHeatmap.classList.remove("active");
                 activeView = "snapshot";
+                updateSidebarContext("snapshot");
                 if (currentSnapStats) {
                     updateFloatingStats(currentSnapStats.verts, currentSnapStats.faces);
                 }
@@ -775,6 +1172,13 @@
             });
         }
 
+        const btnResetCam = document.getElementById("btn-reset-cam");
+        if (btnResetCam) {
+            btnResetCam.addEventListener("click", () => {
+                resetCamera();
+            });
+        }
+
         // ══════════════════════════════════════════════════════
         //  HEATMAP GNN REAL (POST /predict + GET /scores)
         // ══════════════════════════════════════════════════════
@@ -786,14 +1190,19 @@
                 mesh.geometry = highPolyGeo;
                 btnHigh.classList.add("active");
                 btnLow.classList.remove("active");
+                if (btnSnapPoly) btnSnapPoly.classList.remove("active");
                 activeView = "high";
-                if (heatmapSubbar) heatmapSubbar.classList.remove("hidden");
+                updateSidebarContext("high");
                 updateFloatingStats(realStats.high.verts, realStats.high.faces);
                 syncVisualOverlays();
             }
-            updateSurfaceMaterial();
+            showSurface = true;
+            if (btnSurface) btnSurface.classList.add("active");
+            mesh.visible = true;
+            mesh.material = heatmapMaterial;
             heatmapMaterial.vertexColors = true;
             heatmapMaterial.needsUpdate = true;
+            mesh.material.needsUpdate = true;
         }
 
         function createHeatmapColors(scoreEntries) {
@@ -830,6 +1239,9 @@
             highPolyGeo.attributes.color.needsUpdate = true;
             heatmapMaterial.vertexColors = true;
             heatmapMaterial.needsUpdate = true;
+            if (isGNNHeatmapActive && activeView === "high") {
+                applyHeatmapToMesh();
+            }
         }
 
         async function ensureGNNHeatmap() {
@@ -841,34 +1253,68 @@
             gnnPromise = (async () => {
                 try {
                     // 1. Executar predição da rede neuronal
-                    await RetopoAPI.predictGNN(modelId);
+                    await RetopoAPI.predictGNN(currentModelId);
 
                     // 2. Descarregar scores CSV dos vértices
-                    const scoresCsv = await RetopoAPI.getGNNScores(modelId);
+                    const scoresCsv = await RetopoAPI.getGNNScores(currentModelId);
 
                     // 3. Processar CSV e mapear importância
                     const lines = scoresCsv.trim().split(/\r?\n/);
                     const scoreEntries = [];
                     let criticalCount = 0;
+                    let dispensableCount = 0;
+                    let sumImp = 0;
+                    let highCount = 0;
+                    let midCount = 0;
+                    let lowCount = 0;
 
                     for (let i = 1; i < lines.length; i++) {
                         const row = lines[i].split(",");
                         if (row.length >= 5) {
-                            const imp = parseFloat(row[4]);
+                            const imp = parseFloat(row[4]) || 0;
                             const keep = parseInt(row[5] || "0", 10);
                             if (keep === 1) criticalCount++;
+                            else dispensableCount++;
+
+                            sumImp += imp;
+                            if (imp >= 0.70) highCount++;
+                            else if (imp >= 0.30) midCount++;
+                            else lowCount++;
+
                             scoreEntries.push({ imp, keep });
                         }
                     }
 
+                    const totalParsed = scoreEntries.length || 1;
+                    const avgScore = (sumImp / totalParsed).toFixed(3);
+                    const critPct = ((criticalCount / totalParsed) * 100).toFixed(1);
+                    const dispPct = ((dispensableCount / totalParsed) * 100).toFixed(1);
+                    const highPct = Math.max(2, Math.round((highCount / totalParsed) * 100));
+                    const midPct = Math.max(2, Math.round((midCount / totalParsed) * 100));
+                    const lowPct = Math.max(2, 100 - highPct - midPct);
+
                     createHeatmapColors(scoreEntries);
                     gnnLoaded = true;
+
+                    if (sideGnnVerts) sideGnnVerts.textContent = totalParsed.toLocaleString();
+                    if (sideGnnAvgScore) sideGnnAvgScore.textContent = avgScore;
                     if (sideGnnCrit) sideGnnCrit.textContent = criticalCount.toLocaleString();
+                    if (sideGnnCritPct) sideGnnCritPct.textContent = `${critPct}%`;
+                    if (sideGnnDisp) sideGnnDisp.textContent = dispensableCount.toLocaleString();
+                    if (sideGnnDispPct) sideGnnDispPct.textContent = `${dispPct}%`;
+                    if (sideGnnDistHigh) sideGnnDistHigh.textContent = `${highCount.toLocaleString()} (${((highCount / totalParsed) * 100).toFixed(0)}%)`;
+                    if (sideGnnDistMid) sideGnnDistMid.textContent = `${midCount.toLocaleString()} (${((midCount / totalParsed) * 100).toFixed(0)}%)`;
+                    if (sideGnnDistLow) sideGnnDistLow.textContent = `${lowCount.toLocaleString()} (${((lowCount / totalParsed) * 100).toFixed(0)}%)`;
+                    if (sideGnnBarHigh) sideGnnBarHigh.style.width = `${highPct}%`;
+                    if (sideGnnBarMid) sideGnnBarMid.style.width = `${midPct}%`;
+                    if (sideGnnBarLow) sideGnnBarLow.style.width = `${lowPct}%`;
+                    if (sideGnnBadge) sideGnnBadge.textContent = "EGNN • Concluído";
 
                 } catch (err) {
                     console.warn("[GNN] Falha na API GNN (a usar mapeamento térmico procedural):", err.message);
                     createHeatmapColors(null);
                     gnnLoaded = true;
+                    if (sideGnnBadge) sideGnnBadge.textContent = "Fallback Local";
                 } finally {
                     gnnPromise = null;
                 }
@@ -878,18 +1324,21 @@
         }
 
         // Iniciar cálculo automático da GNN em segundo plano logo no carregamento
-        if (modelId) {
+        if (currentModelId) {
             ensureGNNHeatmap().catch((err) => {
                 console.warn("[GNN Auto] Erro no cálculo automático:", err);
             });
         }
 
-        if (btnHeatmap) {
-            btnHeatmap.addEventListener("click", async () => {
-                btnHeatmap.classList.toggle("active");
-                const isAct = btnHeatmap.classList.contains("active");
+        if (sideBtnHeatmap) {
+            sideBtnHeatmap.addEventListener("click", async () => {
+                if (activeView !== "high" && btnHigh) {
+                    btnHigh.click();
+                }
 
-                if (isAct) {
+                const willBeActive = !isGNNHeatmapActive;
+
+                if (willBeActive) {
                     if (rlStatusBadge) {
                         rlStatusBadge.className = "status-badge online";
                         rlStatusBadge.textContent = "GNN: A aplicar Heatmap...";
@@ -897,12 +1346,14 @@
                     if (!gnnLoaded) {
                         await ensureGNNHeatmap();
                     }
+                    setGNNHeatmapActive(true);
                     applyHeatmapToMesh();
                     if (rlStatusBadge) {
                         rlStatusBadge.className = "status-badge online";
                         rlStatusBadge.textContent = "GNN: Heatmap Aplicado";
                     }
                 } else {
+                    setGNNHeatmapActive(false);
                     updateSurfaceMaterial();
                     if (rlStatusBadge) {
                         rlStatusBadge.className = "status-badge online";
@@ -957,7 +1408,7 @@
                 rlStatusBadge.textContent = `RL: A Otimizar (${steps} passos)...`;
             }
 
-            RetopoAPI.startRLDecimation(modelId,
+            RetopoAPI.startRLDecimation(currentModelId,
                 // onRLStep: cada passo transmitido
                 (stepData) => {
                     if (sideSteps) sideSteps.textContent = stepData.step;
@@ -1042,7 +1493,7 @@
 
                     // 3. Tentar descarregar a malha .obj real otimizada da API para refinar com a geometria exata
                     try {
-                        const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(modelId);
+                        const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
                         if (lowPolyText && lowPolyText.includes("v ")) {
                             cachedSimplifiedObjText = lowPolyText;
                             // Calcular dados 100% reais do Low Poly
@@ -1106,7 +1557,7 @@
 
                     // Executar auditoria DSS simultânea da malha otimizada resultante
                     if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                        window.MeshQA.runAnalysis(modelId);
+                        window.MeshQA.runAnalysis(currentModelId);
                     }
 
                     // Desbloquear botão Low Poly
@@ -1124,9 +1575,13 @@
         }
 
         // Executar com o valor de iterações configurado no input inicial de upload
-        if (modelId) {
+        if (currentModelId) {
             const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
             runRLDecimation(initialSteps);
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
+                window.MeshQA.runAnalysis(currentModelId, 0);
+            }
+            updateSidebarContext("high");
         }
 
         // ══════════════════════════════════════════════════════
@@ -1256,7 +1711,7 @@
                 // 1. Tentar descarregar do snapshot intermédio específico da API
                 if (!isCurrent) {
                     try {
-                        const snapData = await RetopoAPI.getRLSnapshot(modelId, dissolves);
+                        const snapData = await RetopoAPI.getRLSnapshot(currentModelId, dissolves);
                         objContent = extractObjFromSnap(snapData);
                     } catch (e) {
                         console.warn(`[Download] Snapshot ${dissolves} não existe na API:`, e.message);
@@ -1268,7 +1723,7 @@
                     if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
                         objContent = cachedSimplifiedObjText;
                     } else {
-                        objContent = await RetopoAPI.downloadSimplifiedMesh(modelId);
+                        objContent = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
                         if (objContent && objContent.includes("v ")) {
                             cachedSimplifiedObjText = objContent;
                         }
@@ -1350,7 +1805,7 @@
                         window.MeshQA.switchSidebarTab("dss");
                     }
                     if (window.MeshQA && window.MeshQA.runAnalysis) {
-                        window.MeshQA.runAnalysis(modelId, info.dissolves);
+                        window.MeshQA.runAnalysis(currentModelId, info.dissolves);
                     }
                 };
             }
@@ -1404,9 +1859,9 @@
 
             try {
                 const [actRes, snapRes, resultRes] = await Promise.allSettled([
-                    RetopoAPI.getRLActions(modelId),
-                    RetopoAPI.getRLSnapshots(modelId),
-                    RetopoAPI.getRLResults(modelId)
+                    RetopoAPI.getRLActions(currentModelId),
+                    RetopoAPI.getRLSnapshots(currentModelId),
+                    RetopoAPI.getRLResults(currentModelId)
                 ]);
 
                 if (actRes.status === "fulfilled" && Array.isArray(actRes.value) && actRes.value.length) {
@@ -1596,7 +2051,7 @@
                             window.MeshQA.switchSidebarTab("dss");
                         }
                         if (window.MeshQA && window.MeshQA.runAnalysis) {
-                            window.MeshQA.runAnalysis(modelId, dissolves);
+                            window.MeshQA.runAnalysis(currentModelId, dissolves);
                         }
                     });
                 }
@@ -1628,7 +2083,7 @@
                 }
 
                 // Tentar buscar imagem da API ou usar captura instantânea da cena 3D Three.js
-                RetopoAPI.getSnapshotImageBlobUrl(modelId, dissolves).then((blobUrl) => {
+                RetopoAPI.getSnapshotImageBlobUrl(currentModelId, dissolves).then((blobUrl) => {
                     if (blobUrl) {
                         applyImage(blobUrl);
                     } else {
@@ -1717,7 +2172,7 @@
                         let objText = null;
                         if (!loaded && !snap.is_current) {
                             try {
-                                const snapData = await RetopoAPI.getRLSnapshot(modelId, dissolves);
+                                const snapData = await RetopoAPI.getRLSnapshot(currentModelId, dissolves);
                                 objText = extractObjFromSnap(snapData);
                             } catch (e) {
                                 console.warn(`[Snapshot] Endpoint /snapshots/${dissolves} não existe na API (comum quando dissolves < 50):`, e.message);
@@ -1729,7 +2184,7 @@
                             if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
                                 objText = cachedSimplifiedObjText;
                             } else {
-                                objText = await RetopoAPI.downloadSimplifiedMesh(modelId);
+                                objText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
                                 if (objText && objText.includes("v ")) {
                                     cachedSimplifiedObjText = objText;
                                 }
@@ -1759,7 +2214,7 @@
                         if (loaded) {
                             btnLoad.innerHTML = `<span>✅ Malha Carregada no 3D!</span>`;
                             if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                                window.MeshQA.runAnalysis(modelId, dissolves);
+                                window.MeshQA.runAnalysis(currentModelId, dissolves);
                             }
                             setTimeout(() => {
                                 closeActionLog();
@@ -1890,7 +2345,7 @@
                                     loadGeometryIntoViewport(lowPolyGeo, { faces: faces || realStats.low.faces || realStats.high.faces, verts: realStats.low.verts || realStats.high.verts }, `Passo #${step}`);
                                     return;
                                 }
-                                RetopoAPI.downloadSimplifiedMesh(modelId).then(meshText => {
+                                RetopoAPI.downloadSimplifiedMesh(currentModelId).then(meshText => {
                                     loadMeshIntoViewport(meshText, `Passo #${step}`);
                                 }).catch(() => {
                                     if (highPolyGeo) {
@@ -1932,8 +2387,7 @@
 
             btnHigh.classList.remove("active");
             btnLow.classList.remove("active");
-            if (heatmapSubbar) heatmapSubbar.classList.add("hidden");
-            if (btnHeatmap) btnHeatmap.classList.remove("active");
+            setGNNHeatmapActive(false);
 
             if (btnSnapPoly) {
                 btnSnapPoly.style.display = "inline-flex";
@@ -1942,6 +2396,7 @@
             }
 
             activeView = "snapshot";
+            updateSidebarContext("snapshot");
 
             if (rlStatusBadge) {
                 rlStatusBadge.className = "status-badge online";

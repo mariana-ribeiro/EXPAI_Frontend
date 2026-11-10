@@ -213,6 +213,11 @@
     let qaRaycaster = null;
     let qaMouse = new THREE.Vector2();
 
+    let setViewMode = null;
+    let openDSSWindow = null;
+    let closeDSSWindow = null;
+    let cameraTweenId = null;
+
     // ═══════════════════════════════════════════════════════════════════
     //  4. ESCALAS DE COR (HEATMAPS CONTÍNUOS)
     // ═══════════════════════════════════════════════════════════════════
@@ -355,72 +360,8 @@
         if (dssPolesPoints) { scene.remove(dssPolesPoints); dssPolesPoints.geometry.dispose(); dssPolesPoints = null; }
         if (dssSelectionLine) { scene.remove(dssSelectionLine); dssSelectionLine.geometry.dispose(); dssSelectionLine = null; }
 
-        // 3. Criar Mesh principal DSS com vertexColors
-        const triGeo = new THREE.BufferGeometry();
-        triGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(triPositions), 3));
-        triGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(triColors), 3));
-        triGeo.computeVertexNormals();
-
-        const dssMat = new THREE.MeshStandardMaterial({
-            vertexColors: true,
-            roughness: 0.35,
-            metalness: 0.1,
-            polygonOffset: true,
-            polygonOffsetFactor: 1,
-            polygonOffsetUnits: 1,
-            side: THREE.DoubleSide
-        });
-
-        dssMesh = new THREE.Mesh(triGeo, dssMat);
-        scene.add(dssMesh);
-
-        // 4. Criar Arestas dos Polígonos Originais (SEM diagonais de triangulação artificial)
-        const edgePositions = [];
-        const edgeSet = new Set();
-
-        for (let f = 0; f < polygonFaces.length; f++) {
-            const fVerts = polygonFaces[f];
-            const count = fVerts.length;
-            for (let j = 0; j < count; j++) {
-                const a = fVerts[j];
-                const b = fVerts[(j + 1) % count];
-                const key = a < b ? (a + "_" + b) : (b + "_" + a);
-                if (!edgeSet.has(key)) {
-                    edgeSet.add(key);
-                    const pA = norm(vertices[a]);
-                    const pB = norm(vertices[b]);
-                    edgePositions.push(...pA, ...pB);
-                }
-            }
-        }
-
-        const edgesGeo = new THREE.BufferGeometry();
-        edgesGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(edgePositions), 3));
-
-        const edgesMat = new THREE.LineBasicMaterial({
-            color: 0x38bdf8,
-            transparent: true,
-            opacity: 0.85,
-            depthTest: true
-        });
-
-        dssEdgesMesh = new THREE.LineSegments(edgesGeo, edgesMat);
-        dssEdgesMesh.visible = QAState.showEdges;
-        scene.add(dssEdgesMesh);
-
-        // 5. Criar Nuvem de Poles como Pontos 3D
-        buildDSSPolesPoints(norm);
-
-        // Ocultar a malha RL normal para que o DSS seja o visualizador ativo
-        if (viewer.mesh) viewer.mesh.visible = false;
-        if (viewer.edgesMesh) viewer.edgesMesh.visible = false;
-        if (viewer.pointsMesh) viewer.pointsMesh.visible = false;
-
-        // 6. Atualizar cores de acordo com o modo ativo
-        updateDSSColors();
-
-        // 7. Configurar Raycaster no canvas principal
-        setupUnifiedRaycaster();
+        // Garantir que a malha principal RL e os seus overlays permanecem 100% visíveis e ativos
+        if (viewer.mesh) viewer.mesh.visible = true;
 
         return true;
     }
@@ -987,6 +928,9 @@
 
             const isChecked = QAState.enabledChecks[checkKey] !== false;
 
+            const resData = resultChecks?.[checkKey];
+            const affectedFaces = resData && Array.isArray(resData.faces) ? resData.faces : [];
+
             item.innerHTML = `
                 <div class="qa-check-header">
                     <div class="qa-check-title-group">
@@ -1010,6 +954,18 @@
                     <p>${typeof info.why === 'function' ? info.why(null, checkKey === 'ngons' ? hasCollinear : hasTJunction) : info.why}</p>
                     <h6>Como corrigir?</h6>
                     <p>${info.how}</p>
+                    ${affectedFaces.length > 0 ? `
+                        <div style="margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.12);">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size: 0.72rem; color: #38bdf8; font-weight: 600;">Faces Afetadas (${affectedFaces.length}):</span>
+                                <span style="font-size: 0.68rem; color: #94a3b8;">Clica para focar no 3D</span>
+                            </div>
+                            <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
+                                ${affectedFaces.slice(0, 14).map(f => `<button type="button" class="qa-face-pill" data-face="${f}" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#7dd3fc; border-radius:4px; padding:0.18rem 0.45rem; font-size:0.7rem; cursor:pointer; font-family:'JetBrains Mono',monospace; transition:all 0.15s ease;">#${f}</button>`).join('')}
+                                ${affectedFaces.length > 14 ? `<span style="font-size:0.68rem; color:#94a3b8; align-self:center;">+${affectedFaces.length - 14} mais</span>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
             `;
 
@@ -1025,10 +981,21 @@
                 chevron.textContent = isShown ? "▼" : "▲";
 
                 // Focar faces afetadas no 3D
-                const resData = resultChecks?.[checkKey];
-                if (resData && Array.isArray(resData.faces) && resData.faces.length > 0) {
-                    focusFaces(resData.faces);
+                if (affectedFaces.length > 0) {
+                    focusFaces(affectedFaces);
                 }
+            });
+
+            // Cliques individuais nos botões das faces
+            const facePills = exp.querySelectorAll(".qa-face-pill");
+            facePills.forEach(pill => {
+                pill.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const fIdx = parseInt(pill.dataset.face, 10);
+                    if (!isNaN(fIdx)) {
+                        focusFaces([fIdx]);
+                    }
+                });
             });
 
             // Toggle de visibilidade do check nos overlays
@@ -1073,9 +1040,113 @@
         }
     }
 
+    function getFacesCentroid(faceIndices) {
+        if (!dssMesh || !dssMesh.geometry) return null;
+        const pos = dssMesh.geometry.attributes.position.array;
+        let sumX = 0, sumY = 0, sumZ = 0, count = 0;
+
+        for (const fIdx of faceIndices) {
+            const triIndices = qaFaceToTrianglesMap[fIdx];
+            if (!triIndices) continue;
+            for (const tIdx of triIndices) {
+                const off = tIdx * 9;
+                for (let v = 0; v < 3; v++) {
+                    sumX += pos[off + v * 3];
+                    sumY += pos[off + v * 3 + 1];
+                    sumZ += pos[off + v * 3 + 2];
+                    count++;
+                }
+            }
+        }
+        if (count === 0) return null;
+        return new THREE.Vector3(sumX / count, sumY / count, sumZ / count);
+    }
+
+    function getFacesBoundingRadius(faceIndices, centroid) {
+        if (!dssMesh || !dssMesh.geometry || !centroid) return 8;
+        const pos = dssMesh.geometry.attributes.position.array;
+        let maxDistSq = 0;
+
+        for (const fIdx of faceIndices) {
+            const triIndices = qaFaceToTrianglesMap[fIdx];
+            if (!triIndices) continue;
+            for (const tIdx of triIndices) {
+                const off = tIdx * 9;
+                for (let v = 0; v < 3; v++) {
+                    const dx = pos[off + v * 3] - centroid.x;
+                    const dy = pos[off + v * 3 + 1] - centroid.y;
+                    const dz = pos[off + v * 3 + 2] - centroid.z;
+                    const distSq = dx * dx + dy * dy + dz * dz;
+                    if (distSq > maxDistSq) maxDistSq = distSq;
+                }
+            }
+        }
+        const r = Math.sqrt(maxDistSq);
+        return Math.max(4, Math.min(26, r * 3.5 + 4));
+    }
+
+    function animateCameraTo(targetCenter, distance = 14, duration = 650) {
+        const viewer = getViewer();
+        if (!viewer || !viewer.camera || !viewer.controls) return;
+
+        if (cameraTweenId) {
+            cancelAnimationFrame(cameraTweenId);
+            cameraTweenId = null;
+        }
+
+        const startPos = viewer.camera.position.clone();
+        const startTarget = viewer.controls.target.clone();
+
+        // Direção atual da câmara para preservar o ângulo de visão do utilizador
+        const currentDir = startPos.clone().sub(startTarget);
+        if (currentDir.lengthSq() < 0.0001) currentDir.set(0, 0, 1);
+        currentDir.normalize();
+
+        const endPos = targetCenter.clone().add(currentDir.multiplyScalar(distance));
+        const endTarget = targetCenter.clone();
+
+        const startTime = performance.now();
+
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function step(now) {
+            const elapsed = now - startTime;
+            const progress = Math.min(1, elapsed / duration);
+            const ease = easeInOutCubic(progress);
+
+            viewer.camera.position.lerpVectors(startPos, endPos, ease);
+            viewer.controls.target.lerpVectors(startTarget, endTarget, ease);
+            viewer.controls.update();
+
+            if (progress < 1) {
+                cameraTweenId = requestAnimationFrame(step);
+            } else {
+                cameraTweenId = null;
+            }
+        }
+
+        cameraTweenId = requestAnimationFrame(step);
+    }
+
     function focusFaces(faceIndices) {
         if (!faceIndices || faceIndices.length === 0) return;
+
+        // Se o modo de erros do DSS não estiver ativo no 3D, ativa-o automaticamente
+        if (typeof setViewMode === "function" && QAState.activeViewMode !== "errors") {
+            setViewMode("errors");
+        }
+
+        // Seleciona e desenha contorno dourado na primeira face
         selectFaceInQA(faceIndices[0]);
+
+        // Calcula o centro e voa a câmara suavemente até às faces
+        const centroid = getFacesCentroid(faceIndices);
+        if (centroid) {
+            const dist = getFacesBoundingRadius(faceIndices, centroid);
+            animateCameraTo(centroid, dist, 650);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1089,6 +1160,100 @@
         const { vertices, faces } = extractPolygonsAndVertices(rawObjText, resultJson?.geometry);
         buildDSSGeometry(vertices, faces);
         renderDSSUI();
+    }
+
+    function resetAllDSSState() {
+        const viewer = getViewer();
+        if (viewer && viewer.scene) {
+            if (dssMesh) { viewer.scene.remove(dssMesh); dssMesh.geometry.dispose(); dssMesh = null; }
+            if (dssEdgesMesh) { viewer.scene.remove(dssEdgesMesh); dssEdgesMesh.geometry.dispose(); dssEdgesMesh = null; }
+            if (dssPolesPoints) { viewer.scene.remove(dssPolesPoints); dssPolesPoints.geometry.dispose(); dssPolesPoints = null; }
+            if (dssSelectionLine) { viewer.scene.remove(dssSelectionLine); dssSelectionLine.geometry.dispose(); dssSelectionLine = null; }
+        }
+
+        if (cameraTweenId) {
+            cancelAnimationFrame(cameraTweenId);
+            cameraTweenId = null;
+        }
+
+        qaParsedVertices = [];
+        qaPolygonFaces = [];
+        qaTriangleToFaceMap = [];
+        qaFaceToTrianglesMap = [];
+
+        QAState.statusData = null;
+        QAState.resultData = null;
+        QAState.rawObjText = null;
+        QAState.selectedFaceIdx = null;
+        QAState.activeMeshId = null;
+        QAState.activeSnapshot = null;
+        QAState.activeViewMode = "none";
+
+        // Fechar gaveta DSS e painel de detalhes se abertos
+        if (typeof closeDSSWindow === "function") closeDSSWindow();
+        closeQADetailPanel();
+
+        // Esconder legenda do heatmap
+        const legendEl = document.getElementById("qa-heatmap-legend");
+        if (legendEl) legendEl.style.display = "none";
+
+        // Desativar botões de visualização DSS
+        const btnDssOverlay = document.getElementById("btn-dss-overlay");
+        const btnDssAngle = document.getElementById("btn-dss-heatmap-angle");
+        const btnDssValence = document.getElementById("btn-dss-heatmap-valence");
+        [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
+
+        // Reset de cabeçalho e estatísticas no Sidebar e Drawer
+        const titleEl = document.getElementById("qa-target-title");
+        const statusEl = document.getElementById("qa-header-status");
+        const durationEl = document.getElementById("qa-header-duration");
+        const verdictEl = document.getElementById("qa-header-verdict");
+        const badge = document.getElementById("side-dss-badge");
+
+        if (titleEl) titleEl.textContent = "Aguardando Análise";
+        if (statusEl) {
+            statusEl.className = "status-badge working";
+            statusEl.textContent = "Aguardando";
+        }
+        if (durationEl) durationEl.textContent = "--";
+        if (verdictEl) verdictEl.innerHTML = `<span style="color:#94a3b8;">Aguardando início da análise DSS...</span>`;
+        if (badge) {
+            badge.style.display = "none";
+            badge.textContent = "--";
+        }
+
+        // Reset dos Cards de Topologia
+        const totalEl = document.getElementById("qa-stat-faces"); if (totalEl) totalEl.textContent = "--";
+        const quadsEl = document.getElementById("qa-stat-quads"); if (quadsEl) quadsEl.textContent = "--";
+        const trisEl = document.getElementById("qa-stat-tris"); if (trisEl) trisEl.textContent = "--";
+        const ngonsEl = document.getElementById("qa-stat-ngons"); if (ngonsEl) ngonsEl.textContent = "--";
+        const facesSummaryEl = document.getElementById("qa-faces-summary"); if (facesSummaryEl) facesSummaryEl.textContent = "--";
+
+        // Reset da barra de distribuição
+        const barQuads = document.getElementById("qa-dist-quads"); if (barQuads) barQuads.style.width = "0%";
+        const barTris = document.getElementById("qa-dist-tris"); if (barTris) barTris.style.width = "0%";
+        const barNgons = document.getElementById("qa-dist-ngons"); if (barNgons) barNgons.style.width = "0%";
+
+        // Reset de listas
+        const checksListEl = document.getElementById("qa-checks-list");
+        if (checksListEl) checksListEl.innerHTML = `<div style="padding:1rem;color:#94a3b8;text-align:center;font-size:0.8rem;">A aguardar análise DSS...</div>`;
+        const histEl = document.getElementById("qa-valence-histogram");
+        if (histEl) histEl.innerHTML = "";
+        const limListEl = document.getElementById("qa-limitations-list");
+        if (limListEl) limListEl.innerHTML = "";
+        const warnListEl = document.getElementById("qa-warnings-list");
+        if (warnListEl) warnListEl.innerHTML = "";
+
+        // Desativar botões de download e run
+        const btnDownloadJson = document.getElementById("btn-qa-download-result");
+        if (btnDownloadJson) btnDownloadJson.disabled = true;
+        const btnDrawerDownload = document.getElementById("btn-dss-drawer-download");
+        if (btnDrawerDownload) btnDrawerDownload.disabled = true;
+        const btnRun = document.getElementById("btn-qa-run");
+        if (btnRun) {
+            btnRun.disabled = true;
+            btnRun.innerHTML = `<span>🔒 Aguarda RL</span>`;
+        }
     }
 
     function setWaitingRLState() {
@@ -1291,7 +1456,44 @@
         const btnDssAngle = document.getElementById("btn-dss-heatmap-angle");
         const btnDssValence = document.getElementById("btn-dss-heatmap-valence");
 
-        function setViewMode(mode) {
+        // Controlo da Janela / Drawer Dedicado de Auditoria DSS
+        const dssOverlay = document.getElementById("dss-window-overlay");
+        const btnOpenModal = document.getElementById("btn-open-dss-modal");
+        const btnOpenWin = document.getElementById("btn-open-dss-window");
+        const btnCloseWin = document.getElementById("btn-close-dss-window");
+        const btnDrawerDownload = document.getElementById("btn-dss-drawer-download");
+
+        openDSSWindow = function() {
+            if (dssOverlay) dssOverlay.classList.add("open");
+        };
+
+        closeDSSWindow = function() {
+            if (dssOverlay) dssOverlay.classList.remove("open");
+        };
+
+        if (btnOpenModal) btnOpenModal.addEventListener("click", openDSSWindow);
+        if (btnOpenWin) btnOpenWin.addEventListener("click", openDSSWindow);
+        if (btnCloseWin) btnCloseWin.addEventListener("click", closeDSSWindow);
+
+        if (dssOverlay) {
+            dssOverlay.addEventListener("click", (e) => {
+                if (e.target === dssOverlay) closeDSSWindow();
+            });
+        }
+
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") {
+                closeDSSWindow();
+            }
+        });
+
+        if (btnDrawerDownload && btnDownloadJson) {
+            btnDrawerDownload.addEventListener("click", () => {
+                btnDownloadJson.click();
+            });
+        }
+
+        setViewMode = function(mode) {
             const isSame = QAState.activeViewMode === mode && (
                 (mode === "errors" && btnDssOverlay?.classList.contains("active")) ||
                 (mode.includes("angle") && btnDssAngle?.classList.contains("active")) ||
@@ -1322,37 +1524,11 @@
             QAState.activeViewMode = mode;
             [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
 
-            if (mode === "errors" && btnDssOverlay) btnDssOverlay.classList.add("active");
-            if (mode === "min_angle" && btnDssAngle) btnDssAngle.classList.add("active");
-            if (mode === "max_angle" && btnDssAngle) btnDssAngle.classList.add("active");
-            if (mode === "valence" && btnDssValence) btnDssValence.classList.add("active");
-
-            // Se dssMesh ainda não foi construído para a malha ativa, dispara análise real
-            if (!dssMesh) {
-                const id = QAState.activeMeshId || window.currentActiveModelId;
-                if (id) {
-                    runDSSAnalysis(id, QAState.activeSnapshot).then(() => {
-                        if (dssMesh) dssMesh.visible = true;
-                        if (dssEdgesMesh) dssEdgesMesh.visible = QAState.showEdges;
-                        if (dssPolesPoints) dssPolesPoints.visible = QAState.showPoles;
-                        const viewer = getViewer();
-                        if (viewer && viewer.mesh) viewer.mesh.visible = false;
-                        if (viewer && viewer.edgesMesh) viewer.edgesMesh.visible = false;
-                        if (viewer && viewer.pointsMesh) viewer.pointsMesh.visible = false;
-                        updateDSSColors();
-                    });
-                }
-            } else {
-                if (dssMesh) dssMesh.visible = true;
-                if (dssEdgesMesh) dssEdgesMesh.visible = QAState.showEdges;
-                if (dssPolesPoints) dssPolesPoints.visible = QAState.showPoles;
-                const viewer = getViewer();
-                if (viewer && viewer.mesh) viewer.mesh.visible = false;
-                if (viewer && viewer.edgesMesh) viewer.edgesMesh.visible = false;
-                if (viewer && viewer.pointsMesh) viewer.pointsMesh.visible = false;
-                updateDSSColors();
+            const viewer = getViewer();
+            if (viewer && viewer.mesh) {
+                viewer.mesh.visible = true;
             }
-        }
+        };
 
         if (btnDssOverlay) btnDssOverlay.addEventListener("click", () => setViewMode("errors"));
         if (btnDssAngle) btnDssAngle.addEventListener("click", () => {
@@ -1380,6 +1556,9 @@
         loadFixtures: loadDSSFromFixtures,
         selectFace: selectFaceInQA,
         focusFaces: focusFaces,
+        openWindow: () => (openDSSWindow ? openDSSWindow() : null),
+        closeWindow: () => (closeDSSWindow ? closeDSSWindow() : null),
+        resetAll: resetAllDSSState,
         state: QAState
     };
 
