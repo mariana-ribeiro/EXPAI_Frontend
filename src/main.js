@@ -141,8 +141,43 @@
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     }
 
-    function setSelectedFile(file) {
+    const MAX_FACES_LIMIT = 1500;
+
+    function showFaceLimitError(facesCount) {
+        if (window.ErrorModal?.show) {
+            window.ErrorModal.show({
+                title: "Limite de Complexidade Excedido",
+                message: `A malha selecionada possui ${facesCount.toLocaleString()} faces.`,
+                errors: [
+                    `O modelo de Reinforcement Learning (RL) ainda não está preparado para malhas superiores a ${MAX_FACES_LIMIT.toLocaleString()} faces.`,
+                    "Por favor, utilize uma malha com até 1.500 faces ou pré-simplifique o modelo antes de carregar."
+                ],
+                buttonText: "Entendido"
+            });
+        } else {
+            alert(`A malha possui ${facesCount} faces. O agente RL atualmente só suporta malhas com até 1500 faces.`);
+        }
+    }
+
+    async function setSelectedFile(file) {
         if (!file) return;
+
+        // Pré-verificação se o ficheiro OBJ tiver mais de 1500 faces
+        if (file.name.toLowerCase().endsWith(".obj")) {
+            try {
+                const text = await file.text();
+                const stats = computeObjStats(text);
+                if (stats.faces > MAX_FACES_LIMIT) {
+                    showFaceLimitError(stats.faces);
+                    selectedFile = null;
+                    if (fileInput) fileInput.value = "";
+                    if (selectedFileInfo) selectedFileInfo.style.display = "none";
+                    if (dropZone) dropZone.style.display = "block";
+                    return;
+                }
+            } catch (_) { }
+        }
+
         selectedFile = file;
 
         if (selectedFileName) selectedFileName.textContent = file.name;
@@ -188,6 +223,22 @@
             // 1. Ler o texto do ficheiro OBJ para extrair métricas 100% REAIS
             const fileText = await fileObj.text();
             const extracted = computeObjStats(fileText);
+
+            if (extracted.faces > MAX_FACES_LIMIT) {
+                showFaceLimitError(extracted.faces);
+                selectedFile = null;
+                if (fileInput) fileInput.value = "";
+                if (selectedFileInfo) selectedFileInfo.style.display = "none";
+                if (dropZone) dropZone.style.display = "block";
+                if (btnUploadNext) {
+                    btnUploadNext.innerHTML = `<span>Seguinte</span> <span>➔</span>`;
+                    btnUploadNext.disabled = true;
+                    btnUploadNext.style.opacity = "0.45";
+                }
+                URL.revokeObjectURL(fileUrl);
+                return;
+            }
+
             realStats.high.verts = extracted.verts;
             realStats.high.faces = extracted.faces;
 
@@ -1588,6 +1639,28 @@
             });
         }
 
+        const btnToggleHeatmap = document.getElementById("btn-toggle-heatmap");
+        if (btnToggleHeatmap) {
+            btnToggleHeatmap.addEventListener("click", () => {
+                if (activeView === "high") {
+                    if (sideBtnHeatmap) {
+                        sideBtnHeatmap.click();
+                    } else {
+                        setGNNHeatmapActive(!isGNNHeatmapActive);
+                    }
+                } else {
+                    const sideBtnAngle = document.getElementById("side-btn-dss-angle");
+                    if (sideBtnAngle) {
+                        sideBtnAngle.click();
+                    } else {
+                        setDSSHeatmapActive(!isDSSHeatmapActive);
+                    }
+                }
+                const active = isGNNHeatmapActive || isDSSHeatmapActive;
+                btnToggleHeatmap.classList.toggle("active", active);
+            });
+        }
+
         const btnResetCam = document.getElementById("btn-reset-cam");
         if (btnResetCam) {
             btnResetCam.addEventListener("click", () => {
@@ -2830,7 +2903,8 @@
         }
 
         function closeActionLog() {
-            if (actionLogDrawer) actionLogDrawer.classList.remove("open");
+            const drawer = actionLogDrawer || document.getElementById("action-log-drawer");
+            if (drawer) drawer.classList.remove("open");
         }
 
         function escapeHtml(str) {
@@ -2839,7 +2913,21 @@
 
         if (btnActionLog) btnActionLog.addEventListener("click", openActionLog);
         if (btnSideReport) btnSideReport.addEventListener("click", openActionLog);
-        if (actionLogClose) actionLogClose.addEventListener("click", closeActionLog);
+        if (actionLogClose) {
+            actionLogClose.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeActionLog();
+            });
+        }
+
+        document.addEventListener("click", (e) => {
+            if (e.target && (e.target.id === "action-log-close" || e.target.closest("#action-log-close"))) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeActionLog();
+            }
+        });
 
         if (actionLogDrawer) {
             actionLogDrawer.addEventListener("click", (e) => {

@@ -3,17 +3,45 @@
  * Comunicação direta com a API Retopology em Python (FastAPI).
  */
 
-const API_BASE_URL = (
-    window.APP_CONFIG?.API_BASE_URL || "http://localhost:8001"
-).replace(/\/+$/, "");
+/** Aguarda o carregamento das variáveis de ambiente a partir do .env */
+async function ensureConfigReady() {
+    if (window.APP_CONFIG_READY && typeof window.APP_CONFIG_READY.then === "function") {
+        try {
+            await window.APP_CONFIG_READY;
+        } catch (_) { }
+    }
+}
 
-const API_KEY = window.APP_CONFIG?.API_KEY || "58FFDC24770CFFAE2401E741B7AC51EADD22CA59539BCEFBAFEA0229E011D700";
+/** Obtém a URL base da API dinamicamente a partir de window.APP_CONFIG */
+function getApiBaseUrl() {
+    return (window.APP_CONFIG?.API_URL || window.APP_CONFIG?.API_BASE_URL || "").replace(/\/+$/, "");
+}
+
+/** Obtém a API Key dinamicamente a partir de window.APP_CONFIG */
+function getApiKey() {
+    return window.APP_CONFIG?.API_KEY || "";
+}
 
 /** Devolve os headers base (autenticação + json accept) */
 function baseHeaders(extra = {}) {
     const h = { "Accept": "application/json", ...extra };
-    if (API_KEY) h["X-API-Key"] = API_KEY;
+    const key = getApiKey();
+    if (key) h["X-API-Key"] = key;
     return h;
+}
+
+// Compatibilidade retroativa para acesso no window
+if (typeof window !== "undefined") {
+    try {
+        Object.defineProperty(window, "API_BASE_URL", {
+            get: getApiBaseUrl,
+            configurable: true
+        });
+        Object.defineProperty(window, "API_KEY", {
+            get: getApiKey,
+            configurable: true
+        });
+    } catch (_) { }
 }
 
 window.RetopoAPI = {
@@ -23,12 +51,25 @@ window.RetopoAPI = {
      * @param {File} file - Ficheiro nativo (.obj, .ply, .glb)
      * @returns {Promise<string>} mesh_id
      */
-    uploadModel: function(file) {
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", `${API_BASE_URL}/v1/mesh/upload`);
+    uploadModel: function (file) {
+        return new Promise(async (resolve, reject) => {
+            await ensureConfigReady();
+            const baseUrl = getApiBaseUrl();
+            const apiKey = getApiKey();
 
-            xhr.setRequestHeader("X-API-Key", API_KEY);
+            if (!baseUrl) {
+                reject(new Error("A variável API_URL não está configurada no .env. Impossível contactar o servidor."));
+                return;
+            }
+            if (!apiKey) {
+                reject(new Error("A variável API_KEY não está configurada no .env."));
+                return;
+            }
+
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", `${baseUrl}/v1/mesh/upload`);
+
+            xhr.setRequestHeader("X-API-Key", apiKey);
             xhr.setRequestHeader("X-Upload-Size", String(file.size));
 
             xhr.onload = () => {
@@ -52,7 +93,7 @@ window.RetopoAPI = {
                         } else if (typeof errorData.detail === "string") {
                             message = errorData.detail;
                         }
-                    } catch {}
+                    } catch { }
                     reject(new Error(message));
                 }
             };
@@ -71,10 +112,11 @@ window.RetopoAPI = {
      * Executa a simplificação RL na malha.
      * POST /v1/rl/simplify/{mesh_id}?max_steps={maxSteps}
      */
-    simplifyMesh: async function(meshId, maxSteps = 100) {
+    simplifyMesh: async function (meshId, maxSteps = 100) {
+        await ensureConfigReady();
         const query = maxSteps ? `?max_steps=${encodeURIComponent(maxSteps)}` : "";
         const response = await fetch(
-            `${API_BASE_URL}/v1/rl/simplify/${encodeURIComponent(meshId)}${query}`,
+            `${getApiBaseUrl()}/v1/rl/simplify/${encodeURIComponent(meshId)}${query}`,
             {
                 method: "POST",
                 headers: baseHeaders()
@@ -86,7 +128,7 @@ window.RetopoAPI = {
             try {
                 const err = await response.json();
                 msg = err.message || err.detail || msg;
-            } catch {}
+            } catch { }
             throw new Error(msg);
         }
 
@@ -98,9 +140,10 @@ window.RetopoAPI = {
      * GET /v1/rl/simplify/{mesh_id}/actions
      * @returns {Promise<Array>} Lista de acções
      */
-    getRLActions: async function(meshId) {
+    getRLActions: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/rl/simplify/${encodeURIComponent(meshId)}/actions`,
+            `${getApiBaseUrl()}/v1/rl/simplify/${encodeURIComponent(meshId)}/actions`,
             { headers: baseHeaders() }
         );
         if (!response.ok) throw new Error(`Actions HTTP ${response.status}`);
@@ -112,9 +155,10 @@ window.RetopoAPI = {
      * Busca o resumo de resultados da simplificação RL.
      * GET /v1/rl/simplify/{mesh_id}/results
      */
-    getRLResults: async function(meshId) {
+    getRLResults: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/rl/simplify/${encodeURIComponent(meshId)}/results`,
+            `${getApiBaseUrl()}/v1/rl/simplify/${encodeURIComponent(meshId)}/results`,
             { headers: baseHeaders() }
         );
         if (!response.ok) throw new Error(`Results HTTP ${response.status}`);
@@ -126,19 +170,15 @@ window.RetopoAPI = {
      * GET /v1/rl/simplify/{mesh_id}/snapshots
      * @returns {Promise<Array>} Lista de snapshots
      */
-    getRLSnapshots: async function(meshId) {
+    getRLSnapshots: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/rl/simplify/${encodeURIComponent(meshId)}/snapshots`,
+            `${getApiBaseUrl()}/v1/rl/simplify/${encodeURIComponent(meshId)}/snapshots`,
             { headers: baseHeaders() }
         );
         if (!response.ok) throw new Error(`Snapshots HTTP ${response.status}`);
         const data = await response.json();
-        if (Array.isArray(data)) return data;
-        if (data && Array.isArray(data.snapshots)) return data.snapshots;
-        if (data && Array.isArray(data.data)) return data.data;
-        if (data && Array.isArray(data.items)) return data.items;
-        if (data && Array.isArray(data.value)) return data.value;
-        return [];
+        return Array.isArray(data) ? data : (data.value || []);
     },
 
     /**
@@ -146,10 +186,11 @@ window.RetopoAPI = {
      * GET /v1/rl/simplify/{mesh_id}/snapshots/{accepted_dissolves}/image
      * @returns {Promise<string|null>} Blob Object URL ou null
      */
-    getSnapshotImageBlobUrl: async function(meshId, acceptedDissolves) {
+    getSnapshotImageBlobUrl: async function (meshId, acceptedDissolves) {
         try {
+            await ensureConfigReady();
             const response = await fetch(
-                `${API_BASE_URL}/v1/rl/simplify/${encodeURIComponent(meshId)}/snapshots/${encodeURIComponent(acceptedDissolves)}/image`,
+                `${getApiBaseUrl()}/v1/rl/simplify/${encodeURIComponent(meshId)}/snapshots/${encodeURIComponent(acceptedDissolves)}/image`,
                 { headers: baseHeaders() }
             );
             if (!response.ok) return null;
@@ -164,13 +205,14 @@ window.RetopoAPI = {
      * Descarrega os dados ou geometria do snapshot.
      * GET /v1/rl/simplify/{mesh_id}/snapshots/{accepted_dissolves}
      */
-    getRLSnapshot: async function(meshId, acceptedDissolves) {
+    getRLSnapshot: async function (meshId, acceptedDissolves) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/rl/simplify/${encodeURIComponent(meshId)}/snapshots/${encodeURIComponent(acceptedDissolves)}`,
+            `${getApiBaseUrl()}/v1/rl/simplify/${encodeURIComponent(meshId)}/snapshots/${encodeURIComponent(acceptedDissolves)}`,
             { headers: baseHeaders() }
         );
         if (!response.ok) throw new Error(`Snapshot HTTP ${response.status}`);
-        
+
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
             return response.json();
@@ -183,9 +225,10 @@ window.RetopoAPI = {
      * GET /v1/rl/simplify/{mesh_id}
      * @returns {Promise<string>} Conteúdo de texto .obj
      */
-    downloadSimplifiedMesh: async function(meshId) {
+    downloadSimplifiedMesh: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/rl/simplify/${encodeURIComponent(meshId)}`,
+            `${getApiBaseUrl()}/v1/rl/simplify/${encodeURIComponent(meshId)}`,
             { headers: baseHeaders() }
         );
         if (!response.ok) throw new Error(`Download mesh HTTP ${response.status}`);
@@ -199,9 +242,10 @@ window.RetopoAPI = {
      * GET /health
      * @returns {Promise<boolean>} true se online
      */
-    checkHealth: async function() {
+    checkHealth: async function () {
         try {
-            const response = await fetch(`${API_BASE_URL}/health`, {
+            await ensureConfigReady();
+            const response = await fetch(`${getApiBaseUrl()}/health`, {
                 headers: baseHeaders(),
                 signal: AbortSignal.timeout(5000)
             });
@@ -217,9 +261,10 @@ window.RetopoAPI = {
      * Executa a inferência GNN na malha original para calcular a importância dos vértices.
      * POST /v1/gnn/predict/{mesh_id}
      */
-    predictGNN: async function(meshId) {
+    predictGNN: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/gnn/predict/${encodeURIComponent(meshId)}`,
+            `${getApiBaseUrl()}/v1/gnn/predict/${encodeURIComponent(meshId)}`,
             {
                 method: "POST",
                 headers: baseHeaders()
@@ -234,9 +279,10 @@ window.RetopoAPI = {
      * GET /v1/gnn/predict/{mesh_id}/scores
      * @returns {Promise<string>} Conteúdo CSV com colunas: vertex_id_clean,x,y,z,importance,predicted_keep
      */
-    getGNNScores: async function(meshId) {
+    getGNNScores: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/gnn/predict/${encodeURIComponent(meshId)}/scores`,
+            `${getApiBaseUrl()}/v1/gnn/predict/${encodeURIComponent(meshId)}/scores`,
             { headers: baseHeaders() }
         );
         if (!response.ok) throw new Error(`GNN Scores HTTP ${response.status}`);
@@ -247,9 +293,10 @@ window.RetopoAPI = {
      * Gera o arquivo de heatmap da GNN no servidor.
      * POST /v1/gnn/predict/{mesh_id}/heatmap
      */
-    createGNNHeatmap: async function(meshId) {
+    createGNNHeatmap: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/gnn/predict/${encodeURIComponent(meshId)}/heatmap`,
+            `${getApiBaseUrl()}/v1/gnn/predict/${encodeURIComponent(meshId)}/heatmap`,
             {
                 method: "POST",
                 headers: baseHeaders()
@@ -263,9 +310,10 @@ window.RetopoAPI = {
      * Descarrega o arquivo PLY do Heatmap gerado pela GNN.
      * GET /v1/gnn/predict/{mesh_id}/heatmap
      */
-    getGNNHeatmap: async function(meshId) {
+    getGNNHeatmap: async function (meshId) {
+        await ensureConfigReady();
         const response = await fetch(
-            `${API_BASE_URL}/v1/gnn/predict/${encodeURIComponent(meshId)}/heatmap`,
+            `${getApiBaseUrl()}/v1/gnn/predict/${encodeURIComponent(meshId)}/heatmap`,
             { headers: baseHeaders() }
         );
         if (!response.ok) throw new Error(`Get Heatmap HTTP ${response.status}`);
@@ -277,7 +325,7 @@ window.RetopoAPI = {
      * Tenta primeiro a API real (POST simplify + GET actions).
      * Se a API falhar, cai com elegância na simulação local normal.
      */
-    startRLDecimation: async function(modelId, onRLStep, onComplete, maxSteps = 100) {
+    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = 100) {
         try {
             // 1. Tentar executar a simplificação real via API
             const simplifyResult = await this.simplifyMesh(modelId, maxSteps);
@@ -324,69 +372,32 @@ window.RetopoAPI = {
 
                     if (idx >= total) {
                         clearInterval(timer);
-                        onComplete(simplifyResult);
+                        if (typeof onComplete === "function") onComplete(simplifyResult);
                     }
                 }, intervalMs);
                 return;
             } else if (simplifyResult) {
                 // Caso a API tenha concluído com sucesso mas o action log esteja vazio
-                onRLStep({
-                    step: simplifyResult.steps || maxSteps,
-                    progress: 100,
-                    log_message: `[Concluído] ${simplifyResult.accepted_dissolves || 0} dissolves aceites`,
-                    is_critical: false,
-                    raw_action: { accepted: true, accepted_dissolves: simplifyResult.accepted_dissolves || 0 }
-                });
-                onComplete(simplifyResult);
+                if (typeof onRLStep === "function") {
+                    onRLStep({
+                        step: simplifyResult.steps || maxSteps,
+                        progress: 100,
+                        log_message: `[Concluído] ${simplifyResult.accepted_dissolves || 0} dissolves aceites`,
+                        is_critical: false,
+                        raw_action: { accepted: true, accepted_dissolves: simplifyResult.accepted_dissolves || 0 }
+                    });
+                }
+                if (typeof onComplete === "function") onComplete(simplifyResult);
                 return;
             }
         } catch (err) {
-            console.warn("[RetopoAPI] Simplificação via API indisponível, a usar simulação de fallback:", err.message);
-        }
-
-        // Fallback: simulação local limpa de 0% a 100%
-        let currentStep = 0;
-        let currentDissolves = 0;
-        const targetSteps = maxSteps || 100;
-        const stepsPerTick = Math.max(1, Math.round(targetSteps / 35));
-        const fallbackActions = ["Edge Collapse", "Vertex Merge", "Planar Decimation", "Feature Preserved"];
-
-        const fallbackTimer = setInterval(() => {
-            currentStep = Math.min(targetSteps, currentStep + stepsPerTick);
-            const isAccepted = Math.random() < 0.2;
-            if (isAccepted) currentDissolves++;
-
-            const action = fallbackActions[Math.floor(Math.random() * fallbackActions.length)];
-            const rewardVal = (Math.random() * 0.5).toFixed(2);
-            const progress = Math.min(100, Math.round((currentStep / targetSteps) * 100));
-
-            const stepData = {
-                step: currentStep,
-                progress: progress,
-                log_message: `[Step ${currentStep}] ${action}: Reward = +${rewardVal}`,
-                is_critical: !isAccepted,
-                raw_action: {
-                    accepted: isAccepted,
-                    accepted_dissolves: currentDissolves
-                },
-                rewards: {
-                    silhouette: Math.max(20, Math.round(95 - (progress * 0.5))),
-                    triangle_reduction: Math.min(80, Math.round(10 + (progress * 0.7))),
-                    uv_distortion: Math.min(30, Math.round(progress * 0.3))
-                }
-            };
-
-            onRLStep(stepData);
-
-            if (currentStep >= targetSteps) {
-                clearInterval(fallbackTimer);
-                onComplete({
-                    steps: targetSteps,
-                    accepted_dissolves: currentDissolves,
-                    face_reduction: Math.min(0.5, Math.max(0.05, currentDissolves / 100))
-                });
+            console.error("[RetopoAPI] Erro na simplificação via API:", err);
+            if (typeof onError === "function") {
+                onError(err);
+            } else {
+                throw err;
             }
-        }, 70);
+        }
     }
 };
 
@@ -401,7 +412,8 @@ window.MeshQAAPI = {
      * Inicia uma nova análise assíncrona de QA para a mesh (ou snapshot específico).
      * POST /v1/analyses/{mesh_id}?snapshot={snapshot}
      */
-    createAnalysis: async function(meshId, options = {}, snapshot = null) {
+    createAnalysis: async function (meshId, options = {}, snapshot = null) {
+        await ensureConfigReady();
         const body = {
             skip: Array.isArray(options.skip) ? options.skip : [],
             regular_valence: options.regular_valence !== undefined ? parseInt(options.regular_valence, 10) : 0,
@@ -410,7 +422,7 @@ window.MeshQAAPI = {
         };
 
         const query = (snapshot !== null && snapshot !== undefined) ? `?snapshot=${encodeURIComponent(snapshot)}` : "";
-        const response = await fetch(`${API_BASE_URL}/v1/analyses/${encodeURIComponent(meshId)}${query}`, {
+        const response = await fetch(`${getApiBaseUrl()}/v1/analyses/${encodeURIComponent(meshId)}${query}`, {
             method: "POST",
             headers: baseHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify(body)
@@ -421,7 +433,7 @@ window.MeshQAAPI = {
             try {
                 const errData = await response.json();
                 errorMsg = errData.message || errData.detail || errorMsg;
-            } catch (_) {}
+            } catch (_) { }
             throw new Error(errorMsg);
         }
 
@@ -432,9 +444,10 @@ window.MeshQAAPI = {
      * Consulta o estado de uma análise (ou de um snapshot).
      * GET /v1/analyses/{mesh_id}?snapshot={snapshot}
      */
-    getAnalysisStatus: async function(meshId, snapshot = null) {
+    getAnalysisStatus: async function (meshId, snapshot = null) {
+        await ensureConfigReady();
         const query = (snapshot !== null && snapshot !== undefined) ? `?snapshot=${encodeURIComponent(snapshot)}` : "";
-        const response = await fetch(`${API_BASE_URL}/v1/analyses/${encodeURIComponent(meshId)}${query}`, {
+        const response = await fetch(`${getApiBaseUrl()}/v1/analyses/${encodeURIComponent(meshId)}${query}`, {
             headers: baseHeaders()
         });
 
@@ -443,7 +456,7 @@ window.MeshQAAPI = {
             try {
                 const errData = await response.json();
                 errorMsg = errData.message || errData.detail || errorMsg;
-            } catch (_) {}
+            } catch (_) { }
             throw new Error(errorMsg);
         }
 
@@ -454,13 +467,14 @@ window.MeshQAAPI = {
      * Descarrega o resultado detalhado (result.json).
      * GET /v1/analyses/{mesh_id}/download?snapshot={snapshot}&geometry={boolean}
      */
-    downloadAnalysisResult: async function(meshId, includeGeometry = false, snapshot = null) {
+    downloadAnalysisResult: async function (meshId, includeGeometry = false, snapshot = null) {
+        await ensureConfigReady();
         const params = new URLSearchParams();
         if (snapshot !== null && snapshot !== undefined) params.append("snapshot", snapshot);
         if (includeGeometry) params.append("geometry", "true");
         const query = params.toString() ? `?${params.toString()}` : "";
 
-        const response = await fetch(`${API_BASE_URL}/v1/analyses/${encodeURIComponent(meshId)}/download${query}`, {
+        const response = await fetch(`${getApiBaseUrl()}/v1/analyses/${encodeURIComponent(meshId)}/download${query}`, {
             headers: baseHeaders()
         });
 
@@ -469,7 +483,7 @@ window.MeshQAAPI = {
             try {
                 const errData = await response.json();
                 errorMsg = errData.message || errData.detail || errorMsg;
-            } catch (_) {}
+            } catch (_) { }
             throw new Error(errorMsg);
         }
 
@@ -479,7 +493,7 @@ window.MeshQAAPI = {
     /**
      * Executa o fluxo completo com polling: cria a análise e aguarda até 'done' ou 'failed'.
      */
-    runFullAnalysis: async function(meshId, options = {}, snapshot = null, onStatusUpdate = null, timeoutMs = 60000) {
+    runFullAnalysis: async function (meshId, options = {}, snapshot = null, onStatusUpdate = null, timeoutMs = 60000) {
         await this.createAnalysis(meshId, options, snapshot);
 
         const startTime = Date.now();
@@ -500,7 +514,7 @@ window.MeshQAAPI = {
     /**
      * Carrega as fixtures de teste locais
      */
-    loadLocalFixtures: async function() {
+    loadLocalFixtures: async function () {
         const [statRes, resRes, objRes] = await Promise.all([
             fetch("fixtures/status.json"),
             fetch("fixtures/result.json"),

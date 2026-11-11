@@ -1,6 +1,7 @@
 # Local secrets and private configuration
 .env
 .env.*
+env.json
 *.conf
 nginx/
 test_cube.obj
