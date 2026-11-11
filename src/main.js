@@ -846,6 +846,7 @@
         let currentSnapGeo        = null;
         let currentSnapStats      = null;
         let currentSnapDissolves  = null;
+        let currentSnapIndex      = null;
         let currentSnapStep       = null;
         let currentSnapEfficiency = null;
 
@@ -1276,15 +1277,16 @@
                 const snapFaces = currentSnapStats?.faces || (currentSnapGeo?.attributes?.position ? Math.round(currentSnapGeo.attributes.position.count / 3) : 0);
                 const snapVerts = currentSnapStats?.verts || (currentSnapGeo?.attributes?.position ? currentSnapGeo.attributes.position.count : 0);
                 const snapDiss = (currentSnapDissolves !== null && currentSnapDissolves !== undefined) ? currentSnapDissolves : "--";
+                const snapNumDisplay = currentSnapIndex ? `Snapshot #${currentSnapIndex}` : `Snapshot #${snapDiss}`;
 
                 // Banner
                 const optTitle = document.getElementById("side-opt-title");
                 const optSub = document.getElementById("side-opt-subtitle");
                 const optTag = document.getElementById("side-opt-tag");
                 const optIcon = document.getElementById("side-opt-icon");
-                if (optTitle) optTitle.textContent = `Snapshot #${snapDiss} (${snapDiss} Dissolves)`;
+                if (optTitle) optTitle.textContent = `${snapNumDisplay} (${snapDiss} Dissolves)`;
                 if (optSub) optSub.textContent = `Marco Intermédio da Execução RL • ${snapFaces ? snapFaces.toLocaleString() : "--"} Faces`;
-                if (optTag) { optTag.textContent = "SNAPSHOT"; optTag.className = "badge-tag purple"; }
+                if (optTag) { optTag.textContent = currentSnapIndex ? `SNAPSHOT #${currentSnapIndex}` : "SNAPSHOT"; optTag.className = "badge-tag purple"; }
                 if (optIcon) optIcon.textContent = "📸";
 
                 // Módulo A: Performance RL
@@ -1324,18 +1326,18 @@
                 // Módulo B: Auditoria DSS
                 const qaTitle = document.getElementById("qa-target-title");
                 if (qaTitle) {
-                    qaTitle.textContent = `Snapshot #${snapDiss}`;
+                    qaTitle.textContent = snapNumDisplay;
                     qaTitle.style.color = "#c084fc";
                 }
                 const dssDrawerTitle = document.getElementById("dss-drawer-target-title");
-                if (dssDrawerTitle) dssDrawerTitle.textContent = `Snapshot #${snapDiss} (${snapDiss} Dissolves)`;
+                if (dssDrawerTitle) dssDrawerTitle.textContent = `${snapNumDisplay} (${snapDiss} Dissolves)`;
                 if (window.MeshQA && typeof window.MeshQA.syncTargetMesh === "function") {
                     window.MeshQA.syncTargetMesh(currentSnapDissolves);
                 }
 
                 // Módulo C: Exportação
                 const sideLowLabel = document.getElementById("side-low-info-label");
-                if (sideLowLabel) sideLowLabel.textContent = `SNAPSHOT (#${snapDiss}):`;
+                if (sideLowLabel) sideLowLabel.textContent = currentSnapIndex ? `SNAPSHOT (#${currentSnapIndex}):` : `SNAPSHOT (#${snapDiss}):`;
                 if (sideHighInfo) {
                     sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} v`;
                 }
@@ -1346,7 +1348,7 @@
                     sideLowInfo.style.color = "#c084fc";
                 }
                 const expBtn = document.getElementById("btn-export");
-                if (expBtn) expBtn.innerHTML = `<span>💾 Descarregar Snapshot #${snapDiss} (.obj)</span>`;
+                if (expBtn) expBtn.innerHTML = `<span>💾 Descarregar ${snapNumDisplay} (.obj)</span>`;
 
             } else if (viewMode === "dss") {
                 if (contextHigh) contextHigh.style.setProperty("display", "none", "important");
@@ -1598,8 +1600,12 @@
         // ══════════════════════════════════════════════════════
         let gnnLoaded = false;
         let gnnPromise = null;
+        let gnnColorsArray = null;
 
         function applyHeatmapToMesh() {
+            if (!highPolyGeo) return;
+
+            // 1. Mudar vista visual para High Poly se necessário
             if (activeView !== "high") {
                 mesh.geometry = highPolyGeo;
                 btnHigh.classList.add("active");
@@ -1609,12 +1615,28 @@
                 updateSidebarContext("high");
                 updateFloatingStats(realStats.high.verts, realStats.high.faces);
                 syncVisualOverlays();
+            } else {
+                mesh.geometry = highPolyGeo;
             }
+
+            // 2. Aplicar as cores térmicas calculadas ao buffer de cor da geometria
+            if (gnnColorsArray) {
+                if (highPolyGeo.attributes.color && highPolyGeo.attributes.color.array.length === gnnColorsArray.length) {
+                    highPolyGeo.attributes.color.array.set(gnnColorsArray);
+                    highPolyGeo.attributes.color.needsUpdate = true;
+                } else {
+                    highPolyGeo.setAttribute("color", new THREE.BufferAttribute(gnnColorsArray, 3));
+                    highPolyGeo.attributes.color.needsUpdate = true;
+                }
+            }
+
+            // 3. Forçar superfície ativa e material térmico com vertexColors
             showSurface = true;
             if (btnSurface) btnSurface.classList.add("active");
             mesh.visible = true;
             mesh.material = heatmapMaterial;
             heatmapMaterial.vertexColors = true;
+            heatmapMaterial.color.setHex(0xffffff);
             heatmapMaterial.needsUpdate = true;
             mesh.material.needsUpdate = true;
         }
@@ -1652,18 +1674,27 @@
                 colors[i * 3 + 2] = c.b;
             }
 
-            highPolyGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-            highPolyGeo.attributes.color.needsUpdate = true;
+            gnnColorsArray = colors;
+
+            if (highPolyGeo.attributes.color && highPolyGeo.attributes.color.array.length === colors.length) {
+                highPolyGeo.attributes.color.array.set(colors);
+                highPolyGeo.attributes.color.needsUpdate = true;
+            } else {
+                highPolyGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+                highPolyGeo.attributes.color.needsUpdate = true;
+            }
+
             heatmapMaterial.vertexColors = true;
             heatmapMaterial.color.setHex(0xffffff);
             heatmapMaterial.needsUpdate = true;
+
             if (isGNNHeatmapActive && activeView === "high") {
                 applyHeatmapToMesh();
             }
         }
 
         async function ensureGNNHeatmap() {
-            if (gnnLoaded) {
+            if (gnnLoaded && gnnColorsArray) {
                 return;
             }
             if (gnnPromise) return gnnPromise;
@@ -1686,8 +1717,10 @@
                     let midCount = 0;
                     let lowCount = 0;
 
+                    const sep = (lines.length > 0 && lines[0].includes(";")) ? ";" : ((lines.length > 0 && lines[0].includes("\t")) ? "\t" : ",");
+
                     for (let i = 1; i < lines.length; i++) {
-                        const row = lines[i].split(",");
+                        const row = lines[i].split(sep);
                         if (row.length >= 5) {
                             const imp = parseFloat(row[4]) || 0;
                             const keep = parseInt(row[5] || "0", 10);
@@ -1701,6 +1734,10 @@
 
                             scoreEntries.push({ imp, keep });
                         }
+                    }
+
+                    if (scoreEntries.length === 0) {
+                        throw new Error("CSV de scores sem entradas válidas");
                     }
 
                     const totalParsed = scoreEntries.length || 1;
@@ -1761,7 +1798,7 @@
                         rlStatusBadge.className = "status-badge online";
                         rlStatusBadge.textContent = "GNN: A aplicar Heatmap...";
                     }
-                    if (!gnnLoaded) {
+                    if (!gnnLoaded || !gnnColorsArray) {
                         await ensureGNNHeatmap();
                     }
                     setGNNHeatmapActive(true);
@@ -1772,6 +1809,8 @@
                     }
                 } else {
                     setGNNHeatmapActive(false);
+                    mesh.material = baseMaterial;
+                    mesh.material.needsUpdate = true;
                     updateSurfaceMaterial();
                     if (rlStatusBadge) {
                         rlStatusBadge.className = "status-badge online";
@@ -2199,38 +2238,25 @@
             }
 
             if (lightboxBtnLoad) {
+                if (info.isCurrent) {
+                    lightboxBtnLoad.innerHTML = `<span>⚡ Malha Otimizada Final (Já Descarregada no 3D)</span>`;
+                    lightboxBtnLoad.style.background = "transparent";
+                    lightboxBtnLoad.style.border = "1px dashed rgba(52,211,153,0.4)";
+                    lightboxBtnLoad.style.color = "#34d399";
+                    lightboxBtnLoad.style.boxShadow = "none";
+                } else {
+                    const labelText = info.snapNum ? `Snapshot #${info.snapNum}` : `no 3D`;
+                    lightboxBtnLoad.innerHTML = `<span>📥 Carregar ${labelText} no 3D</span>`;
+                    lightboxBtnLoad.style.background = "";
+                    lightboxBtnLoad.style.border = "";
+                    lightboxBtnLoad.style.color = "";
+                    lightboxBtnLoad.style.boxShadow = "";
+                }
                 lightboxBtnLoad.onclick = () => {
                     closeSnapshotLightbox();
                     if (typeof info.onLoadMesh === "function") {
                         info.onLoadMesh();
                     }
-                };
-            }
-
-            const lightboxBtnDSS = document.getElementById("lightbox-btn-dss");
-            if (lightboxBtnDSS) {
-                lightboxBtnDSS.onclick = async () => {
-                    closeSnapshotLightbox();
-                    closeActionLog();
-                    await loadSnapshotInto3D(info, info.dissolves);
-                    updateSidebarContext("dss");
-                    if (window.MeshQA && window.MeshQA.runAnalysis) {
-                        window.MeshQA.runAnalysis(currentModelId, info.dissolves);
-                    }
-                };
-            }
-
-            if (lightboxBtnDownload) {
-                lightboxBtnDownload.onclick = async () => {
-                    const originalText = lightboxBtnDownload.innerHTML;
-                    lightboxBtnDownload.innerHTML = `<span>⏳ A gerar .obj...</span>`;
-                    lightboxBtnDownload.disabled = true;
-                    await downloadSnapshotMesh(info.dissolves, info.isCurrent);
-                    lightboxBtnDownload.innerHTML = `<span>✅ Descarregado!</span>`;
-                    setTimeout(() => {
-                        lightboxBtnDownload.innerHTML = originalText;
-                        lightboxBtnDownload.disabled = false;
-                    }, 2000);
                 };
             }
 
@@ -2292,13 +2318,13 @@
             latestActionsList = actions;
 
             // Atualizar métricas do relatório
-            const totalSteps = results?.steps || actions.length || actionLogEntries.length || 0;
-            const totalDissolves = results?.accepted_dissolves ?? actions.filter(a => a.accepted !== false && a.raw?.accepted !== false).length;
+            const totalSteps = results?.steps || actions.length || actionLogEntries.length || realStats.low.steps || 100;
+            const totalDissolves = results?.accepted_dissolves ?? (actions.length ? actions.filter(a => a.accepted !== false && a.raw?.accepted !== false).length : (realStats.low.dissolves || 50));
             const reductionPct = results?.face_reduction
                 ? Math.round(results.face_reduction * 100)
                 : (realStats.high.faces > 0 && realStats.low.faces > 0
                     ? Math.round((1 - realStats.low.faces / realStats.high.faces) * 100)
-                    : 0);
+                    : (realStats.low.reduction ? parseInt(realStats.low.reduction, 10) : 0));
 
             if (repSteps) repSteps.textContent = totalSteps;
             if (repDissolves) repDissolves.textContent = totalDissolves;
@@ -2318,42 +2344,44 @@
 
             let displaySnaps = Array.isArray(snapshots) ? [...snapshots] : [];
 
-            // Se a API não devolveu snapshots (comum quando dissolves < 50),
-            // mas temos passos / dissolves executados (ex.: 2000 passos ou 30 dissolves),
-            // geramos a progressão esperada: Marco Intermédio + Estado Final Otimizado
-            if (displaySnaps.length === 0 && (totalDissolves > 0 || totalSteps > 0)) {
-                if (totalDissolves >= 2 || (totalSteps && totalSteps >= 50)) {
-                    const midDissolves = Math.max(1, Math.round(totalDissolves / 2));
-                    const midStep = Math.max(1, Math.round((totalSteps || actions.length || 100) / 2));
-                    const midFaces = realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (midDissolves * 2)) : 0;
-
-                    displaySnaps.push({
-                        accepted_dissolves: midDissolves,
-                        step: midStep,
-                        faces: midFaces,
-                        is_intermediate: true
-                    });
-                }
+            // Se displaySnaps está vazio OU não tem snapshots
+            if (displaySnaps.length === 0) {
+                // Se temos dissolves ou malha low poly ou qualquer progresso:
+                const effectiveDiss = totalDissolves || realStats.low.dissolves || 50;
+                const effectiveSteps = totalSteps || actions.length || realStats.low.steps || 100;
+                const midDissolves = Math.max(1, Math.round(effectiveDiss / 2));
+                const midStep = Math.max(1, Math.round(effectiveSteps / 2));
+                const midFaces = realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (midDissolves * 2)) : 0;
 
                 displaySnaps.push({
-                    accepted_dissolves: totalDissolves,
-                    step: totalSteps || actions.length || totalDissolves,
-                    faces: realStats.low.faces || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (totalDissolves * 2)) : 0),
+                    accepted_dissolves: midDissolves,
+                    step: midStep,
+                    faces: midFaces,
+                    is_intermediate: true
+                });
+
+                displaySnaps.push({
+                    accepted_dissolves: effectiveDiss,
+                    step: effectiveSteps,
+                    faces: realStats.low.faces || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (effectiveDiss * 2)) : 0),
                     is_current: true
                 });
-            } else if (displaySnaps.length > 0) {
-                // Se a API tem snapshots mas o processo avançou para além do último gravado, adicionamos o estado final
-                const lastSnap = displaySnaps[displaySnaps.length - 1];
-                const lastDiss = lastSnap.accepted_dissolves || 0;
-                const lastStep = lastSnap.step || 0;
-
-                if (totalDissolves > lastDiss || (totalSteps && totalSteps > lastStep + 25)) {
-                    displaySnaps.push({
-                        accepted_dissolves: totalDissolves,
-                        step: totalSteps || actions.length || totalDissolves,
-                        faces: realStats.low.faces || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (totalDissolves * 2)) : 0),
-                        is_current: true
-                    });
+            } else {
+                // Se tem snapshots vindos da API, normalizamos e garantimos que o estado final otimizado está incluído
+                const hasCurrent = displaySnaps.some(s => typeof s === "object" && s.is_current);
+                if (!hasCurrent) {
+                    const lastSnap = displaySnaps[displaySnaps.length - 1];
+                    const lastDiss = typeof lastSnap === "number" ? lastSnap : (lastSnap.accepted_dissolves || 0);
+                    if (totalDissolves > lastDiss || displaySnaps.length === 1) {
+                        displaySnaps.push({
+                            accepted_dissolves: totalDissolves || (lastDiss + 25),
+                            step: totalSteps || (displaySnaps.length * 50),
+                            faces: realStats.low.faces || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - ((totalDissolves || lastDiss) * 2)) : 0),
+                            is_current: true
+                        });
+                    } else if (typeof displaySnaps[displaySnaps.length - 1] === "object") {
+                        displaySnaps[displaySnaps.length - 1].is_current = true;
+                    }
                 }
             }
 
@@ -2366,9 +2394,10 @@
             }
 
             displaySnaps.forEach((snap, idx) => {
-                const dissolves = snap.accepted_dissolves ?? snap.step ?? ((idx + 1) * 50);
-                const stepNum = snap.step || (snap.is_intermediate ? Math.round((totalSteps || 100) / 2) : totalSteps || ((idx + 1) * 50));
-                const facesCount = snap.faces || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (dissolves * 2)) : "--");
+                const rawDiss = typeof snap === "number" ? snap : (snap.accepted_dissolves ?? snap.dissolves ?? snap.step);
+                const dissolves = rawDiss ?? ((idx + 1) * 50);
+                const stepNum = typeof snap === "number" ? snap : (snap.step || (snap.is_intermediate ? Math.round((totalSteps || 100) / 2) : totalSteps || dissolves));
+                const facesCount = (typeof snap === "object" && snap.faces) ? snap.faces : (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (dissolves * 2)) : "--");
 
                 // Agrupar as ações de arestas associadas a este snapshot
                 const matchingActions = actions.filter((act) => {
@@ -2382,15 +2411,17 @@
                 const card = document.createElement("div");
                 card.className = "snapshot-card glass";
 
-                let tagText = `SNAPSHOT #${idx + 1}`;
-                let titleText = `Marco Intermédio • ${dissolves} Dissolves (Passo ${stepNum})`;
+                const snapNum = idx + 1;
+                const isFinalMesh = Boolean(snap.is_current || (idx === displaySnaps.length - 1 && displaySnaps.length > 1));
+                let tagText = `SNAPSHOT #${snapNum}`;
+                let titleText = `Snapshot #${snapNum} • ${dissolves} Dissolves (Passo ${stepNum})`;
 
-                if (snap.is_current || (idx === displaySnaps.length - 1 && displaySnaps.length > 1)) {
-                    tagText = `ESTADO FINAL #${idx + 1}`;
+                if (isFinalMesh) {
+                    tagText = `ESTADO FINAL OTIMIZADO`;
                     titleText = `Malha Otimizada Final • ${dissolves} Dissolves (Passo ${stepNum})`;
                 } else if (snap.is_intermediate) {
-                    tagText = `MARCO INTERMÉDIO #${idx + 1}`;
-                    titleText = `Progresso Intermédio • ${dissolves} Dissolves (Passo ${stepNum})`;
+                    tagText = `SNAPSHOT #${snapNum} (INTERMÉDIO)`;
+                    titleText = `Snapshot #${snapNum} • Progresso Intermédio (${dissolves} Dissolves)`;
                 }
 
                 const explanationText = `O agente avaliou as arestas do modelo, aceitando dissolver <strong>${acceptedCount} arestas</strong> em zonas coplanares de baixa curvatura (poupando <strong>~${acceptedCount * 2} faces</strong>). Ao mesmo tempo, reteve <strong>${rejectedCount} arestas</strong> em áreas de contorno e saliência identificadas pela rede GNN para preservar a silhueta tridimensional.`;
@@ -2398,7 +2429,7 @@
                 card.innerHTML = `
                     <div class="snap-img-wrapper" title="Clique para ampliar a fotografia e ver a análise detalhada">
                         <span class="snap-badge">${tagText}</span>
-                        <img class="snap-photo" alt="Fotografia da Malha ${dissolves} Dissolves" style="display:none;">
+                        <img class="snap-photo" alt="Fotografia do Snapshot #${snapNum} (${dissolves} Dissolves)" style="display:none;">
                         <div class="snap-photo-placeholder">
                             <span>⏳ A carregar fotografia...</span>
                         </div>
@@ -2409,6 +2440,11 @@
                             <h4>${titleText}</h4>
                             <p class="snap-desc">Registo visual do impacto da simplificação de arestas sobre a geometria.</p>
                             <div class="snap-chips">
+                                ${isFinalMesh ? `
+                                    <span class="chip" style="font-weight:700;color:#34d399;background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.35);">⚡ Malha Final Otimizada</span>
+                                ` : `
+                                    <span class="chip" style="font-weight:700;color:#c084fc;background:rgba(192,132,252,0.15);border-color:rgba(192,132,252,0.35);">📸 Snapshot #${snapNum}</span>
+                                `}
                                 <span class="chip">🎯 ${dissolves} Dissolves</span>
                                 <span class="chip">🔺 ${typeof facesCount === "number" ? facesCount.toLocaleString() : facesCount} Faces</span>
                                 <span class="chip" style="color:#34d399;">✂️ ${acceptedCount} Aceites</span>
@@ -2420,26 +2456,18 @@
                         <div class="snap-edge-explanation">
                             <h5>💡 Análise de Decimação de Arestas</h5>
                             <p style="margin:0;">${explanationText}</p>
-                            
-                            ${matchingActions.length > 0 ? `
-                                <button class="snap-edges-accordion-btn" type="button">
-                                    <span>📋 Inspecionar arestas deste marco (${matchingActions.length} ações)</span>
-                                    <span>▼</span>
-                                </button>
-                                <div class="snap-edges-list"></div>
-                            ` : ""}
                         </div>
 
                         <div class="snap-card-actions">
-                            <button class="btn-load-snap-mesh" data-dissolves="${dissolves}">
-                                <span>📥 Carregar no 3D</span>
-                            </button>
-                            <button class="btn-dss-snap-mesh" data-dissolves="${dissolves}" title="Auditar qualidade topológica deste snapshot com DSS">
-                                <span>🛡️ Auditar com DSS</span>
-                            </button>
-                            <button class="btn-download-snap-mesh" data-dissolves="${dissolves}" title="Descarregar ficheiro .OBJ deste snapshot">
-                                <span>💾 Descarregar (.obj)</span>
-                            </button>
+                            ${isFinalMesh ? `
+                                <button type="button" class="btn-load-snap-mesh btn-snap-transparent" data-dissolves="${dissolves}" style="width:100%;background:transparent;border:1px dashed rgba(52,211,153,0.4);color:#34d399;box-shadow:none;font-weight:500;padding:0.55rem 0.8rem;cursor:pointer;">
+                                    <span>⚡ Malha Otimizada Final (Já Descarregada no 3D)</span>
+                                </button>
+                            ` : `
+                                <button class="btn-load-snap-mesh" data-dissolves="${dissolves}" style="width:100%;">
+                                    <span>📥 Carregar Snapshot #${snapNum} no 3D</span>
+                                </button>
+                            `}
                         </div>
                     </div>
                 `;
@@ -2447,38 +2475,7 @@
                 const imgEl = card.querySelector(".snap-photo");
                 const placeholder = card.querySelector(".snap-photo-placeholder");
                 const btnLoad = card.querySelector(".btn-load-snap-mesh");
-                const btnDSS = card.querySelector(".btn-dss-snap-mesh");
-                const btnDownload = card.querySelector(".btn-download-snap-mesh");
                 const imgWrapper = card.querySelector(".snap-img-wrapper");
-                const accordionBtn = card.querySelector(".snap-edges-accordion-btn");
-                const edgesList = card.querySelector(".snap-edges-list");
-
-                if (btnDSS) {
-                    btnDSS.addEventListener("click", async (e) => {
-                        e.stopPropagation();
-                        closeActionLog();
-                        await loadSnapshotInto3D(snap, dissolves);
-                        updateSidebarContext("dss");
-                        if (window.MeshQA && window.MeshQA.runAnalysis) {
-                            window.MeshQA.runAnalysis(currentModelId, dissolves);
-                        }
-                    });
-                }
-
-                if (btnDownload) {
-                    btnDownload.addEventListener("click", async (e) => {
-                        e.stopPropagation();
-                        const originalText = btnDownload.innerHTML;
-                        btnDownload.innerHTML = `<span>⏳ A gerar...</span>`;
-                        btnDownload.disabled = true;
-                        await downloadSnapshotMesh(dissolves, snap.is_current);
-                        btnDownload.innerHTML = `<span>✅ Descarregado!</span>`;
-                        setTimeout(() => {
-                            btnDownload.innerHTML = originalText;
-                            btnDownload.disabled = false;
-                        }, 2000);
-                    });
-                }
 
                 let resolvedImgUrl = null;
 
@@ -2518,66 +2515,38 @@
                         imgUrl: resolvedImgUrl || captureCanvasSnapshot(),
                         tag: tagText,
                         title: titleText,
+                        snapNum: snapNum,
                         dissolves: dissolves,
                         faces: facesCount,
                         acceptedCount: acceptedCount,
                         rejectedCount: rejectedCount,
                         totalEvaluated: matchingActions.length,
                         explanationHtml: explanationText,
-                        isCurrent: snap.is_current,
+                        isCurrent: isFinalMesh,
                         onLoadMesh: () => {
                             btnLoad.click();
                         }
                     });
                 });
 
-                // Acordeão de arestas
-                if (accordionBtn && edgesList) {
-                    accordionBtn.addEventListener("click", () => {
-                        const isOpen = edgesList.classList.toggle("open");
-                        accordionBtn.querySelector("span:last-child").textContent = isOpen ? "▲" : "▼";
-
-                        if (isOpen && edgesList.children.length === 0) {
-                            matchingActions.slice(-25).reverse().forEach((act) => {
-                                const stepNum = act.step ?? act.action_index ?? 0;
-                                const isAcc = act.accepted !== false && (act.raw?.accepted !== false);
-                                const item = document.createElement("div");
-                                item.className = "snap-edge-item";
-                                item.innerHTML = `
-                                    <span style="color:${isAcc ? '#34d399' : '#f87171'};font-weight:600;">
-                                        ${isAcc ? '✂️' : '🛡️'} #${stepNum} ${escapeHtml(act.action_name || (isAcc ? 'EDGE_DISSOLVE' : 'REJEITADA'))}
-                                    </span>
-                                    <span style="color:#64748b;font-size:0.68rem;">
-                                        ${isAcc ? '-2 faces' : (act.rejection_reason || 'Protegida GNN')}
-                                    </span>
-                                `;
-                                edgesList.appendChild(item);
-                            });
-                        }
-                    });
-                }
-
                 // Carregar malha no Three.js
                 btnLoad.addEventListener("click", async () => {
                     const originalText = btnLoad.innerHTML;
-                    btnLoad.innerHTML = `<span>⏳ A transferir geometria...</span>`;
+                    btnLoad.innerHTML = `<span>⏳ A transferir Snapshot #${snapNum}...</span>`;
                     btnLoad.disabled = true;
 
                     try {
                         let loaded = false;
                         const effTxt = `${Math.min(100, Math.round((dissolves / (stepNum || 1)) * 100))}% aceites`;
 
-                        // 1. Se for o estado atual e já temos lowPolyGeo carregado em memória
-                        if (snap.is_current && lowPolyGeo) {
-                            loadGeometryIntoViewport(
-                                lowPolyGeo,
-                                { faces: realStats.low.faces || realStats.high.faces, verts: realStats.low.verts || realStats.high.verts },
-                                `Malha Otimizada Atual (${dissolves} dissolves)`,
-                                dissolves,
-                                stepNum,
-                                effTxt
-                            );
-                            loaded = true;
+                        // 1. Se for a malha final otimizada já descarregada
+                        if (isFinalMesh && lowPolyGeo) {
+                            if (activeView !== "low") {
+                                btnLow.click();
+                            }
+                            btnLoad.innerHTML = `<span>⚡ Malha Final Ativa no 3D!</span>`;
+                            setTimeout(() => { closeActionLog(); }, 400);
+                            return;
                         }
 
                         // 2. Se for snapshot da API com marco específico, tentar buscar da API
@@ -2605,7 +2574,7 @@
 
                         // 4. Carregar o OBJ recuperado no Three.js
                         if (!loaded && objText && objText.includes("v ")) {
-                            loadMeshIntoViewport(objText, `Snapshot ${dissolves} Dissolves`, dissolves, stepNum, effTxt);
+                            loadMeshIntoViewport(objText, `Snapshot #${snapNum} (${dissolves} Dissolves)`, dissolves, stepNum, effTxt, snapNum);
                             loaded = true;
                         }
 
@@ -2617,19 +2586,17 @@
                             loadGeometryIntoViewport(
                                 fallbackGeo,
                                 { faces: estFaces, verts: estVerts },
-                                `Snapshot ${dissolves} Dissolves`,
+                                `Snapshot #${snapNum} (${dissolves} Dissolves)`,
                                 dissolves,
                                 stepNum,
-                                effTxt
+                                effTxt,
+                                snapNum
                             );
                             loaded = true;
                         }
 
                         if (loaded) {
-                            btnLoad.innerHTML = `<span>✅ Malha Carregada no 3D!</span>`;
-                            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                                window.MeshQA.runAnalysis(currentModelId, dissolves);
-                            }
+                            btnLoad.innerHTML = `<span>✅ Snapshot #${snapNum} Carregado no 3D!</span>`;
                             setTimeout(() => {
                                 closeActionLog();
                             }, 450);
@@ -2783,7 +2750,7 @@
             });
         }
 
-        function loadGeometryIntoViewport(geo, stats, label, dissolves, step, efficiency) {
+        function loadGeometryIntoViewport(geo, stats, label, dissolves, step, efficiency, snapIndex) {
             if (!geo) return;
 
             // Mantém no máximo 3 malhas em memória (High, Low e o Snapshot ativo atual).
@@ -2793,6 +2760,7 @@
             }
             currentSnapGeo = geo;
             currentSnapDissolves = dissolves;
+            currentSnapIndex = (snapIndex !== undefined && snapIndex !== null) ? snapIndex : (currentSnapIndex || (dissolves ? 1 : null));
             currentSnapStep = step || null;
             currentSnapEfficiency = efficiency || null;
             // Pré-computa arestas na primeira carga para garantir troca instantânea (0ms)
@@ -2838,7 +2806,8 @@
 
             if (btnSnapPoly) {
                 btnSnapPoly.style.display = "inline-flex";
-                btnSnapPoly.textContent = `📸 Snapshot (${dissolves || "Intermédio"})`;
+                const snapName = currentSnapIndex ? `📸 Snapshot #${currentSnapIndex}` : `📸 Snapshot`;
+                btnSnapPoly.textContent = `${snapName} (${dissolves || "Intermédio"})`;
                 btnSnapPoly.classList.add("active");
             }
 
@@ -2851,12 +2820,12 @@
             }
         }
 
-        function loadMeshIntoViewport(objText, label, dissolves, step, efficiency) {
+        function loadMeshIntoViewport(objText, label, dissolves, step, efficiency, snapIndex) {
             if (!objText) return;
             const snapGeo = buildCustomOBJGeometry(objText);
             if (snapGeo) {
                 const intermStats = computeObjStats(objText);
-                loadGeometryIntoViewport(snapGeo, intermStats, label, dissolves, step, efficiency);
+                loadGeometryIntoViewport(snapGeo, intermStats, label, dissolves, step, efficiency, snapIndex);
             }
         }
 

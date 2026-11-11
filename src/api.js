@@ -133,7 +133,12 @@ window.RetopoAPI = {
         );
         if (!response.ok) throw new Error(`Snapshots HTTP ${response.status}`);
         const data = await response.json();
-        return Array.isArray(data) ? data : (data.value || []);
+        if (Array.isArray(data)) return data;
+        if (data && Array.isArray(data.snapshots)) return data.snapshots;
+        if (data && Array.isArray(data.data)) return data.data;
+        if (data && Array.isArray(data.items)) return data.items;
+        if (data && Array.isArray(data.value)) return data.value;
+        return [];
     },
 
     /**
