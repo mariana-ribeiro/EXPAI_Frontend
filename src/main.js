@@ -922,8 +922,7 @@
         let showVerts = false;
 
         function updateSurfaceMaterial() {
-            const isHeatmapActive = (activeView === "high" && isGNNHeatmapActive) ||
-                ((activeView === "low" || activeView === "snapshot") && isDSSHeatmapActive);
+            const isHeatmapActive = isGNNHeatmapActive || isDSSHeatmapActive;
 
             showSurface = true;
             if (btnSurface) btnSurface.classList.add("active");
@@ -1276,7 +1275,7 @@
 
             // 3. Iniciar cálculo GNN em background e decimação RL para o novo modelo
             ensureGNNHeatmap().catch(err => console.warn("[GNN Auto] Erro no cálculo automático:", err));
-            const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
+            const initialSteps = parseInt(inputMaxSteps?.value || "1800", 10) || 1800;
             runRLDecimation(initialSteps);
         }
 
@@ -1307,6 +1306,11 @@
             resetAndLoadModel: resetAndLoadModel,
             resetSidebarAndReports: resetSidebarAndReports
         };
+
+        // Inicializar Raycaster interativo de inspeção topológica do DSS
+        if (window.MeshQA && typeof window.MeshQA.setupRaycaster === "function") {
+            window.MeshQA.setupRaycaster();
+        }
 
         // Atualizar estatísticas iniciais reais do High Poly e preencher painel lateral
         updateFloatingStats(realStats.high.verts, realStats.high.faces);
@@ -2041,7 +2045,7 @@
                 window.MeshQA.setWaitingRL();
             }
 
-            const steps = parseInt(stepsToRun || inputMaxSteps?.value || "100", 10) || 100;
+            const steps = parseInt(stepsToRun || inputMaxSteps?.value || "1800", 10) || 1800;
 
             if (sideLowInfo) {
                 sideLowInfo.textContent = "⏳ A otimizar...";
@@ -2140,50 +2144,71 @@
                         sideSteps.textContent = simplifyResult.steps;
                     }
 
-                    // 2. Preencher imediatamente OTIMIZADO (LOW POLY)
-                    const finalFaces = simplifyResult?.final_faces
-                        || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - acceptedDissolves) : "--");
-                    const finalVerts = simplifyResult?.final_verts
-                        || (realStats.high.verts > 0 ? Math.max(1, realStats.high.verts - acceptedDissolves) : "--");
+                    // 2. Descarregar imediatamente a malha OBJ real otimizada da API (única fonte de verdade)
+                    let lowStats = null;
+                    try {
+                        const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
+                        if (lowPolyText && lowPolyText.includes("v ")) {
+                            cachedSimplifiedObjText = lowPolyText;
+                            lowStats = computeObjStats(lowPolyText);
+                            realStats.low.verts = lowStats.verts;
+                            realStats.low.faces = lowStats.faces;
 
-                    realStats.low.faces = typeof finalFaces === "number" ? finalFaces : realStats.high.faces;
-                    realStats.low.verts = typeof finalVerts === "number" ? finalVerts : realStats.high.verts;
+                            const parsedLowGeo = buildCustomOBJGeometry(lowPolyText);
+                            if (parsedLowGeo) {
+                                if (lowPolyGeo && lowPolyGeo !== highPolyGeo && lowPolyGeo !== currentSnapGeo) {
+                                    disposeGeo(lowPolyGeo);
+                                }
+                                lowPolyGeo = parsedLowGeo;
+                                getOrCreateRealEdgesGeo(lowPolyGeo);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("[Main] Não foi possível carregar o modelo Low Poly da API:", err.message);
+                    }
+
+                    // Se a API tiver fornecido contagens no payload simplifyResult caso o download tenha falhado
+                    const finalFaces = lowStats?.faces ?? simplifyResult?.final_faces ?? null;
+                    const finalVerts = lowStats?.verts ?? simplifyResult?.final_verts ?? null;
+
+                    realStats.low.faces = typeof finalFaces === "number" ? finalFaces : (lowStats?.faces || "--");
+                    realStats.low.verts = typeof finalVerts === "number" ? finalVerts : (lowStats?.verts || "--");
                     realStats.low.dissolves = acceptedDissolves;
-                    realStats.low.steps = simplifyResult?.steps || stepsToRun || 100;
+                    realStats.low.steps = simplifyResult?.steps || stepsToRun || 1800;
 
                     if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
                     if (sideCompFacesAfter) {
-                        sideCompFacesAfter.textContent = typeof finalFaces === "number" ? finalFaces.toLocaleString() : finalFaces;
+                        sideCompFacesAfter.textContent = typeof finalFaces === "number" ? finalFaces.toLocaleString() : "--";
                     }
                     if (sideRLEfficiency) {
-                        const totalSteps = simplifyResult?.steps || stepsToRun || 100;
+                        const totalSteps = simplifyResult?.steps || stepsToRun || 1800;
                         const eff = Math.min(100, Math.round(((acceptedDissolves || 0) / totalSteps) * 100));
                         sideRLEfficiency.textContent = `${eff}% aceites`;
                         realStats.low.efficiencyText = `${eff}% aceites`;
                     }
 
                     if (sideLowInfo) {
-                        const fStr = typeof finalFaces === "number" ? finalFaces.toLocaleString() : finalFaces;
-                        const vStr = typeof finalVerts === "number" ? finalVerts.toLocaleString() : finalVerts;
-                        sideLowInfo.textContent = `${fStr} faces / ${vStr} vértices`;
+                        if (typeof finalFaces === "number" && typeof finalVerts === "number") {
+                            sideLowInfo.textContent = `${finalFaces.toLocaleString()} faces / ${finalVerts.toLocaleString()} vértices`;
+                        } else {
+                            sideLowInfo.textContent = "Geometria otimizada não disponível";
+                        }
                     }
 
                     if (sideReduction) {
-                        if (simplifyResult?.face_reduction !== undefined) {
-                            const rawRed = simplifyResult.face_reduction * 100;
-                            const formatted = rawRed >= 1
-                                ? `${Math.round(rawRed)}%`
-                                : `${Math.max(0, rawRed).toFixed(1)}%`;
-                            sideReduction.textContent = formatted;
-                            realStats.low.reduction = formatted;
-                        } else if (realStats.high.faces > 0 && typeof finalFaces === "number") {
+                        if (realStats.high.faces > 0 && typeof finalFaces === "number") {
                             const rawRed = ((1 - (finalFaces / realStats.high.faces)) * 100);
                             const formatted = rawRed >= 1 ? `${Math.round(rawRed)}%` : `${Math.max(0, rawRed).toFixed(1)}%`;
                             sideReduction.textContent = formatted;
                             realStats.low.reduction = formatted;
+                        } else if (simplifyResult?.face_reduction !== undefined) {
+                            const rawRed = simplifyResult.face_reduction * 100;
+                            const formatted = rawRed >= 1 ? `${Math.round(rawRed)}%` : `${Math.max(0, rawRed).toFixed(1)}%`;
+                            sideReduction.textContent = formatted;
+                            realStats.low.reduction = formatted;
                         } else {
-                            sideReduction.textContent = "0%";
-                            realStats.low.reduction = "0%";
+                            sideReduction.textContent = "--%";
+                            realStats.low.reduction = "--%";
                         }
                     }
 
@@ -2202,44 +2227,6 @@
                         rlStatusBadge.textContent = "RL: Decimação Concluída";
                     }
 
-                    // 3. Tentar descarregar a malha .obj real otimizada da API para refinar com a geometria exata
-                    try {
-                        const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
-                        if (lowPolyText && lowPolyText.includes("v ")) {
-                            cachedSimplifiedObjText = lowPolyText;
-                            // Calcular dados 100% reais do Low Poly
-                            const lowStats = computeObjStats(lowPolyText);
-                            realStats.low.verts = lowStats.verts;
-                            realStats.low.faces = lowStats.faces;
-
-                            // Atualizar métricas na barra lateral com a contagem geométrica exata
-                            if (sideLowInfo) {
-                                sideLowInfo.textContent = `${lowStats.faces.toLocaleString()} faces / ${lowStats.verts.toLocaleString()} vértices`;
-                            }
-
-                            if (realStats.high.faces > 0 && sideReduction) {
-                                const rawRed = (1 - lowStats.faces / realStats.high.faces) * 100;
-                                const formatted = rawRed >= 1
-                                    ? `${Math.round(rawRed)}%`
-                                    : `${Math.max(0, rawRed).toFixed(1)}%`;
-                                sideReduction.textContent = formatted;
-                                realStats.low.reduction = formatted;
-                            }
-
-                            // Carregar geometria no Three.js com mapeamento estrito de topologia
-                            const parsedLowGeo = buildCustomOBJGeometry(lowPolyText);
-                            if (parsedLowGeo) {
-                                if (lowPolyGeo && lowPolyGeo !== highPolyGeo && lowPolyGeo !== currentSnapGeo) {
-                                    disposeGeo(lowPolyGeo);
-                                }
-                                lowPolyGeo = parsedLowGeo;
-                                getOrCreateRealEdgesGeo(lowPolyGeo);
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("[Main] Não foi possível carregar o modelo Low Poly da API:", err.message);
-                    }
-
                     if (!lowPolyGeo) {
                         btnLow.disabled = true;
                         btnLow.style.opacity = "0.45";
@@ -2247,7 +2234,6 @@
                         btnLow.innerText = "⚠️ Otimizado Indisponível";
                         if (sideLowInfo) sideLowInfo.textContent = "Geometria otimizada não disponível";
                     } else {
-                        // Desbloquear botão Low Poly
                         btnLow.disabled = false;
                         btnLow.style.opacity = "1";
                         btnLow.style.cursor = "pointer";
@@ -2283,7 +2269,7 @@
 
         // Executar com o valor de iterações configurado no input inicial de upload
         if (currentModelId) {
-            const initialSteps = parseInt(inputMaxSteps?.value || "100", 10) || 100;
+            const initialSteps = parseInt(inputMaxSteps?.value || "1800", 10) || 1800;
             runRLDecimation(initialSteps);
             updateSidebarContext("high");
         }

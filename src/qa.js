@@ -205,6 +205,9 @@
     let dssEdgesMesh = null;
     let dssPolesPoints = null;
     let dssSelectionLine = null;
+    let dssVertexMarker = null;
+    let qaCenter = new THREE.Vector3(0, 0, 0);
+    let qaScale = 1;
 
     let qaParsedVertices = [];
     let qaPolygonFaces = [];
@@ -444,6 +447,8 @@
         const dimX = maxX - minX, dimY = maxY - minY, dimZ = maxZ - minZ;
         const maxDim = Math.max(dimX, dimY, dimZ);
         const scale = maxDim > 0 ? (16 / maxDim) : 1;
+        qaCenter = center;
+        qaScale = scale;
 
         const norm = (v) => [
             (v[0] - center.x) * scale,
@@ -488,6 +493,7 @@
         if (dssEdgesMesh) { scene.remove(dssEdgesMesh); dssEdgesMesh.geometry.dispose(); dssEdgesMesh = null; }
         if (dssPolesPoints) { scene.remove(dssPolesPoints); dssPolesPoints.geometry.dispose(); dssPolesPoints = null; }
         if (dssSelectionLine) { scene.remove(dssSelectionLine); dssSelectionLine.geometry.dispose(); dssSelectionLine = null; }
+        if (dssVertexMarker) { scene.remove(dssVertexMarker); dssVertexMarker.geometry.dispose(); dssVertexMarker = null; }
 
         // Garantir que a malha principal RL e os seus overlays permanecem 100% visíveis e ativos
         if (viewer.mesh) viewer.mesh.visible = true;
@@ -495,19 +501,74 @@
         return true;
     }
 
-    function buildDSSPolesPoints(normFn) {
+    function updateDSSPoles(forceVisible) {
         const viewer = getViewer();
-        if (!viewer || !QAState.resultData) return;
+        if (!viewer || !viewer.scene) return;
+
+        const shouldShow = (forceVisible !== undefined) ? forceVisible : (QAState.enabledChecks["poles"] !== false && QAState.activeViewMode !== "none");
+
+        if (!shouldShow) {
+            if (dssPolesPoints) dssPolesPoints.visible = false;
+            return;
+        }
+
         const res = QAState.resultData;
-        const poles = res.poles;
-        if (!poles || !Array.isArray(poles.vertices) || poles.vertices.length === 0) return;
+        const polesList = res?.poles?.vertices;
+        if (!polesList || !Array.isArray(polesList) || polesList.length === 0) {
+            if (dssPolesPoints) dssPolesPoints.visible = false;
+            return;
+        }
+
+        const activeMesh = viewer.mesh || dssMesh;
+        if (!activeMesh || !activeMesh.geometry) return;
+        const geo = activeMesh.geometry;
+        const posAttr = geo.attributes.position;
+        if (!posAttr) return;
+
+        if (dssPolesPoints && dssPolesPoints.userData?.meshUuid === activeMesh.uuid && dssPolesPoints.userData?.polesCount === polesList.length) {
+            dssPolesPoints.visible = true;
+            return;
+        }
+
+        if (dssPolesPoints) {
+            viewer.scene.remove(dssPolesPoints);
+            dssPolesPoints.geometry.dispose();
+            dssPolesPoints = null;
+        }
+
+        const vertexIndices = geo.userData?.vertexIndices || qaTriangleVertexIndices;
+        const rawVerts = geo.userData?.rawVerts || qaParsedVertices;
+        const center = geo.userData?.center || qaCenter;
+        const scale = geo.userData?.scale || qaScale;
+
+        const vCoordMap = new Map();
+        if (rawVerts && center && scale) {
+            for (const vIdx of polesList) {
+                const rv = rawVerts[vIdx];
+                if (rv) {
+                    vCoordMap.set(vIdx, [
+                        (rv[0] - center.x) * scale,
+                        (rv[1] - center.y) * scale,
+                        (rv[2] - center.z) * scale
+                    ]);
+                }
+            }
+        }
+
+        if (vertexIndices) {
+            for (let i = 0; i < vertexIndices.length; i++) {
+                const vIdx = vertexIndices[i];
+                if (!vCoordMap.has(vIdx)) {
+                    vCoordMap.set(vIdx, [posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)]);
+                }
+            }
+        }
 
         const ptsPositions = [];
-        for (let i = 0; i < poles.vertices.length; i++) {
-            const vIdx = poles.vertices[i];
-            if (qaParsedVertices[vIdx]) {
-                const p = normFn(qaParsedVertices[vIdx]);
-                ptsPositions.push(...p);
+        for (const vIdx of polesList) {
+            const pt = vCoordMap.get(vIdx);
+            if (pt) {
+                ptsPositions.push(pt[0], pt[1], pt[2]);
             }
         }
 
@@ -516,16 +577,18 @@
             ptsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(ptsPositions), 3));
 
             const ptsMat = new THREE.PointsMaterial({
-                color: 0xec4899, // Rosa choque
-                size: 6,
+                color: 0xc084fc, // Lilás vibrante (#c084fc)
+                size: 9,
                 sizeAttenuation: false,
                 transparent: true,
                 opacity: 0.95,
-                depthTest: true
+                depthTest: false
             });
 
             dssPolesPoints = new THREE.Points(ptsGeo, ptsMat);
-            dssPolesPoints.visible = QAState.showPoles;
+            dssPolesPoints.renderOrder = 998;
+            dssPolesPoints.userData = { meshUuid: activeMesh.uuid, polesCount: polesList.length };
+            dssPolesPoints.visible = true;
             viewer.scene.add(dssPolesPoints);
         }
     }
@@ -557,6 +620,7 @@
                 geo.attributes.color.array.fill(1.0);
                 geo.attributes.color.needsUpdate = true;
             }
+            updateDSSPoles(false);
             return;
         }
 
@@ -570,6 +634,7 @@
                 geo.attributes.color.array.fill(1.0);
                 geo.attributes.color.needsUpdate = true;
             }
+            updateDSSPoles(false);
             return;
         }
 
@@ -602,8 +667,8 @@
                 legendTitle.textContent = "Conformidade Topológica (Faces)";
             }
             if (legendMin) legendMin.textContent = "Quads (Verde) / Tris (Azul)";
-            if (legendMax) legendMax.textContent = "Anomalias / N-gons (Vermelho)";
-            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #10b981 0%, #3b82f6 50%, #ef4444 100%)";
+            if (legendMax) legendMax.textContent = "Defeitos (Cores do Checklist)";
+            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #10b981 0%, #60a5fa 33%, #f97316 66%, #ef4444 100%)";
 
             const faceErrorMap = new Array(numFaces).fill(null);
             const priorityOrder = ["degenerate", "nonmanifold", "flipped", "overlap", "t_junction", "open_edges", "bad_quads", "dup_faces", "ngons"];
@@ -625,19 +690,27 @@
                 }
             }
 
+            const effectiveCorners = res?.per_face?.effective_corners;
+
             for (let triIdx = 0; triIdx < maxTris; triIdx++) {
-                const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
+                const f = (triangleToFace && triangleToFace[triIdx] !== undefined)
+                    ? triangleToFace[triIdx]
+                    : ((qaTriangleToFaceMap && qaTriangleToFaceMap[triIdx] !== undefined) ? qaTriangleToFaceMap[triIdx] : 0);
                 const poly = polygonFaces ? polygonFaces[f] : (qaPolygonFaces ? qaPolygonFaces[f] : null);
-                const numVerts = poly ? poly.length : 4;
 
                 let col = (f < faceErrorMap.length) ? faceErrorMap[f] : null;
                 if (!col) {
-                    if (numVerts === 4) {
+                    const corners = (effectiveCorners && f < effectiveCorners.length)
+                        ? effectiveCorners[f]
+                        : (poly ? poly.length : 4);
+
+                    if (corners === 4) {
                         col = [0.06, 0.72, 0.50]; // Quads ideais: Verde esmeralda (#10b981)
-                    } else if (numVerts === 3) {
-                        col = [0.23, 0.51, 0.96]; // Triângulos: Azul (#3b82f6)
+                    } else if (corners === 3) {
+                        col = [0.38, 0.65, 0.98]; // Triângulos: Azul suave (#60a5fa)
                     } else {
-                        col = [0.93, 0.26, 0.26]; // N-gons: Vermelho (#ef4444)
+                        // N-gons sem anomalias críticas ou polígonos neutros: Azul ardósia neutro (NUNCA vermelho!)
+                        col = [0.45, 0.55, 0.72];
                     }
                 }
 
@@ -732,6 +805,7 @@
         }
 
         colorAttr.needsUpdate = true;
+        updateDSSPoles();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -744,7 +818,7 @@
         if (!canvas || isRaycasterBound) return;
         isRaycasterBound = true;
 
-        qaRaycaster = new THREE.Raycaster();
+        if (!qaRaycaster) qaRaycaster = new THREE.Raycaster();
         let isDragging = false;
         let pointerDownPos = { x: 0, y: 0 };
 
@@ -756,13 +830,13 @@
         canvas.addEventListener("pointermove", (e) => {
             const dx = Math.abs(e.clientX - pointerDownPos.x);
             const dy = Math.abs(e.clientY - pointerDownPos.y);
-            if (dx > 4 || dy > 4) isDragging = true;
+            if (dx > 5 || dy > 5) isDragging = true;
         });
 
         canvas.addEventListener("pointerup", (e) => {
             if (isDragging) return;
             const viewer = getViewer();
-            if (!viewer || !viewer.mesh || QAState.activeViewMode === "none") return;
+            if (!viewer || !viewer.mesh || !viewer.camera) return;
 
             const rect = canvas.getBoundingClientRect();
             qaMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -771,11 +845,13 @@
             qaRaycaster.setFromCamera(qaMouse, viewer.camera);
             const intersects = qaRaycaster.intersectObject(viewer.mesh, false);
 
-            if (intersects.length > 0) {
+            if (intersects && intersects.length > 0) {
                 const hit = intersects[0];
                 const triIdx = hit.faceIndex;
-                const polygonFaceIdx = qaTriangleToFaceMap[triIdx];
-                if (polygonFaceIdx !== undefined) {
+                const geo = viewer.mesh.geometry;
+                const triangleToFace = geo?.userData?.triangleToFace || qaTriangleToFaceMap;
+                const polygonFaceIdx = (triangleToFace && triangleToFace[triIdx] !== undefined) ? triangleToFace[triIdx] : triIdx;
+                if (polygonFaceIdx !== undefined && polygonFaceIdx !== null) {
                     selectFaceInQA(polygonFaceIdx);
                 }
             }
@@ -784,10 +860,17 @@
 
     function selectFaceInQA(faceIdx) {
         const viewer = getViewer();
-        if (!viewer || !viewer.mesh || !viewer.mesh.geometry || faceIdx === null || faceIdx >= qaPolygonFaces.length) return;
+        if (!viewer || !viewer.mesh || !viewer.mesh.geometry) return;
+
+        const geo = viewer.mesh.geometry;
+        const polygonFaces = geo.userData?.polygonFaces || qaPolygonFaces;
+        const triangleToFace = geo.userData?.triangleToFace || qaTriangleToFaceMap;
+        const faceToTriangles = geo.userData?.faceToTriangles || qaFaceToTrianglesMap;
+
+        if (faceIdx === null || faceIdx === undefined || (polygonFaces && polygonFaces.length > 0 && faceIdx >= polygonFaces.length)) return;
 
         QAState.selectedFaceIdx = faceIdx;
-        const fVerts = qaPolygonFaces[faceIdx];
+        const fVerts = (polygonFaces && polygonFaces[faceIdx]) ? polygonFaces[faceIdx] : [];
         const res = QAState.resultData;
 
         // Desenhar contorno de destaque amarelo vivo sobre a face
@@ -797,35 +880,36 @@
             dssSelectionLine = null;
         }
 
-        const triIndices = qaFaceToTrianglesMap[faceIdx] || [];
-        const posAttr = viewer.mesh.geometry.attributes.position;
+        let triIndices = (faceToTriangles && faceToTriangles[faceIdx]) ? faceToTriangles[faceIdx] : (qaFaceToTrianglesMap[faceIdx] || []);
+        if (triIndices.length === 0) {
+            triIndices = [faceIdx];
+        }
+
+        const posAttr = geo.attributes.position;
         if (!posAttr) return;
         const linePositions = [];
-
-        // Contorno do perímetro poligonal
-        for (let j = 0; j < fVerts.length; j++) {
-            const a = fVerts[j];
-            const b = fVerts[(j + 1) % fVerts.length];
-            const pA = posAttr.array; // usar vértices normalizados da geometria
-        }
 
         // Construir linha sobre os triângulos da face
         for (const tIdx of triIndices) {
             const off = tIdx * 9;
-            const x0 = posAttr.array[off], y0 = posAttr.array[off + 1], z0 = posAttr.array[off + 2];
-            const x1 = posAttr.array[off + 3], y1 = posAttr.array[off + 4], z1 = posAttr.array[off + 5];
-            const x2 = posAttr.array[off + 6], y2 = posAttr.array[off + 7], z2 = posAttr.array[off + 8];
-            linePositions.push(x0, y0, z0, x1, y1, z1);
-            linePositions.push(x1, y1, z1, x2, y2, z2);
-            linePositions.push(x2, y2, z2, x0, y0, z0);
+            if (off + 8 < posAttr.array.length) {
+                const x0 = posAttr.array[off], y0 = posAttr.array[off + 1], z0 = posAttr.array[off + 2];
+                const x1 = posAttr.array[off + 3], y1 = posAttr.array[off + 4], z1 = posAttr.array[off + 5];
+                const x2 = posAttr.array[off + 6], y2 = posAttr.array[off + 7], z2 = posAttr.array[off + 8];
+                linePositions.push(x0, y0, z0, x1, y1, z1);
+                linePositions.push(x1, y1, z1, x2, y2, z2);
+                linePositions.push(x2, y2, z2, x0, y0, z0);
+            }
         }
 
-        const lineGeo = new THREE.BufferGeometry();
-        lineGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(linePositions), 3));
-        const lineMat = new THREE.LineBasicMaterial({ color: 0xfacc15, linewidth: 2, depthTest: false });
-        dssSelectionLine = new THREE.LineSegments(lineGeo, lineMat);
-        dssSelectionLine.renderOrder = 999;
-        viewer.scene.add(dssSelectionLine);
+        if (linePositions.length > 0) {
+            const lineGeo = new THREE.BufferGeometry();
+            lineGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(linePositions), 3));
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, linewidth: 3, depthTest: false });
+            dssSelectionLine = new THREE.LineSegments(lineGeo, lineMat);
+            dssSelectionLine.renderOrder = 999;
+            viewer.scene.add(dssSelectionLine);
+        }
 
         // Preencher Painel Flutuante
         const panel = document.getElementById("qa-detail-panel");
@@ -838,8 +922,13 @@
 
         if (titleEl) titleEl.textContent = `Face #${faceIdx}`;
         if (typeEl) {
-            const k = fVerts.length;
-            typeEl.textContent = k === 3 ? "Triângulo (3 vértices)" : (k === 4 ? "Quad (4 vértices)" : `N-gon (${k} vértices)`);
+            const eff = res?.per_face?.effective_corners?.[faceIdx];
+            const k = fVerts.length || 3;
+            if (eff && eff !== k) {
+                typeEl.textContent = eff === 4 ? `Quad (${k} vértices, 4 cantos)` : (eff === 3 ? `Triângulo (${k} vértices, 3 cantos)` : `N-gon (${eff} cantos, ${k} vértices)`);
+            } else {
+                typeEl.textContent = k === 3 ? "Triângulo (3 vértices)" : (k === 4 ? "Quad (4 vértices)" : `N-gon (${k} vértices)`);
+            }
         }
 
         const minAngle = res?.per_face?.min_angle?.[faceIdx];
@@ -861,12 +950,24 @@
             if (issues.length > 0) {
                 issues.forEach(iss => {
                     const tag = document.createElement("span");
-                    tag.className = "qa-badge critical";
-                    tag.textContent = iss;
+                    const exp = QA_EXPLANATIONS[iss];
+                    const color = exp?.color || "#ef4444";
+                    tag.className = "qa-badge";
+                    tag.style.border = `1px solid ${color}`;
+                    tag.style.color = color;
+                    tag.style.background = `${color}18`;
+                    tag.style.fontWeight = "600";
+                    tag.style.fontSize = "0.72rem";
+                    tag.style.padding = "0.2rem 0.5rem";
+                    tag.style.borderRadius = "4px";
+                    tag.style.display = "inline-flex";
+                    tag.style.alignItems = "center";
+                    tag.style.gap = "0.3rem";
+                    tag.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};"></span> ${exp?.title || iss}`;
                     errorsBox.appendChild(tag);
                 });
             } else {
-                errorsBox.innerHTML = `<span class="qa-badge ok">Sem problemas detetados</span>`;
+                errorsBox.innerHTML = `<span class="qa-badge ok" style="color:#10b981;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.35);padding:0.2rem 0.5rem;border-radius:4px;font-size:0.72rem;font-weight:600;">✓ Sem problemas detetados</span>`;
             }
         }
 
@@ -874,13 +975,15 @@
         if (vertsBox) {
             vertsBox.innerHTML = "";
             const valences = res?.per_vertex?.valence || [];
-            fVerts.forEach(vIdx => {
-                const val = valences[vIdx] ?? "--";
-                const chip = document.createElement("span");
-                chip.className = "qa-vert-chip";
-                chip.textContent = `V#${vIdx}: Val ${val}`;
-                vertsBox.appendChild(chip);
-            });
+            if (fVerts && fVerts.length > 0) {
+                fVerts.forEach(vIdx => {
+                    const val = valences[vIdx] ?? "--";
+                    const chip = document.createElement("span");
+                    chip.className = "qa-vert-chip";
+                    chip.textContent = `V#${vIdx}: Val ${val}`;
+                    vertsBox.appendChild(chip);
+                });
+            }
         }
 
         if (panel) panel.style.display = "block";
@@ -890,10 +993,17 @@
         const panel = document.getElementById("qa-detail-panel");
         if (panel) panel.style.display = "none";
         const viewer = getViewer();
-        if (viewer && dssSelectionLine) {
-            viewer.scene.remove(dssSelectionLine);
-            dssSelectionLine.geometry.dispose();
-            dssSelectionLine = null;
+        if (viewer) {
+            if (dssSelectionLine) {
+                viewer.scene.remove(dssSelectionLine);
+                dssSelectionLine.geometry.dispose();
+                dssSelectionLine = null;
+            }
+            if (dssVertexMarker) {
+                viewer.scene.remove(dssVertexMarker);
+                dssVertexMarker.geometry.dispose();
+                dssVertexMarker = null;
+            }
         }
     }
 
@@ -1150,19 +1260,38 @@
             }
 
             let severity = !isEvaluated ? "neutral" : (count === 0 ? "ok" : info.severity);
+            const checkColor = info.color || "#64748b";
 
             const item = document.createElement("div");
             item.className = `qa-check-item severity-${severity}`;
             item.dataset.check = checkKey;
 
+            // A barra lateral esquerda representa SEMPRE a cor correspondente a esta verificação na malha 3D
+            item.style.setProperty("border-left", `4px solid ${checkColor}`, "important");
+            if (count > 0) {
+                item.style.background = `${checkColor}14`;
+                item.style.boxShadow = `0 0 8px ${checkColor}22`;
+            }
+
             const isChecked = QAState.enabledChecks[checkKey] !== false;
 
             const resData = resultChecks?.[checkKey];
-            const affectedFaces = resData && Array.isArray(resData.faces) ? resData.faces : [];
+            let affectedIndices = [];
+            let isVertexAnomaly = false;
+
+            if (checkKey === "poles") {
+                isVertexAnomaly = true;
+                affectedIndices = Array.isArray(QAState.resultData?.poles?.vertices) ? QAState.resultData.poles.vertices : [];
+            } else if (checkKey === "collinear_vertices") {
+                isVertexAnomaly = true;
+                affectedIndices = Array.isArray(QAState.resultData?.collinear_vertices?.vertices) ? QAState.resultData.collinear_vertices.vertices : [];
+            } else {
+                affectedIndices = resData && Array.isArray(resData.faces) ? resData.faces : [];
+            }
 
             item.innerHTML = `
                 <div class="qa-check-header">
-                    <div class="qa-check-title-group">
+                    <div class="qa-check-title-group" style="display:flex;align-items:center;gap:0.55rem;">
                         <input type="checkbox" class="qa-check-toggle" data-check="${checkKey}" ${isChecked ? "checked" : ""}>
                         <div>
                             <span class="qa-check-name">${info.title}</span>
@@ -1171,28 +1300,32 @@
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.4rem;">
-                        <span class="qa-badge ${!isEvaluated ? 'neutral' : (severity === 'ok' ? 'ok' : (severity === 'critical' ? 'critical' : 'warning'))}">
+                        <span class="qa-badge" style="${count > 0 ? `border: 1px solid ${checkColor}; color: ${checkColor}; background: ${checkColor}18; font-weight:700;` : (count === 0 ? 'border: 1px solid rgba(16,185,129,0.4); color: #10b981; background: rgba(16,185,129,0.1);' : '')}">
                             ${!isEvaluated ? "Não avaliado" : (count === 0 ? "0 erros" : `${count} prob.`)}
                         </span>
                         <span class="qa-chevron" style="color:#64748b;font-size:0.7rem;">▼</span>
                     </div>
                 </div>
                 <div class="qa-check-exp" style="display: none;">
+                    <div style="display:flex;align-items:center;gap:0.45rem;margin-bottom:0.6rem;padding:0.4rem 0.6rem;background:${checkColor}15;border:1px solid ${checkColor}35;border-radius:6px;font-size:0.73rem;color:${checkColor};font-weight:600;">
+                        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${checkColor};box-shadow:0 0 4px ${checkColor};"></span>
+                        Cor no 3D: ${isVertexAnomaly ? 'Os vértices com esta anomalia são destacados com esta cor.' : 'As faces com esta anomalia são pintadas a esta cor.'}
+                    </div>
                     <h6>O que é?</h6>
                     <p>${info.what}</p>
                     <h6>Porque importa?</h6>
                     <p>${typeof info.why === 'function' ? info.why(null, checkKey === 'ngons' ? hasCollinear : hasTJunction) : info.why}</p>
                     <h6>Como corrigir?</h6>
                     <p>${info.how}</p>
-                    ${affectedFaces.length > 0 ? `
+                    ${affectedIndices.length > 0 ? `
                         <div style="margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.12);">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-size: 0.72rem; color: #38bdf8; font-weight: 600;">Faces Afetadas (${affectedFaces.length}):</span>
+                                <span style="font-size: 0.72rem; color: #38bdf8; font-weight: 600;">${isVertexAnomaly ? 'Vértices Afetados' : 'Faces Afetadas'} (${affectedIndices.length}):</span>
                                 <span style="font-size: 0.68rem; color: #94a3b8;">Clica para focar no 3D</span>
                             </div>
                             <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
-                                ${affectedFaces.slice(0, 14).map(f => `<button type="button" class="qa-face-pill" data-face="${f}" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#7dd3fc; border-radius:4px; padding:0.18rem 0.45rem; font-size:0.7rem; cursor:pointer; font-family:'JetBrains Mono',monospace; transition:all 0.15s ease;">#${f}</button>`).join('')}
-                                ${affectedFaces.length > 14 ? `<span style="font-size:0.68rem; color:#94a3b8; align-self:center;">+${affectedFaces.length - 14} mais</span>` : ''}
+                                ${affectedIndices.slice(0, 16).map(idx => `<button type="button" class="qa-target-pill" data-index="${idx}" data-type="${isVertexAnomaly ? 'vertex' : 'face'}" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#7dd3fc; border-radius:4px; padding:0.18rem 0.45rem; font-size:0.7rem; cursor:pointer; font-family:'JetBrains Mono',monospace; transition:all 0.15s ease;">${isVertexAnomaly ? 'V#' : '#'}${idx}</button>`).join('')}
+                                ${affectedIndices.length > 16 ? `<span style="font-size:0.68rem; color:#94a3b8; align-self:center;">+${affectedIndices.length - 16} mais</span>` : ''}
                             </div>
                         </div>
                     ` : ''}
@@ -1210,20 +1343,29 @@
                 exp.style.display = isShown ? "none" : "block";
                 chevron.textContent = isShown ? "▼" : "▲";
 
-                // Focar faces afetadas no 3D
-                if (affectedFaces.length > 0) {
-                    focusFaces(affectedFaces);
+                // Focar elemento afetado no 3D
+                if (affectedIndices.length > 0) {
+                    if (isVertexAnomaly) {
+                        focusVertex(affectedIndices[0]);
+                    } else {
+                        focusFaces(affectedIndices);
+                    }
                 }
             });
 
-            // Cliques individuais nos botões das faces
-            const facePills = exp.querySelectorAll(".qa-face-pill");
-            facePills.forEach(pill => {
+            // Cliques individuais nos botões
+            const targetPills = exp.querySelectorAll(".qa-target-pill");
+            targetPills.forEach(pill => {
                 pill.addEventListener("click", (e) => {
                     e.stopPropagation();
-                    const fIdx = parseInt(pill.dataset.face, 10);
-                    if (!isNaN(fIdx)) {
-                        focusFaces([fIdx]);
+                    const idx = parseInt(pill.dataset.index, 10);
+                    const type = pill.dataset.type;
+                    if (!isNaN(idx)) {
+                        if (type === "vertex") {
+                            focusVertex(idx);
+                        } else {
+                            focusFaces([idx]);
+                        }
                     }
                 });
             });
@@ -1232,6 +1374,9 @@
             const toggle = item.querySelector(".qa-check-toggle");
             toggle.addEventListener("change", (e) => {
                 QAState.enabledChecks[checkKey] = e.target.checked;
+                if (checkKey === "poles") {
+                    updateDSSPoles(e.target.checked);
+                }
                 updateDSSColors();
             });
 
@@ -1271,20 +1416,27 @@
     }
 
     function getFacesCentroid(faceIndices) {
-        if (!dssMesh || !dssMesh.geometry) return null;
-        const pos = dssMesh.geometry.attributes.position.array;
+        const viewer = getViewer();
+        const activeMesh = viewer?.mesh || dssMesh;
+        if (!activeMesh || !activeMesh.geometry || !activeMesh.geometry.attributes.position) return null;
+
+        const geo = activeMesh.geometry;
+        const pos = geo.attributes.position.array;
+        const faceToTriangles = geo.userData?.faceToTriangles || qaFaceToTrianglesMap;
         let sumX = 0, sumY = 0, sumZ = 0, count = 0;
 
         for (const fIdx of faceIndices) {
-            const triIndices = qaFaceToTrianglesMap[fIdx];
+            const triIndices = (faceToTriangles && faceToTriangles[fIdx]) ? faceToTriangles[fIdx] : (qaFaceToTrianglesMap[fIdx] || [fIdx]);
             if (!triIndices) continue;
             for (const tIdx of triIndices) {
                 const off = tIdx * 9;
-                for (let v = 0; v < 3; v++) {
-                    sumX += pos[off + v * 3];
-                    sumY += pos[off + v * 3 + 1];
-                    sumZ += pos[off + v * 3 + 2];
-                    count++;
+                if (off + 8 < pos.length) {
+                    for (let v = 0; v < 3; v++) {
+                        sumX += pos[off + v * 3];
+                        sumY += pos[off + v * 3 + 1];
+                        sumZ += pos[off + v * 3 + 2];
+                        count++;
+                    }
                 }
             }
         }
@@ -1293,29 +1445,175 @@
     }
 
     function getFacesBoundingRadius(faceIndices, centroid) {
-        if (!dssMesh || !dssMesh.geometry || !centroid) return 8;
-        const pos = dssMesh.geometry.attributes.position.array;
+        const viewer = getViewer();
+        const activeMesh = viewer?.mesh || dssMesh;
+        if (!activeMesh || !activeMesh.geometry || !activeMesh.geometry.attributes.position || !centroid) return 8;
+
+        const geo = activeMesh.geometry;
+        const pos = geo.attributes.position.array;
+        const faceToTriangles = geo.userData?.faceToTriangles || qaFaceToTrianglesMap;
         let maxDistSq = 0;
 
         for (const fIdx of faceIndices) {
-            const triIndices = qaFaceToTrianglesMap[fIdx];
+            const triIndices = (faceToTriangles && faceToTriangles[fIdx]) ? faceToTriangles[fIdx] : (qaFaceToTrianglesMap[fIdx] || [fIdx]);
             if (!triIndices) continue;
             for (const tIdx of triIndices) {
                 const off = tIdx * 9;
-                for (let v = 0; v < 3; v++) {
-                    const dx = pos[off + v * 3] - centroid.x;
-                    const dy = pos[off + v * 3 + 1] - centroid.y;
-                    const dz = pos[off + v * 3 + 2] - centroid.z;
-                    const distSq = dx * dx + dy * dy + dz * dz;
-                    if (distSq > maxDistSq) maxDistSq = distSq;
+                if (off + 8 < pos.length) {
+                    for (let v = 0; v < 3; v++) {
+                        const dx = pos[off + v * 3] - centroid.x;
+                        const dy = pos[off + v * 3 + 1] - centroid.y;
+                        const dz = pos[off + v * 3 + 2] - centroid.z;
+                        const distSq = dx * dx + dy * dy + dz * dz;
+                        if (distSq > maxDistSq) maxDistSq = distSq;
+                    }
                 }
             }
         }
         const r = Math.sqrt(maxDistSq);
-        return Math.max(4, Math.min(26, r * 3.5 + 4));
+        return Math.max(3, Math.min(20, r * 3.0 + 3.0));
     }
 
-    function animateCameraTo(targetCenter, distance = 14, duration = 650) {
+    function getFaceNormal(faceIdx) {
+        const viewer = getViewer();
+        const activeMesh = viewer?.mesh || dssMesh;
+        if (!activeMesh || !activeMesh.geometry) return new THREE.Vector3(0, 0, 1);
+
+        const geo = activeMesh.geometry;
+        const pos = geo.attributes.position?.array;
+        if (!pos) return new THREE.Vector3(0, 0, 1);
+
+        const faceToTriangles = geo.userData?.faceToTriangles || qaFaceToTrianglesMap;
+        const triIndices = (faceToTriangles && faceToTriangles[faceIdx]) ? faceToTriangles[faceIdx] : (qaFaceToTrianglesMap[faceIdx] || [faceIdx]);
+        if (!triIndices || triIndices.length === 0) return new THREE.Vector3(0, 0, 1);
+
+        const tIdx = triIndices[0];
+        const off = tIdx * 9;
+        if (off + 8 >= pos.length) return new THREE.Vector3(0, 0, 1);
+
+        const p0 = new THREE.Vector3(pos[off], pos[off + 1], pos[off + 2]);
+        const p1 = new THREE.Vector3(pos[off + 3], pos[off + 4], pos[off + 5]);
+        const p2 = new THREE.Vector3(pos[off + 6], pos[off + 7], pos[off + 8]);
+
+        const e1 = new THREE.Vector3().subVectors(p1, p0);
+        const e2 = new THREE.Vector3().subVectors(p2, p0);
+        const normal = new THREE.Vector3().crossVectors(e1, e2);
+        if (normal.lengthSq() < 0.000001) {
+            const triCenter = new THREE.Vector3().add(p0).add(p1).add(p2).multiplyScalar(1 / 3);
+            return triCenter.lengthSq() > 0.0001 ? triCenter.normalize() : new THREE.Vector3(0, 0, 1);
+        }
+        return normal.normalize();
+    }
+
+    function getVertexInfo(vIdx) {
+        const viewer = getViewer();
+        const activeMesh = viewer?.mesh || dssMesh;
+        if (!activeMesh || !activeMesh.geometry) return null;
+
+        const geo = activeMesh.geometry;
+        const posAttr = geo.attributes.position;
+        const normAttr = geo.attributes.normal;
+        if (!posAttr) return null;
+
+        const vertexIndices = geo.userData?.vertexIndices || qaTriangleVertexIndices;
+        const rawVerts = geo.userData?.rawVerts || qaParsedVertices;
+        const center = geo.userData?.center || qaCenter;
+        const scale = geo.userData?.scale || qaScale;
+
+        let pos = null;
+        let normal = null;
+
+        if (rawVerts && center && scale && rawVerts[vIdx]) {
+            pos = new THREE.Vector3(
+                (rawVerts[vIdx][0] - center.x) * scale,
+                (rawVerts[vIdx][1] - center.y) * scale,
+                (rawVerts[vIdx][2] - center.z) * scale
+            );
+        }
+
+        if (vertexIndices && normAttr) {
+            const normSum = new THREE.Vector3();
+            let normCount = 0;
+            for (let i = 0; i < vertexIndices.length; i++) {
+                if (vertexIndices[i] === vIdx) {
+                    if (!pos) {
+                        pos = new THREE.Vector3(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+                    }
+                    normSum.x += normAttr.getX(i);
+                    normSum.y += normAttr.getY(i);
+                    normSum.z += normAttr.getZ(i);
+                    normCount++;
+                }
+            }
+            if (normCount > 0 && normSum.lengthSq() > 0.0001) {
+                normal = normSum.normalize();
+            }
+        }
+
+        if (!pos && posAttr.count > 0) {
+            pos = new THREE.Vector3(posAttr.getX(0), posAttr.getY(0), posAttr.getZ(0));
+        }
+        if (!normal) {
+            normal = pos ? pos.clone().normalize() : new THREE.Vector3(0, 0, 1);
+            if (normal.lengthSq() < 0.0001) normal.set(0, 0, 1);
+        }
+
+        return { position: pos, normal: normal };
+    }
+
+    function selectVertexInQA(vIdx) {
+        const viewer = getViewer();
+        if (!viewer || !viewer.scene) return;
+
+        QAState.selectedVertIdx = vIdx;
+        const vInfo = getVertexInfo(vIdx);
+        if (!vInfo) return;
+
+        if (dssVertexMarker) {
+            viewer.scene.remove(dssVertexMarker);
+            dssVertexMarker.geometry.dispose();
+            dssVertexMarker = null;
+        }
+
+        const markerGeo = new THREE.SphereGeometry(0.22, 16, 16);
+        const markerMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, depthTest: false });
+        dssVertexMarker = new THREE.Mesh(markerGeo, markerMat);
+        dssVertexMarker.position.copy(vInfo.position);
+        dssVertexMarker.renderOrder = 1000;
+        viewer.scene.add(dssVertexMarker);
+
+        const panel = document.getElementById("qa-detail-panel");
+        const titleEl = document.getElementById("qa-detail-title");
+        const typeEl = document.getElementById("qa-detail-type");
+        const minAEl = document.getElementById("qa-detail-min-angle");
+        const maxAEl = document.getElementById("qa-detail-max-angle");
+        const errorsBox = document.getElementById("qa-detail-errors");
+        const vertsBox = document.getElementById("qa-detail-verts");
+
+        const res = QAState.resultData;
+        const valences = res?.per_vertex?.valence || [];
+        const val = (valences && vIdx < valences.length) ? valences[vIdx] : "--";
+        const regular = QAState.statusData?.summary?.regular_valence || QAState.statusData?.regular_valence || 4;
+
+        if (titleEl) titleEl.textContent = `Vértice #${vIdx}`;
+        if (typeEl) {
+            typeEl.textContent = (val !== "--" && val !== regular) ? `Polo Não-Regular (Valência ${val})` : `Vértice Topológico (Valência ${val})`;
+            typeEl.style.color = "#c084fc";
+            typeEl.style.background = "rgba(192, 132, 252, 0.15)";
+        }
+        if (minAEl) minAEl.textContent = `Valência: ${val}`;
+        if (maxAEl) maxAEl.textContent = `Regular: ${regular}`;
+        if (errorsBox) {
+            errorsBox.innerHTML = `<span class="qa-badge" style="border: 1px solid #c084fc; color: #c084fc; background: rgba(192, 132, 252, 0.15); font-weight:600; font-size:0.72rem; padding:0.2rem 0.5rem; border-radius:4px;">Polo (Valência ${val} ≠ ${regular})</span>`;
+        }
+        if (vertsBox) {
+            vertsBox.innerHTML = `<span class="qa-vert-chip" style="border-color:#c084fc; color:#c084fc;">X: ${vInfo.position.x.toFixed(2)} Y: ${vInfo.position.y.toFixed(2)} Z: ${vInfo.position.z.toFixed(2)}</span>`;
+        }
+
+        if (panel) panel.style.display = "block";
+    }
+
+    function animateCameraTo(targetCenter, distance = 14, duration = 650, viewNormal = null) {
         const viewer = getViewer();
         if (!viewer || !viewer.camera || !viewer.controls) return;
 
@@ -1326,15 +1624,40 @@
 
         const startPos = viewer.camera.position.clone();
         const startTarget = viewer.controls.target.clone();
-
-        // Direção atual da câmara para preservar o ângulo de visão do utilizador
-        const currentDir = startPos.clone().sub(startTarget);
-        if (currentDir.lengthSq() < 0.0001) currentDir.set(0, 0, 1);
-        currentDir.normalize();
-
-        const endPos = targetCenter.clone().add(currentDir.multiplyScalar(distance));
         const endTarget = targetCenter.clone();
 
+        let targetDir = new THREE.Vector3();
+        if (viewNormal && viewNormal.lengthSq() > 0.0001) {
+            targetDir.copy(viewNormal).normalize();
+            if (Math.abs(targetDir.y) > 0.82) {
+                const tilt = targetDir.z >= 0 ? 0.38 : -0.38;
+                targetDir.z += tilt;
+                targetDir.normalize();
+            }
+        } else {
+            targetDir.subVectors(startPos, startTarget);
+            if (targetDir.lengthSq() < 0.0001) targetDir.set(0, 0, 1);
+            targetDir.normalize();
+        }
+
+        const startRelDir = startPos.clone().sub(startTarget);
+        const startDist = Math.max(startRelDir.length(), 1);
+        startRelDir.normalize();
+
+        const endRelDir = targetDir.clone();
+        const endDist = distance;
+
+        const qRot = new THREE.Quaternion();
+        const dot = startRelDir.dot(endRelDir);
+        if (dot < -0.999) {
+            const axis = Math.abs(startRelDir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+            const perp = new THREE.Vector3().crossVectors(startRelDir, axis).normalize();
+            qRot.setFromAxisAngle(perp, Math.PI);
+        } else {
+            qRot.setFromUnitVectors(startRelDir, endRelDir);
+        }
+
+        const qIdentity = new THREE.Quaternion();
         const startTime = performance.now();
 
         function easeInOutCubic(t) {
@@ -1346,8 +1669,14 @@
             const progress = Math.min(1, elapsed / duration);
             const ease = easeInOutCubic(progress);
 
-            viewer.camera.position.lerpVectors(startPos, endPos, ease);
-            viewer.controls.target.lerpVectors(startTarget, endTarget, ease);
+            const currentTarget = new THREE.Vector3().lerpVectors(startTarget, endTarget, ease);
+            viewer.controls.target.copy(currentTarget);
+
+            const currentQ = new THREE.Quaternion().slerpQuaternions(qIdentity, qRot, ease);
+            const currentDir = startRelDir.clone().applyQuaternion(currentQ).normalize();
+            const currentDist = THREE.MathUtils.lerp(startDist, endDist, ease);
+
+            viewer.camera.position.copy(currentTarget).addScaledVector(currentDir, currentDist);
             viewer.controls.update();
 
             if (progress < 1) {
@@ -1375,7 +1704,23 @@
         const centroid = getFacesCentroid(faceIndices);
         if (centroid) {
             const dist = getFacesBoundingRadius(faceIndices, centroid);
-            animateCameraTo(centroid, dist, 650);
+            const normal = getFaceNormal(faceIndices[0]);
+            animateCameraTo(centroid, dist, 650, normal);
+        }
+    }
+
+    function focusVertex(vIdx) {
+        if (vIdx === null || vIdx === undefined) return;
+
+        if (typeof setViewMode === "function" && QAState.activeViewMode !== "errors") {
+            setViewMode("errors");
+        }
+
+        selectVertexInQA(vIdx);
+
+        const vInfo = getVertexInfo(vIdx);
+        if (vInfo) {
+            animateCameraTo(vInfo.position, 6.5, 650, vInfo.normal);
         }
     }
 
@@ -1402,6 +1747,7 @@
             if (dssEdgesMesh) { viewer.scene.remove(dssEdgesMesh); dssEdgesMesh.geometry.dispose(); dssEdgesMesh = null; }
             if (dssPolesPoints) { viewer.scene.remove(dssPolesPoints); dssPolesPoints.geometry.dispose(); dssPolesPoints = null; }
             if (dssSelectionLine) { viewer.scene.remove(dssSelectionLine); dssSelectionLine.geometry.dispose(); dssSelectionLine = null; }
+            if (dssVertexMarker) { viewer.scene.remove(dssVertexMarker); dssVertexMarker.geometry.dispose(); dssVertexMarker = null; }
         }
 
         if (cameraTweenId) {
@@ -1857,6 +2203,9 @@
         const btnCloseDetail = document.getElementById("qa-detail-close");
         if (btnCloseDetail) btnCloseDetail.addEventListener("click", closeQADetailPanel);
 
+        // Inicializar Raycaster Unificado para inspeção interativa de faces
+        setupUnifiedRaycaster();
+
         // Estado inicial da interface de mapas DSS (desativado por defeito)
         updateDSSMapUI();
     }
@@ -1899,6 +2248,7 @@
         updateColors: updateDSSColors,
         setViewMode: (mode) => (setViewMode ? setViewMode(mode) : null),
         resetViewMode: resetDSSViewMode,
+        setupRaycaster: setupUnifiedRaycaster,
         state: QAState
     };
 
