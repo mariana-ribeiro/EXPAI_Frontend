@@ -811,8 +811,8 @@
             }
 
             if (isGNNHeatmapActive && activeView === "high") {
-                if (qaLegend && qaLegendTitle && qaLegendMin && qaLegendMax) {
-                    qaLegendTitle.textContent = "Saliência GNN (Importância)";
+                if (qaLegend && qaLegendMin && qaLegendMax) {
+                    if (qaLegendTitle) qaLegendTitle.textContent = "";
                     qaLegendMin.textContent = "0.0 (Baixa)";
                     qaLegendMax.textContent = "1.0 (Alta)";
                     qaLegend.style.display = "flex";
@@ -1639,27 +1639,6 @@
             });
         }
 
-        const btnToggleHeatmap = document.getElementById("btn-toggle-heatmap");
-        if (btnToggleHeatmap) {
-            btnToggleHeatmap.addEventListener("click", () => {
-                if (activeView === "high") {
-                    if (sideBtnHeatmap) {
-                        sideBtnHeatmap.click();
-                    } else {
-                        setGNNHeatmapActive(!isGNNHeatmapActive);
-                    }
-                } else {
-                    const sideBtnAngle = document.getElementById("side-btn-dss-angle");
-                    if (sideBtnAngle) {
-                        sideBtnAngle.click();
-                    } else {
-                        setDSSHeatmapActive(!isDSSHeatmapActive);
-                    }
-                }
-                const active = isGNNHeatmapActive || isDSSHeatmapActive;
-                btnToggleHeatmap.classList.toggle("active", active);
-            });
-        }
 
         const btnResetCam = document.getElementById("btn-reset-cam");
         if (btnResetCam) {

@@ -239,7 +239,6 @@
                         <button id="btn-surface" class="view-btn view-btn-mode active" title="Alternar visualização da Superfície Sólida">🎨 Superfície</button>
                         <button id="btn-edges" class="view-btn view-btn-mode" title="Alternar visualização das Arestas Reais (Topologia / Quads)">📐 Arestas</button>
                         <button id="btn-verts" class="view-btn view-btn-mode" title="Alternar visualização dos Vértices">✦ Vértices</button>
-                        <button id="btn-toggle-heatmap" class="view-btn view-btn-mode" title="Alternar Mapa de Calor / Heatmap na Malha">🔥 Heatmap</button>
                         <button id="btn-reset-cam" class="view-btn view-btn-mode" title="Repor Posição da Câmara">🎯 Centrar</button>
                     </div>
                 </div>
@@ -258,7 +257,7 @@
 
                 <!-- Legenda Flutuante do Heatmap (visível nos modos heatmap) -->
                 <div id="qa-heatmap-legend" class="qa-heatmap-legend glass" style="display:none;">
-                    <span id="qa-legend-title" class="qa-legend-title">Escala de Calor</span>
+                    <span id="qa-legend-title" class="qa-legend-title" style="display:none;"></span>
                     <div class="qa-legend-bar-wrap">
                         <span id="qa-legend-min" class="qa-legend-val">20.0°</span>
                         <div id="qa-legend-gradient" class="qa-legend-gradient"></div>

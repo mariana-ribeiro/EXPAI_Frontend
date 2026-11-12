@@ -562,7 +562,7 @@
 
         // MODO 1: OVERLAYS DE ERRO E CONFORMIDADE TOPOLÓGICA (QUADS, TRIS, N-GONS)
         if (mode === "errors") {
-            if (legendTitle) legendTitle.textContent = "DSS: Conformidade Topológica";
+            if (legendTitle) legendTitle.textContent = "";
             if (legendMin) legendMin.textContent = "Quads (Verde) / Tris (Azul)";
             if (legendMax) legendMax.textContent = "N-gons / Anomalias (Vermelho)";
 
@@ -628,7 +628,7 @@
                     maxVal = Math.ceil(actualMax);
                 }
             }
-            if (legendTitle) legendTitle.textContent = "DSS: Ângulo Mínimo por Face";
+            if (legendTitle) legendTitle.textContent = "";
             if (legendMin) legendMin.textContent = `${minVal}° (Crítico)`;
             if (legendMax) legendMax.textContent = `${maxVal}° (Ortogonal ~90°)`;
 
@@ -662,7 +662,7 @@
                     maxVal = Math.ceil(actualMax);
                 }
             }
-            if (legendTitle) legendTitle.textContent = "DSS: Ângulo Máximo por Face";
+            if (legendTitle) legendTitle.textContent = "";
             if (legendMin) legendMin.textContent = `${minVal}° (Ortogonal ~90°)`;
             if (legendMax) legendMax.textContent = `${maxVal}° (Colinear ~180°)`;
 
@@ -691,7 +691,7 @@
             }
             if (minVal === Infinity) { minVal = 2; maxVal = 8; }
 
-            if (legendTitle) legendTitle.textContent = "DSS: Valência dos Vértices & Pólos";
+            if (legendTitle) legendTitle.textContent = "";
             if (legendMin) legendMin.textContent = `Val 3 (Pólo Azul) / Val 4 (Verde)`;
             if (legendMax) legendMax.textContent = `Val 5 (Amarelo) / ≥6 (Vermelho)`;
 
