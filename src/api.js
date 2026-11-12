@@ -322,62 +322,41 @@ window.RetopoAPI = {
 
     /**
      * Executa a simplificação RL em tempo real.
-     * Tenta primeiro a API real (POST simplify + GET actions).
-     * Se a API falhar, cai com elegância na simulação local normal.
+     * Envia o pedido à API, recolhe as ações e notifica o frontend.
      */
-    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = 100) {
+    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = 100, onError) {
         try {
-            // 1. Tentar executar a simplificação real via API
+            // 1. Executar a simplificação real via API (aguarda o cálculo das iterações pelo backend)
             const simplifyResult = await this.simplifyMesh(modelId, maxSteps);
 
             // 2. Buscar o action log detalhado gerado pela API
-            const actions = await this.getRLActions(modelId);
-
-            const total = (Array.isArray(actions) && actions.length > 0)
-                ? actions.length
-                : (simplifyResult?.steps || maxSteps || 100);
+            let actions = [];
+            try {
+                actions = await this.getRLActions(modelId);
+            } catch (_) { }
 
             if (Array.isArray(actions) && actions.length > 0) {
-                let idx = 0;
-                // Animação suave e fluida (~3s no total)
-                const stepsPerTick = Math.max(1, Math.ceil(total / 45));
-                const intervalMs = Math.max(25, Math.min(80, Math.floor(3000 / (total / stepsPerTick))));
-
-                const timer = setInterval(() => {
-                    idx = Math.min(total, idx + stepsPerTick);
-                    const actIndex = Math.min(actions.length - 1, idx - 1);
-                    const act = actions[actIndex];
-                    const stepNum = act.step || idx;
-                    const progress = Math.min(100, Math.round((idx / total) * 100));
-
+                for (let i = 0; i < actions.length; i++) {
+                    const act = actions[i];
                     const isAccepted = act.accepted !== false;
                     const actionName = act.action_name || (isAccepted ? "EDGE_DISSOLVE" : "ATTEMPT_REJECTED");
                     const reason = act.rejection_reason ? ` (${act.rejection_reason})` : "";
                     const facesInfo = act.faces !== undefined ? ` [Faces: ${act.faces}]` : "";
 
                     const stepData = {
-                        step: stepNum,
-                        progress: progress,
-                        log_message: `[Step ${stepNum}] ${actionName}${reason}${facesInfo}`,
+                        step: act.step || (i + 1),
+                        progress: Math.min(100, Math.round(((i + 1) / actions.length) * 100)),
+                        log_message: `[Step ${act.step || (i + 1)}] ${actionName}${reason}${facesInfo}`,
                         is_critical: !isAccepted,
                         raw_action: act,
-                        rewards: {
-                            silhouette: Math.max(20, Math.round(95 - (progress * 0.45))),
-                            triangle_reduction: Math.min(95, Math.round(progress * 0.85)),
-                            uv_distortion: Math.min(25, Math.round(progress * 0.2))
-                        }
+                        reward: act.reward !== undefined ? act.reward : null
                     };
 
-                    onRLStep(stepData);
-
-                    if (idx >= total) {
-                        clearInterval(timer);
-                        if (typeof onComplete === "function") onComplete(simplifyResult);
+                    if (typeof onRLStep === "function") {
+                        onRLStep(stepData);
                     }
-                }, intervalMs);
-                return;
+                }
             } else if (simplifyResult) {
-                // Caso a API tenha concluído com sucesso mas o action log esteja vazio
                 if (typeof onRLStep === "function") {
                     onRLStep({
                         step: simplifyResult.steps || maxSteps,
@@ -387,8 +366,10 @@ window.RetopoAPI = {
                         raw_action: { accepted: true, accepted_dissolves: simplifyResult.accepted_dissolves || 0 }
                     });
                 }
-                if (typeof onComplete === "function") onComplete(simplifyResult);
-                return;
+            }
+
+            if (typeof onComplete === "function") {
+                onComplete(simplifyResult);
             }
         } catch (err) {
             console.error("[RetopoAPI] Erro na simplificação via API:", err);

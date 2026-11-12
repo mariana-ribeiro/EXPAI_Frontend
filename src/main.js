@@ -2,27 +2,27 @@
     // ══════════════════════════════════════════════════════
     //  DOM ELEMENTS & SETUP
     // ══════════════════════════════════════════════════════
-    const uploadModal       = document.getElementById("upload-modal");
-    const dropZone          = document.getElementById("drop-zone");
-    const mainApp           = document.getElementById("main-app");
-    const fileInput         = document.getElementById("file-input");
-    const rlStatusBadge     = document.getElementById("rl-status-badge");
+    const uploadModal = document.getElementById("upload-modal");
+    const dropZone = document.getElementById("drop-zone");
+    const mainApp = document.getElementById("main-app");
+    const fileInput = document.getElementById("file-input");
+    const rlStatusBadge = document.getElementById("rl-status-badge");
 
     // Elementos do Overlay Transparente de Otimização
     const optimizingOverlay = document.getElementById("optimizing-overlay");
-    const optTitle          = document.getElementById("opt-title");
-    const optSubtitle       = document.getElementById("opt-subtitle");
-    const optStepLabel      = document.getElementById("opt-step-label");
-    const optPctLabel       = document.getElementById("opt-pct-label");
-    const optProgressBar    = document.getElementById("opt-progress-bar");
-    const optLiveStep       = document.getElementById("opt-live-step");
-    const optLiveDissolves  = document.getElementById("opt-live-dissolves");
-    const optLiveTotal      = document.getElementById("opt-live-total");
+    const optTitle = document.getElementById("opt-title");
+    const optSubtitle = document.getElementById("opt-subtitle");
+    const optStepLabel = document.getElementById("opt-step-label");
+    const optPctLabel = document.getElementById("opt-pct-label");
+    const optProgressBar = document.getElementById("opt-progress-bar");
+    const optLiveStep = document.getElementById("opt-live-step");
+    const optLiveDissolves = document.getElementById("opt-live-dissolves");
+    const optLiveTotal = document.getElementById("opt-live-total");
 
     // Estatísticas reais da geometria
     const realStats = {
         high: { verts: 0, faces: 0 },
-        low:  { verts: 0, faces: 0 }
+        low: { verts: 0, faces: 0 }
     };
 
     /**
@@ -78,10 +78,10 @@
     // ══════════════════════════════════════════════════════
     //  CONTROLO DO PAINEL LATERAL (COLLAPSE / EXPAND)
     // ══════════════════════════════════════════════════════
-    const appSidebar         = document.getElementById("app-sidebar");
-    const btnToggleSidebar   = document.getElementById("btn-toggle-sidebar");
+    const appSidebar = document.getElementById("app-sidebar");
+    const btnToggleSidebar = document.getElementById("btn-toggle-sidebar");
     const btnCollapseSidebar = document.getElementById("btn-collapse-sidebar");
-    const btnExpandSidebar   = document.getElementById("btn-expand-sidebar");
+    const btnExpandSidebar = document.getElementById("btn-expand-sidebar");
 
     function collapseSidebar() {
         if (appSidebar) appSidebar.classList.add("collapsed");
@@ -123,6 +123,65 @@
     if (btnExpandSidebar) btnExpandSidebar.addEventListener("click", expandSidebar);
 
     // ══════════════════════════════════════════════════════
+    //  ALTERNADOR DE TEMA (MODO ESCURO / MODO CLARO)
+    // ══════════════════════════════════════════════════════
+    const btnThemeToggle = document.getElementById("btn-theme-toggle");
+    const themeToggleIcon = document.getElementById("theme-toggle-icon");
+    const themeToggleText = document.getElementById("theme-toggle-text");
+
+    function applyTheme(theme) {
+        const isLight = theme === "light";
+        if (isLight) {
+            document.body.classList.add("light-mode");
+            if (themeToggleIcon) themeToggleIcon.textContent = "☀️";
+            if (themeToggleText) themeToggleText.textContent = "Claro";
+            if (btnThemeToggle) {
+                btnThemeToggle.setAttribute("title", "Mudar para Modo Escuro");
+                btnThemeToggle.classList.add("active");
+            }
+        } else {
+            document.body.classList.remove("light-mode");
+            if (themeToggleIcon) themeToggleIcon.textContent = "🌙";
+            if (themeToggleText) themeToggleText.textContent = "Escuro";
+            if (btnThemeToggle) {
+                btnThemeToggle.setAttribute("title", "Mudar para Modo Claro");
+                btnThemeToggle.classList.remove("active");
+            }
+        }
+        try {
+            localStorage.setItem("retopo_theme", isLight ? "light" : "dark");
+        } catch { }
+
+        // Sincronizar cores da malha 3D (Arestas e Vértices) para contraste ótimo
+        if (window.RetopoViewer) {
+            const viewer = window.RetopoViewer;
+            if (viewer.edgesMaterial) {
+                viewer.edgesMaterial.color.setHex(isLight ? 0x0284c7 : 0x38bdf8);
+                viewer.edgesMaterial.needsUpdate = true;
+            }
+            if (viewer.pointsMaterial) {
+                viewer.pointsMaterial.color.setHex(isLight ? 0xb45309 : 0xfbbf24);
+                viewer.pointsMaterial.needsUpdate = true;
+            }
+        }
+    }
+
+    if (btnThemeToggle) {
+        btnThemeToggle.addEventListener("click", () => {
+            const isCurrentlyLight = document.body.classList.contains("light-mode");
+            applyTheme(isCurrentlyLight ? "dark" : "light");
+        });
+    }
+
+    // Carregar preferência inicial do utilizador
+    try {
+        const savedTheme = localStorage.getItem("retopo_theme") || "dark";
+        applyTheme(savedTheme);
+    } catch {
+        applyTheme("dark");
+    }
+
+    // ══════════════════════════════════════════════════════
     //  FLUXO DE UPLOAD DO MODELO (CONFIRMAÇÃO EM 2 PASSOS)
     // ══════════════════════════════════════════════════════
     let selectedFile = null;
@@ -130,8 +189,8 @@
     const selectedFileInfo = document.getElementById("selected-file-info");
     const selectedFileName = document.getElementById("selected-file-name");
     const selectedFileSize = document.getElementById("selected-file-size");
-    const btnChangeFile    = document.getElementById("btn-change-file");
-    const btnUploadNext    = document.getElementById("btn-upload-next");
+    const btnChangeFile = document.getElementById("btn-change-file");
+    const btnUploadNext = document.getElementById("btn-upload-next");
 
     function formatBytes(bytes) {
         if (!bytes || bytes === 0) return "0 Bytes";
@@ -162,21 +221,38 @@
     async function setSelectedFile(file) {
         if (!file) return;
 
-        // Pré-verificação se o ficheiro OBJ tiver mais de 1500 faces
-        if (file.name.toLowerCase().endsWith(".obj")) {
-            try {
-                const text = await file.text();
-                const stats = computeObjStats(text);
-                if (stats.faces > MAX_FACES_LIMIT) {
-                    showFaceLimitError(stats.faces);
-                    selectedFile = null;
-                    if (fileInput) fileInput.value = "";
-                    if (selectedFileInfo) selectedFileInfo.style.display = "none";
-                    if (dropZone) dropZone.style.display = "block";
-                    return;
-                }
-            } catch (_) { }
+        // Suporte estrito ao formato .OBJ
+        if (!file.name.toLowerCase().endsWith(".obj")) {
+            if (window.ErrorModal?.show) {
+                window.ErrorModal.show({
+                    title: "Formato Não Suportado",
+                    message: `O ficheiro "${file.name}" não está no formato .OBJ.`,
+                    errors: [
+                        "O pipeline de retopologia atualmente apenas suporta malhas no formato .OBJ."
+                    ],
+                    buttonText: "Entendido"
+                });
+            } else {
+                alert("Apenas ficheiros no formato .OBJ são suportados.");
+            }
+            selectedFile = null;
+            if (fileInput) fileInput.value = "";
+            return;
         }
+
+        // Pré-verificação se o ficheiro OBJ tiver mais de 1500 faces
+        try {
+            const text = await file.text();
+            const stats = computeObjStats(text);
+            if (stats.faces > MAX_FACES_LIMIT) {
+                showFaceLimitError(stats.faces);
+                selectedFile = null;
+                if (fileInput) fileInput.value = "";
+                if (selectedFileInfo) selectedFileInfo.style.display = "none";
+                if (dropZone) dropZone.style.display = "block";
+                return;
+            }
+        } catch (_) { }
 
         selectedFile = file;
 
@@ -252,6 +328,13 @@
             window.currentActiveModelId = modelId;
             window.currentUploadedObjText = fileText;
 
+            // Iniciar auditoria DSS para a malha original como referência (snapshot=0)
+            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
+                window.MeshQA.runAnalysis(modelId, 0).catch(err => {
+                    console.warn("[DSS Auto Original] Análise do modelo original:", err.message);
+                });
+            }
+
             // 3. Transição direta para a cena 3D: fecha o modal inicial
             uploadModal.classList.add("hidden");
             mainApp.style.filter = "none";
@@ -316,12 +399,12 @@
     // ══════════════════════════════════════════════════════
     //  TOPBAR LOGO & MODAIS (UPLOAD / GNN EXPLAINER)
     // ══════════════════════════════════════════════════════
-    const topbarLogo          = document.getElementById("topbar-logo");
+    const topbarLogo = document.getElementById("topbar-logo");
     const btnCloseUploadModal = document.getElementById("btn-close-upload-modal");
-    const gnnExplainerModal   = document.getElementById("gnn-explainer-modal");
-    const btnGnnExplainer     = document.getElementById("btn-gnn-explainer");
-    const btnCloseGnnExpl     = document.getElementById("btn-close-gnn-explainer");
-    const btnOkGnnExpl        = document.getElementById("btn-ok-gnn-explainer");
+    const gnnExplainerModal = document.getElementById("gnn-explainer-modal");
+    const btnGnnExplainer = document.getElementById("btn-gnn-explainer");
+    const btnCloseGnnExpl = document.getElementById("btn-close-gnn-explainer");
+    const btnOkGnnExpl = document.getElementById("btn-ok-gnn-explainer");
 
     function showUploadModal() {
         if (uploadModal) {
@@ -380,7 +463,7 @@
     // ══════════════════════════════════════════════════════
     //  THREE.JS & APP PRINCIPAL
     // ══════════════════════════════════════════════════════
-    window.initRetopoStudio = function(modelId, fileUrl, rawObjText) {
+    window.initRetopoStudio = function (modelId, fileUrl, rawObjText) {
         return initThreeJS(modelId, fileUrl, rawObjText);
     };
     window.initRetopoViewer = window.initRetopoStudio;
@@ -450,15 +533,16 @@
         });
 
         // Materiais para Arestas Reais (Topologia / Quads) e Vértices
+        const isCurrentLight = document.body.classList.contains("light-mode");
         const edgesMaterial = new THREE.LineBasicMaterial({
-            color: 0x38bdf8, // Ciano vivo para topologia real (quads/polígonos)
+            color: isCurrentLight ? 0x0284c7 : 0x38bdf8,
             transparent: true,
-            opacity: 0.85,
+            opacity: 0.9,
             depthTest: true
         });
 
         const pointsMaterial = new THREE.PointsMaterial({
-            color: 0xfbbf24,
+            color: isCurrentLight ? 0xb45309 : 0xfbbf24,
             size: 4,
             sizeAttenuation: false, // Pontos sempre nítidos na resolução do ecrã
             transparent: true,
@@ -468,8 +552,8 @@
 
         // Geometrias
         let highPolyGeo = null;
-        let lowPolyGeo  = null;
-        let activeView  = "high"; // 'high' | 'low' | 'snapshot'
+        let lowPolyGeo = null;
+        let activeView = "high"; // 'high' | 'low' | 'snapshot'
 
         const objLoader = new THREE.OBJLoader();
 
@@ -770,13 +854,13 @@
         // ══════════════════════════════════════════════════════
         //  ELEMENTOS DE UI & CONTROLO
         // ══════════════════════════════════════════════════════
-        const btnHigh       = document.getElementById("btn-high-poly");
-        const btnLow        = document.getElementById("btn-low-poly");
-        const btnSnapPoly   = document.getElementById("btn-snap-poly");
-        const btnSurface    = document.getElementById("btn-surface");
-        const btnEdges      = document.getElementById("btn-edges");
-        const btnVerts      = document.getElementById("btn-verts");
-        const btnWire       = document.getElementById("btn-wireframe"); // fallback para compatibilidade
+        const btnHigh = document.getElementById("btn-high-poly");
+        const btnLow = document.getElementById("btn-low-poly");
+        const btnSnapPoly = document.getElementById("btn-snap-poly");
+        const btnSurface = document.getElementById("btn-surface");
+        const btnEdges = document.getElementById("btn-edges");
+        const btnVerts = document.getElementById("btn-verts");
+        const btnWire = document.getElementById("btn-wireframe"); // fallback para compatibilidade
         const sideBtnHeatmap = document.getElementById("side-btn-heatmap");
 
         let isGNNHeatmapActive = false;
@@ -812,9 +896,14 @@
 
             if (isGNNHeatmapActive && activeView === "high") {
                 if (qaLegend && qaLegendMin && qaLegendMax) {
-                    if (qaLegendTitle) qaLegendTitle.textContent = "";
-                    qaLegendMin.textContent = "0.0 (Baixa)";
-                    qaLegendMax.textContent = "1.0 (Alta)";
+                    if (qaLegendTitle) {
+                        qaLegendTitle.style.display = "block";
+                        qaLegendTitle.textContent = "GNN Feature Saliency";
+                    }
+                    qaLegendMin.textContent = "0.0 (Baixa / Dispensável)";
+                    qaLegendMax.textContent = "1.0 (Alta / Crítico)";
+                    const grad = document.getElementById("qa-legend-gradient");
+                    if (grad) grad.style.background = "linear-gradient(90deg, #3b82f6 0%, #eab308 50%, #ef4444 100%)";
                     qaLegend.style.display = "flex";
                 }
             } else if (!isDSSHeatmapActive && qaLegend) {
@@ -829,24 +918,23 @@
         }
 
         let showSurface = true;
-        let showEdges   = false;
-        let showVerts   = false;
+        let showEdges = false;
+        let showVerts = false;
 
         function updateSurfaceMaterial() {
             const isHeatmapActive = (activeView === "high" && isGNNHeatmapActive) ||
-                                    ((activeView === "low" || activeView === "snapshot") && isDSSHeatmapActive);
+                ((activeView === "low" || activeView === "snapshot") && isDSSHeatmapActive);
 
-            if (!showSurface) {
-                mesh.material = occluderMaterial;
+            showSurface = true;
+            if (btnSurface) btnSurface.classList.add("active");
+
+            if (isHeatmapActive) {
+                mesh.material = heatmapMaterial;
+                heatmapMaterial.vertexColors = true;
+                heatmapMaterial.color.setHex(0xffffff);
+                heatmapMaterial.needsUpdate = true;
             } else {
-                if (isHeatmapActive) {
-                    mesh.material = heatmapMaterial;
-                    heatmapMaterial.vertexColors = true;
-                    heatmapMaterial.color.setHex(0xffffff);
-                    heatmapMaterial.needsUpdate = true;
-                } else {
-                    mesh.material = baseMaterial;
-                }
+                mesh.material = baseMaterial;
             }
             mesh.material.needsUpdate = true;
 
@@ -894,11 +982,11 @@
             }
         }
 
-        let currentSnapGeo        = null;
-        let currentSnapStats      = null;
-        let currentSnapDissolves  = null;
-        let currentSnapIndex      = null;
-        let currentSnapStep       = null;
+        let currentSnapGeo = null;
+        let currentSnapStats = null;
+        let currentSnapDissolves = null;
+        let currentSnapIndex = null;
+        let currentSnapStep = null;
         let currentSnapEfficiency = null;
 
         window.getActiveView = () => activeView;
@@ -906,53 +994,64 @@
         window.getCurrentSnapStats = () => currentSnapStats;
         window.getCurrentSnapObjText = () => currentSnapGeo?.userData?.rawObjText || null;
 
-        const valTris       = document.getElementById("val-tris");
-        const valVerts      = document.getElementById("val-verts");
+        const valTris = document.getElementById("val-tris");
+        const valVerts = document.getElementById("val-verts");
 
         const sideReduction = document.getElementById("side-face-reduction");
         const sideDissolves = document.getElementById("side-dissolves");
-        const sideSteps     = document.getElementById("side-steps");
+        const sideSteps = document.getElementById("side-steps");
 
-        const sideRlBar     = document.getElementById("side-rl-bar");
-        const sideRlPct     = document.getElementById("side-rl-pct");
+        const sideRlBar = document.getElementById("side-rl-bar");
+        const sideRlPct = document.getElementById("side-rl-pct");
 
-        const sideGnnVerts    = document.getElementById("side-gnn-verts");
+        const sideGnnVerts = document.getElementById("side-gnn-verts");
         const sideGnnAvgScore = document.getElementById("side-gnn-avg-score");
-        const sideGnnCrit     = document.getElementById("side-gnn-critical");
-        const sideGnnCritPct  = document.getElementById("side-gnn-crit-pct");
-        const sideGnnDisp     = document.getElementById("side-gnn-dispensable");
-        const sideGnnDispPct  = document.getElementById("side-gnn-disp-pct");
+        const sideGnnCrit = document.getElementById("side-gnn-critical");
+        const sideGnnCritPct = document.getElementById("side-gnn-crit-pct");
+        const sideGnnDisp = document.getElementById("side-gnn-dispensable");
+        const sideGnnDispPct = document.getElementById("side-gnn-disp-pct");
         const sideGnnDistHigh = document.getElementById("side-gnn-dist-high");
-        const sideGnnDistMid  = document.getElementById("side-gnn-dist-mid");
-        const sideGnnDistLow  = document.getElementById("side-gnn-dist-low");
-        const sideGnnBarHigh  = document.getElementById("side-gnn-bar-high");
-        const sideGnnBarMid   = document.getElementById("side-gnn-bar-mid");
-        const sideGnnBarLow   = document.getElementById("side-gnn-bar-low");
-        const sideGnnBadge    = document.getElementById("side-gnn-badge");
+        const sideGnnDistMid = document.getElementById("side-gnn-dist-mid");
+        const sideGnnDistLow = document.getElementById("side-gnn-dist-low");
+        const sideGnnBarHigh = document.getElementById("side-gnn-bar-high");
+        const sideGnnBarMid = document.getElementById("side-gnn-bar-mid");
+        const sideGnnBarLow = document.getElementById("side-gnn-bar-low");
+        const sideGnnBadge = document.getElementById("side-gnn-badge");
 
         // Elementos Expandidos do Painel Lateral
-        const origFacesVal         = document.getElementById("orig-faces-val");
-        const origVertsVal         = document.getElementById("orig-verts-val");
-        const origEdgesVal         = document.getElementById("orig-edges-val");
-        const origWatertightVal    = document.getElementById("orig-watertight-val");
-        const origManifoldVal      = document.getElementById("orig-manifold-val");
-        const origBoundaryVal      = document.getElementById("orig-boundary-val");
-        const sideOrigStepsVal     = document.getElementById("side-orig-steps-val");
+        const origFacesVal = document.getElementById("orig-faces-val");
+        const origVertsVal = document.getElementById("orig-verts-val");
+        const origEdgesVal = document.getElementById("orig-edges-val");
+        const origWatertightVal = document.getElementById("orig-watertight-val");
+        const origManifoldVal = document.getElementById("orig-manifold-val");
+        const origBoundaryVal = document.getElementById("orig-boundary-val");
+        const sideOrigStepsVal = document.getElementById("side-orig-steps-val");
 
-        const sideCompFacesBefore  = document.getElementById("side-comp-faces-before");
-        const sideCompFacesAfter   = document.getElementById("side-comp-faces-after");
-        const sideRLEfficiency     = document.getElementById("side-rl-efficiency");
+        const sideCompFacesBefore = document.getElementById("side-comp-faces-before");
+        const sideCompFacesAfter = document.getElementById("side-comp-faces-after");
+        const sideRLEfficiency = document.getElementById("side-rl-efficiency");
 
-        const sideHighInfo  = document.getElementById("side-high-info");
-        const sideLowInfo   = document.getElementById("side-low-info");
+        const sideHighInfo = document.getElementById("side-high-info");
+        const sideLowInfo = document.getElementById("side-low-info");
 
         const btnSideReport = document.getElementById("btn-side-report");
         const inputMaxSteps = document.getElementById("input-max-steps");
 
         const actionLogEntries = [];
-        let cachedSnapshots          = [];
-        let cachedResults            = null;
-        let cachedSimplifiedObjText  = null;
+        let cachedSnapshots = [];
+        let cachedResults = null;
+        let cachedSimplifiedObjText = null;
+
+        let currentEdgeFilter = "all";
+        let latestActionsList = [];
+        const snapshotImagesMap = new Map();
+        let gnnLoaded = false;
+        let gnnPromise = null;
+        let gnnColorsArray = null;
+        let gnnScores = null;
+        let isRLRunning = false;
+        let previousSidebarContext = "low";
+        let activeSidebarContext = "high";
 
         function updateFloatingStats(verts, tris) {
             if (valVerts) valVerts.textContent = (verts || 0).toLocaleString();
@@ -972,10 +1071,10 @@
             if (origFacesVal) origFacesVal.textContent = realStats.high.faces.toLocaleString();
             if (origVertsVal) origVertsVal.textContent = realStats.high.verts.toLocaleString();
             if (origEdgesVal) origEdgesVal.textContent = Math.round(realStats.high.faces * 1.5).toLocaleString();
-            if (origWatertightVal) origWatertightVal.textContent = "Sim";
-            if (origManifoldVal) origManifoldVal.textContent = "Sim";
-            if (origBoundaryVal) origBoundaryVal.textContent = "0";
-            if (sideOrigStepsVal) sideOrigStepsVal.textContent = `${inputMaxSteps?.value || 100} iterações`;
+            if (origWatertightVal) origWatertightVal.textContent = "--";
+            if (origManifoldVal) origManifoldVal.textContent = "--";
+            if (origBoundaryVal) origBoundaryVal.textContent = "--";
+            if (sideOrigStepsVal) sideOrigStepsVal.textContent = `${inputMaxSteps?.value || 1800} iterações`;
 
             // Comparativos RL
             if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
@@ -1189,6 +1288,8 @@
             mesh: mesh,
             edgesMesh: edgesMesh,
             pointsMesh: pointsMesh,
+            edgesMaterial: edgesMaterial,
+            pointsMaterial: pointsMaterial,
             baseMaterial: baseMaterial,
             heatmapMaterial: heatmapMaterial,
             occluderMaterial: occluderMaterial,
@@ -1207,8 +1308,19 @@
             resetSidebarAndReports: resetSidebarAndReports
         };
 
-        // Atualizar estatísticas iniciais reais do High Poly
+        // Atualizar estatísticas iniciais reais do High Poly e preencher painel lateral
         updateFloatingStats(realStats.high.verts, realStats.high.faces);
+        if (origFacesVal) origFacesVal.textContent = realStats.high.faces.toLocaleString();
+        if (origVertsVal) origVertsVal.textContent = realStats.high.verts.toLocaleString();
+        if (origEdgesVal) origEdgesVal.textContent = Math.round(realStats.high.faces * 1.5).toLocaleString();
+        if (origWatertightVal) origWatertightVal.textContent = "--";
+        if (origManifoldVal) origManifoldVal.textContent = "--";
+        if (origBoundaryVal) origBoundaryVal.textContent = "--";
+        if (sideOrigStepsVal) sideOrigStepsVal.textContent = `${inputMaxSteps?.value || 1800} iterações`;
+        if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
+        if (sideCompFacesAfter) sideCompFacesAfter.textContent = "⏳ A otimizar...";
+        if (sideRLEfficiency) sideRLEfficiency.textContent = "--%";
+
         if (sideHighInfo) {
             sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} vértices`;
         }
@@ -1228,13 +1340,10 @@
         // ══════════════════════════════════════════════════════
         //  CONTROLOS DE VISUALIZAÇÃO (ORIGINAL, LOW, SNAPSHOT, DSS)
         // ══════════════════════════════════════════════════════
-        let previousSidebarContext = "low";
-        let activeSidebarContext = "high";
-
         function updateSidebarContext(viewMode) {
             const contextHigh = document.getElementById("sidebar-context-high");
-            const contextLow  = document.getElementById("sidebar-context-low");
-            const contextDss  = document.getElementById("sidebar-context-dss");
+            const contextLow = document.getElementById("sidebar-context-low");
+            const contextDss = document.getElementById("sidebar-context-dss");
 
             if (viewMode !== "dss") {
                 previousSidebarContext = viewMode;
@@ -1268,7 +1377,7 @@
 
                 // Módulo A: Performance RL
                 if (sideReduction) {
-                    sideReduction.textContent = realStats.low.reduction || (realStats.high.faces > 0 && realStats.low.faces > 0 
+                    sideReduction.textContent = realStats.low.reduction || (realStats.high.faces > 0 && realStats.low.faces > 0
                         ? `${Math.max(0, (1 - (realStats.low.faces / realStats.high.faces)) * 100).toFixed(1)}%`
                         : "--");
                     sideReduction.className = "cell-val text-green";
@@ -1309,7 +1418,7 @@
                     sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} v`;
                 }
                 if (sideLowInfo) {
-                    sideLowInfo.textContent = realStats.low.faces > 0 
+                    sideLowInfo.textContent = realStats.low.faces > 0
                         ? `${realStats.low.faces.toLocaleString()} faces / ${realStats.low.verts.toLocaleString()} vértices`
                         : "--";
                     sideLowInfo.style.color = "#34d399";
@@ -1393,7 +1502,7 @@
                     sideHighInfo.textContent = `${realStats.high.faces.toLocaleString()} faces / ${realStats.high.verts.toLocaleString()} v`;
                 }
                 if (sideLowInfo) {
-                    sideLowInfo.textContent = snapFaces > 0 
+                    sideLowInfo.textContent = snapFaces > 0
                         ? `${snapFaces.toLocaleString()} faces / ${snapVerts.toLocaleString()} vértices`
                         : "--";
                     sideLowInfo.style.color = "#c084fc";
@@ -1447,7 +1556,7 @@
                         if (objText && objText.includes("v ")) {
                             cachedSimplifiedObjText = objText;
                         }
-                    } catch (_) {}
+                    } catch (_) { }
                 }
             }
 
@@ -1456,17 +1565,10 @@
                 return true;
             }
 
-            if (highPolyGeo) {
-                const fallbackGeo = lowPolyGeo ? lowPolyGeo.clone() : highPolyGeo.clone();
-                const estFaces = realStats.low.faces || Math.max(1, realStats.high.faces - (dissolves * 2));
-                const estVerts = realStats.low.verts || Math.max(1, realStats.high.verts - dissolves);
-                loadGeometryIntoViewport(fallbackGeo, { faces: estFaces, verts: estVerts }, `Snapshot (${dissolves} dissolves)`, dissolves, stepNum, effTxt);
-                return true;
-            }
             return false;
         }
 
-        function renderDssSnapshotTimeline() {}
+        function renderDssSnapshotTimeline() { }
         window.renderDssSnapshotTimeline = renderDssSnapshotTimeline;
 
         btnHigh.addEventListener("click", () => {
@@ -1579,20 +1681,14 @@
             });
         }
 
-        // Toggles de Modo: Superfície, Arestas Reais e Vértices
+        // Toggles de Modo: Superfície (Base Contínua), Arestas Reais e Vértices como Overlays
         if (btnSurface) {
             btnSurface.addEventListener("click", () => {
-                if (showSurface && !showEdges && !showVerts) {
-                    // Evita ecrã completamente vazio: se desligar a superfície, ativa as arestas
-                    showEdges = true;
-                    if (btnEdges) btnEdges.classList.add("active");
-                    if (edgesMesh) {
-                        edgesMesh.visible = true;
-                        edgesMesh.geometry = getOrCreateRealEdgesGeo(mesh.geometry);
-                    }
-                }
-                showSurface = !showSurface;
-                btnSurface.classList.toggle("active", showSurface);
+                showSurface = true;
+                btnSurface.classList.add("active");
+                // Se algum heatmap estiver ativo, volta à superfície padrão limpa
+                if (isGNNHeatmapActive) setGNNHeatmapActive(false);
+                if (isDSSHeatmapActive) setDSSHeatmapActive(false);
                 updateSurfaceMaterial();
             });
         }
@@ -1607,11 +1703,7 @@
                         edgesMesh.geometry = getOrCreateRealEdgesGeo(mesh.geometry);
                     }
                 }
-                if (!showEdges && !showSurface && !showVerts) {
-                    showSurface = true;
-                    if (btnSurface) btnSurface.classList.add("active");
-                    updateSurfaceMaterial();
-                }
+                updateSurfaceMaterial();
             });
         }
 
@@ -1625,11 +1717,7 @@
                         pointsMesh.geometry = mesh.geometry;
                     }
                 }
-                if (!showVerts && !showSurface && !showEdges) {
-                    showSurface = true;
-                    if (btnSurface) btnSurface.classList.add("active");
-                    updateSurfaceMaterial();
-                }
+                updateSurfaceMaterial();
             });
         }
 
@@ -1650,9 +1738,7 @@
         // ══════════════════════════════════════════════════════
         //  HEATMAP GNN REAL (POST /predict + GET /scores)
         // ══════════════════════════════════════════════════════
-        let gnnLoaded = false;
-        let gnnPromise = null;
-        let gnnColorsArray = null;
+        // Estado GNN declarado no escopo de topo do initThreeJS
 
         function applyHeatmapToMesh() {
             if (!highPolyGeo) return;
@@ -1694,36 +1780,91 @@
         }
 
         function createHeatmapColors(scoreEntries) {
-            if (!highPolyGeo) return;
+            if (!highPolyGeo || !scoreEntries || scoreEntries.length === 0) return;
             const posAttr = highPolyGeo.attributes.position;
             const vertexIndices = highPolyGeo.userData ? highPolyGeo.userData.vertexIndices : null;
+            const rawVerts = highPolyGeo.userData ? highPolyGeo.userData.rawVerts : null;
+            const center = highPolyGeo.userData ? highPolyGeo.userData.center : null;
+            const scale = highPolyGeo.userData ? highPolyGeo.userData.scale : 1;
             const colors = new Float32Array(posAttr.count * 3);
 
             let minImp = Infinity;
             let maxImp = -Infinity;
-            if (scoreEntries && scoreEntries.length > 0) {
-                for (let i = 0; i < scoreEntries.length; i++) {
-                    const imp = scoreEntries[i].imp;
-                    if (imp < minImp) minImp = imp;
-                    if (imp > maxImp) maxImp = imp;
-                }
+            for (let i = 0; i < scoreEntries.length; i++) {
+                const imp = scoreEntries[i].imp;
+                if (imp < minImp) minImp = imp;
+                if (imp > maxImp) maxImp = imp;
             }
             if (minImp === maxImp || !isFinite(minImp)) { minImp = 0; maxImp = 1; }
 
-            for (let i = 0; i < posAttr.count; i++) {
-                let norm = 0.5;
-                if (scoreEntries && scoreEntries.length > 0) {
-                    const origV = vertexIndices ? vertexIndices[i] : (i % scoreEntries.length);
-                    const s = (origV !== undefined && origV < scoreEntries.length) ? scoreEntries[origV] : scoreEntries[origV % scoreEntries.length];
-                    norm = (s.imp - minImp) / (maxImp - minImp || 1);
-                } else {
-                    const y = posAttr.getY(i);
-                    norm = 0.5 + 0.45 * Math.sin(y * 0.25 + i * 0.05);
+            // Emparelhamento espacial robusto por posição (x, y, z) entre a malha Three.js e os scores da GNN
+            const cellSize = 0.05;
+            const grid = new Map();
+            for (let s of scoreEntries) {
+                const gx = Math.floor(s.x / cellSize);
+                const gy = Math.floor(s.y / cellSize);
+                const gz = Math.floor(s.z / cellSize);
+                const k = `${gx}_${gy}_${gz}`;
+                if (!grid.has(k)) grid.set(k, []);
+                grid.get(k).push(s);
+            }
+
+            function getScoreForPosition(vx, vy, vz) {
+                const gx = Math.floor(vx / cellSize);
+                const gy = Math.floor(vy / cellSize);
+                const gz = Math.floor(vz / cellSize);
+                let bestDistSq = (cellSize * 1.5) ** 2; // Raio máximo de proximidade
+                let bestScore = null;
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dz = -1; dz <= 1; dz++) {
+                            const bucket = grid.get(`${gx + dx}_${gy + dy}_${gz + dz}`);
+                            if (bucket) {
+                                for (let s of bucket) {
+                                    const dSq = (s.x - vx) ** 2 + (s.y - vy) ** 2 + (s.z - vz) ** 2;
+                                    if (dSq < bestDistSq) {
+                                        bestDistSq = dSq;
+                                        bestScore = s;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                const c = importanceToColor(norm);
-                colors[i * 3]     = c.r;
-                colors[i * 3 + 1] = c.g;
-                colors[i * 3 + 2] = c.b;
+                return bestScore; // Devolve null se não encontrar vértice em proximidade espacial
+            }
+
+            for (let i = 0; i < posAttr.count; i++) {
+                let vx = 0, vy = 0, vz = 0;
+                const origV = vertexIndices ? vertexIndices[i] : i;
+                if (rawVerts && origV !== undefined && rawVerts[origV]) {
+                    vx = rawVerts[origV][0];
+                    vy = rawVerts[origV][1];
+                    vz = rawVerts[origV][2];
+                } else if (center) {
+                    vx = posAttr.getX(i) / scale + center.x;
+                    vy = posAttr.getY(i) / scale + center.y;
+                    vz = posAttr.getZ(i) / scale + center.z;
+                } else {
+                    vx = posAttr.getX(i);
+                    vy = posAttr.getY(i);
+                    vz = posAttr.getZ(i);
+                }
+
+                const s = getScoreForPosition(vx, vy, vz);
+                if (!s || s.imp === undefined || s.imp === null) {
+                    // Sem correspondência segura próxima: vértice a cinzento neutro
+                    colors[i * 3] = 0.55;
+                    colors[i * 3 + 1] = 0.58;
+                    colors[i * 3 + 2] = 0.64;
+                } else {
+                    // Escala absoluta de 0 a 1 em vez de min-max relativo
+                    const absImp = Math.max(0, Math.min(1, s.imp));
+                    const c = importanceToColor(absImp);
+                    colors[i * 3] = c.r;
+                    colors[i * 3 + 1] = c.g;
+                    colors[i * 3 + 2] = c.b;
+                }
             }
 
             gnnColorsArray = colors;
@@ -1774,6 +1915,9 @@
                     for (let i = 1; i < lines.length; i++) {
                         const row = lines[i].split(sep);
                         if (row.length >= 5) {
+                            const x = parseFloat(row[1]) || 0;
+                            const y = parseFloat(row[2]) || 0;
+                            const z = parseFloat(row[3]) || 0;
                             const imp = parseFloat(row[4]) || 0;
                             const keep = parseInt(row[5] || "0", 10);
                             if (keep === 1) criticalCount++;
@@ -1784,7 +1928,7 @@
                             else if (imp >= 0.30) midCount++;
                             else lowCount++;
 
-                            scoreEntries.push({ imp, keep });
+                            scoreEntries.push({ x, y, z, imp, keep });
                         }
                     }
 
@@ -1818,10 +1962,10 @@
                     if (sideGnnBadge) sideGnnBadge.textContent = "EGNN • Concluído";
 
                 } catch (err) {
-                    console.warn("[GNN] Falha na API GNN (a usar mapeamento térmico procedural):", err.message);
-                    createHeatmapColors(null);
-                    gnnLoaded = true;
-                    if (sideGnnBadge) sideGnnBadge.textContent = "Fallback Local";
+                    console.warn("[GNN] Falha na API GNN:", err.message);
+                    gnnLoaded = false;
+                    gnnColorsArray = null;
+                    if (sideGnnBadge) sideGnnBadge.textContent = "GNN • Indisponível";
                 } finally {
                     gnnPromise = null;
                 }
@@ -1853,6 +1997,18 @@
                     if (!gnnLoaded || !gnnColorsArray) {
                         await ensureGNNHeatmap();
                     }
+                    if (!gnnColorsArray) {
+                        if (window.ErrorModal?.show) {
+                            window.ErrorModal.show({
+                                title: "Heatmap GNN Indisponível",
+                                message: "Não foi possível carregar as pontuações da rede GNN para esta malha.",
+                                buttonText: "Entendido"
+                            });
+                        } else {
+                            alert("Heatmap GNN indisponível.");
+                        }
+                        return;
+                    }
                     setGNNHeatmapActive(true);
                     applyHeatmapToMesh();
                     if (rlStatusBadge) {
@@ -1875,7 +2031,7 @@
         // ══════════════════════════════════════════════════════
         //  EXECUÇÃO REAL DO AGENTE RL (POST /v1/rl/simplify)
         // ══════════════════════════════════════════════════════
-        let isRLRunning = false;
+        // isRLRunning declarado no escopo de topo do initThreeJS
 
         function runRLDecimation(stepsToRun) {
             if (isRLRunning) return;
@@ -1903,19 +2059,41 @@
             if (optimizingOverlay) {
                 optimizingOverlay.classList.remove("hidden");
                 if (optTitle) optTitle.textContent = "A Otimizar Malha...";
-                if (optSubtitle) optSubtitle.textContent = `O agente RL está a simplificar a geometria com ${steps} iterações.`;
-                if (optStepLabel) optStepLabel.textContent = `A iniciar otimização (${steps} passos)...`;
+                if (optSubtitle) optSubtitle.textContent = "O agente RL está a simplificar a geometria preservando a silhueta.";
+                if (optStepLabel) optStepLabel.textContent = "A iniciar agente RL...";
                 if (optPctLabel) optPctLabel.textContent = "0%";
                 if (optProgressBar) optProgressBar.style.width = "0%";
-                if (optLiveStep) optLiveStep.textContent = "0";
-                if (optLiveDissolves) optLiveDissolves.textContent = "0";
-                if (optLiveTotal) optLiveTotal.textContent = steps;
             }
 
             if (rlStatusBadge) {
                 rlStatusBadge.className = "status-badge working";
-                rlStatusBadge.textContent = `RL: A Otimizar (${steps} passos)...`;
+                rlStatusBadge.textContent = "RL: A Otimizar...";
             }
+
+            // Animação proporcional e adaptativa calibrada pelo número de passos da otimização
+            // ~28ms por passo no motor Python (aprox. 35 passos/segundo)
+            let currentPct = 0;
+            const targetInterim = 82;
+            const interimInterval = 250; // ms
+            const estimatedMs = Math.max(2500, steps * 28);
+            const nominalIncrement = (targetInterim / (estimatedMs / interimInterval));
+
+            const interimTimer = setInterval(() => {
+                if (currentPct < targetInterim) {
+                    // Avanço proporcional: velocidade constante até ~65% e desaceleração suave até 82%
+                    let factor = 1.0;
+                    if (currentPct > 65) {
+                        factor = Math.max(0.15, (targetInterim - currentPct) / (targetInterim - 65));
+                    }
+                    const delta = Math.max(0.04, nominalIncrement * factor);
+                    currentPct = Math.min(targetInterim, currentPct + delta);
+                    const rounded = Math.round(currentPct);
+
+                    if (optProgressBar) optProgressBar.style.width = `${rounded}%`;
+                    if (optPctLabel) optPctLabel.textContent = `${rounded}%`;
+                    if (optStepLabel) optStepLabel.textContent = "A processar simplificação no motor RL...";
+                }
+            }, interimInterval);
 
             RetopoAPI.startRLDecimation(currentModelId,
                 // onRLStep: cada passo transmitido
@@ -1924,28 +2102,36 @@
                     if (stepData.raw_action && sideDissolves) {
                         sideDissolves.textContent = stepData.raw_action.accepted_dissolves ?? "--";
                     }
-                    const pct = stepData.progress || Math.min(99, Math.round((stepData.step / steps) * 100));
-
-                    if (optProgressBar) optProgressBar.style.width = `${pct}%`;
-                    if (optPctLabel) optPctLabel.textContent = `${pct}%`;
-                    if (optStepLabel) optStepLabel.textContent = `Passo ${stepData.step} de ${steps}`;
-                    if (optLiveStep) optLiveStep.textContent = stepData.step;
-                    if (stepData.raw_action?.accepted_dissolves && optLiveDissolves) {
-                        optLiveDissolves.textContent = stepData.raw_action.accepted_dissolves;
-                    }
-
                     if (typeof window.appendActionLogEntry === "function") {
                         window.appendActionLogEntry(stepData);
                     }
                 },
                 // onComplete: decimação concluída
                 async (simplifyResult) => {
+                    clearInterval(interimTimer);
                     isRLRunning = false;
 
-                    // 1. Atualizar métricas garantidas vindas da API ou simulação
+                    // 1. Atualizar métricas garantidas vindas da API
                     const acceptedDissolves = (simplifyResult && typeof simplifyResult.accepted_dissolves === "number")
                         ? simplifyResult.accepted_dissolves
                         : (parseInt(sideDissolves?.textContent, 10) || 0);
+
+                    // Conclusão fluida e rápida de ~80% até 100%
+                    let finalPct = Math.max(80, Math.round(currentPct));
+                    const finishTimer = setInterval(() => {
+                        finalPct += 4;
+                        if (finalPct >= 100) {
+                            finalPct = 100;
+                            clearInterval(finishTimer);
+                            if (optProgressBar) optProgressBar.style.width = "100%";
+                            if (optPctLabel) optPctLabel.textContent = "100%";
+                            if (optTitle) optTitle.textContent = "Otimização Concluída!";
+                            if (optStepLabel) optStepLabel.textContent = "Otimização concluída com sucesso!";
+                        } else {
+                            if (optProgressBar) optProgressBar.style.width = `${finalPct}%`;
+                            if (optPctLabel) optPctLabel.textContent = `${finalPct}%`;
+                        }
+                    }, 30);
 
                     if (sideDissolves) {
                         sideDissolves.textContent = acceptedDissolves;
@@ -1954,9 +2140,9 @@
                         sideSteps.textContent = simplifyResult.steps;
                     }
 
-                    // 2. Preencher imediatamente OTIMIZADO (LOW POLY) para nunca ficar vazio ("--")
+                    // 2. Preencher imediatamente OTIMIZADO (LOW POLY)
                     const finalFaces = simplifyResult?.final_faces
-                        || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (acceptedDissolves * 2)) : "--");
+                        || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - acceptedDissolves) : "--");
                     const finalVerts = simplifyResult?.final_verts
                         || (realStats.high.verts > 0 ? Math.max(1, realStats.high.verts - acceptedDissolves) : "--");
 
@@ -2054,23 +2240,44 @@
                         console.warn("[Main] Não foi possível carregar o modelo Low Poly da API:", err.message);
                     }
 
-                    // Fallback para geometria Low Poly caso a API ainda não tenha o ficheiro OBJ gerado
-                    if (!lowPolyGeo && highPolyGeo) {
-                        lowPolyGeo = highPolyGeo.clone();
-                        getOrCreateRealEdgesGeo(lowPolyGeo);
-                    }
+                    if (!lowPolyGeo) {
+                        btnLow.disabled = true;
+                        btnLow.style.opacity = "0.45";
+                        btnLow.style.cursor = "not-allowed";
+                        btnLow.innerText = "⚠️ Otimizado Indisponível";
+                        if (sideLowInfo) sideLowInfo.textContent = "Geometria otimizada não disponível";
+                    } else {
+                        // Desbloquear botão Low Poly
+                        btnLow.disabled = false;
+                        btnLow.style.opacity = "1";
+                        btnLow.style.cursor = "pointer";
+                        btnLow.innerText = "⚡ Otimizado (Low)";
+                        btnLow.style.boxShadow = "";
 
-                    // Desbloquear botão Low Poly
+                        // Apresentar automaticamente a malha otimizada ao utilizador!
+                        btnLow.click();
+                    }
+                },
+                steps,
+                (err) => {
+                    clearInterval(interimTimer);
+                    isRLRunning = false;
+                    if (optimizingOverlay) optimizingOverlay.classList.add("hidden");
                     btnLow.disabled = false;
                     btnLow.style.opacity = "1";
                     btnLow.style.cursor = "pointer";
                     btnLow.innerText = "⚡ Otimizado (Low)";
-                    btnLow.style.boxShadow = "";
-
-                    // Apresentar automaticamente a malha otimizada ao utilizador!
-                    btnLow.click();
-                },
-                steps
+                    if (window.ErrorModal?.show) {
+                        window.ErrorModal.show({
+                            title: "Erro na Simplificação RL",
+                            message: "Ocorreu um erro ao comunicar com a API do modelo RL.",
+                            errors: [err.message || String(err)],
+                            buttonText: "Entendido"
+                        });
+                    } else {
+                        alert(`Erro na simplificação RL: ${err.message}`);
+                    }
+                }
             );
         }
 
@@ -2120,28 +2327,28 @@
         // ══════════════════════════════════════════════════════
         //  RELATÓRIO LATERAL (DRAWER) & SNAPSHOTS INTERMÉDIOS
         // ══════════════════════════════════════════════════════
-        const actionLogDrawer  = document.getElementById("action-log-drawer");
-        const btnActionLog     = document.getElementById("btn-action-log");
-        const actionLogClose   = document.getElementById("action-log-close");
-        const actionLogCount   = document.getElementById("action-log-count");
-        const tabBtnSnapshots  = document.getElementById("tab-btn-snapshots");
-        const tabBtnHistory    = document.getElementById("tab-btn-history");
+        const actionLogDrawer = document.getElementById("action-log-drawer");
+        const btnActionLog = document.getElementById("btn-action-log");
+        const actionLogClose = document.getElementById("action-log-close");
+        const actionLogCount = document.getElementById("action-log-count");
+        const tabBtnSnapshots = document.getElementById("tab-btn-snapshots");
+        const tabBtnHistory = document.getElementById("tab-btn-history");
         const tabPaneSnapshots = document.getElementById("tab-pane-snapshots");
-        const tabPaneHistory   = document.getElementById("tab-pane-history");
-        const snapshotsList    = document.getElementById("snapshots-list");
-        const actionLogBody    = document.getElementById("action-log-body");
+        const tabPaneHistory = document.getElementById("tab-pane-history");
+        const snapshotsList = document.getElementById("snapshots-list");
+        const actionLogBody = document.getElementById("action-log-body");
 
-        const repSteps         = document.getElementById("rep-steps");
-        const repDissolves     = document.getElementById("rep-dissolves");
-        const repReduction     = document.getElementById("rep-reduction");
-        const repSnapshots     = document.getElementById("rep-snapshots");
+        const repSteps = document.getElementById("rep-steps");
+        const repDissolves = document.getElementById("rep-dissolves");
+        const repReduction = document.getElementById("rep-reduction");
+        const repSnapshots = document.getElementById("rep-snapshots");
 
-        window.appendActionLogEntry = function(stepData) {
+        window.appendActionLogEntry = function (stepData) {
             actionLogEntries.push({
-                step:        stepData.step,
-                message:     stepData.log_message,
+                step: stepData.step,
+                message: stepData.log_message,
                 is_critical: stepData.is_critical,
-                raw:         stepData.raw_action
+                raw: stepData.raw_action
             });
         };
 
@@ -2164,25 +2371,23 @@
         // ══════════════════════════════════════════════════════
         //  LIGHTBOX & SNAPSHOT VISUAL CAPTURE
         // ══════════════════════════════════════════════════════
-        const snapshotLightbox    = document.getElementById("snapshot-lightbox");
-        const lightboxClose       = document.getElementById("lightbox-close");
-        const lightboxImg         = document.getElementById("lightbox-img");
-        const lightboxTag         = document.getElementById("lightbox-tag");
-        const lightboxTitle       = document.getElementById("lightbox-title");
-        const lightboxChips       = document.getElementById("lightbox-chips");
+        const snapshotLightbox = document.getElementById("snapshot-lightbox");
+        const lightboxClose = document.getElementById("lightbox-close");
+        const lightboxImg = document.getElementById("lightbox-img");
+        const lightboxTag = document.getElementById("lightbox-tag");
+        const lightboxTitle = document.getElementById("lightbox-title");
+        const lightboxChips = document.getElementById("lightbox-chips");
         const lightboxExplanation = document.getElementById("lightbox-explanation");
-        const lightboxSummary     = document.getElementById("lightbox-actions-summary");
-        const lightboxBtnLoad     = document.getElementById("lightbox-btn-load");
+        const lightboxSummary = document.getElementById("lightbox-actions-summary");
+        const lightboxBtnLoad = document.getElementById("lightbox-btn-load");
         const lightboxBtnDownload = document.getElementById("lightbox-btn-download");
 
-        const countAllEdges       = document.getElementById("count-all-edges");
-        const countAcceptedEdges  = document.getElementById("count-accepted-edges");
-        const countRejectedEdges  = document.getElementById("count-rejected-edges");
-        const historyFilterChips  = document.querySelectorAll(".history-filter-bar .filter-chip");
+        const countAllEdges = document.getElementById("count-all-edges");
+        const countAcceptedEdges = document.getElementById("count-accepted-edges");
+        const countRejectedEdges = document.getElementById("count-rejected-edges");
+        const historyFilterChips = document.querySelectorAll(".history-filter-bar .filter-chip");
 
-        let currentEdgeFilter     = "all";
-        let latestActionsList     = [];
-        const snapshotImagesMap   = new Map();
+        // currentEdgeFilter, latestActionsList, snapshotImagesMap declarados no topo do initThreeJS
 
         function captureCanvasSnapshot() {
             try {
@@ -2260,13 +2465,13 @@
             if (lightboxImg) lightboxImg.src = info.imgUrl || "";
             if (lightboxTag) lightboxTag.textContent = info.tag || "SNAPSHOT";
             if (lightboxTitle) lightboxTitle.textContent = info.title || "Análise Visual da Malha & Edges";
-            
+
             if (lightboxChips) {
                 lightboxChips.innerHTML = `
                     <span class="chip">🎯 Dissolves: ${info.dissolves}</span>
                     <span class="chip">🔺 Faces: ${info.faces ? info.faces.toLocaleString() : "--"}</span>
                     <span class="chip" style="color:#34d399;">✂️ ${info.acceptedCount || 0} Arestas Dissolvidas</span>
-                    <span class="chip" style="color:#f87171;">🛡️ ${info.rejectedCount || 0} Protegidas</span>
+                    <span class="chip" style="color:#f87171;">⚠️ ${info.rejectedCount || 0} Rejeitadas</span>
                 `;
             }
             if (lightboxExplanation) {
@@ -2279,37 +2484,40 @@
                         <strong style="color:#60a5fa;">${info.totalEvaluated || 0}</strong>
                     </div>
                     <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:0.78rem;">
-                        <span>Redução Estimada de Faces:</span>
-                        <strong style="color:#34d399;">-${(info.acceptedCount || 0) * 2} faces</strong>
+                        <span>Redução de Faces:</span>
+                        <strong style="color:#34d399;">-${info.acceptedCount || 0} ${(info.acceptedCount === 1) ? 'face' : 'faces'}</strong>
                     </div>
                     <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:0.78rem;">
-                        <span>Fidelidade da Silhueta & Contorno:</span>
-                        <strong style="color:#c084fc;">98.6%</strong>
+                        <span>Arestas Rejeitadas por Validação:</span>
+                        <strong style="color:#f87171;">${info.rejectedCount || 0}</strong>
                     </div>
                 `;
             }
 
             if (lightboxBtnLoad) {
-                if (info.isCurrent) {
-                    lightboxBtnLoad.innerHTML = `<span>⚡ Malha Otimizada Final (Já Descarregada no 3D)</span>`;
-                    lightboxBtnLoad.style.background = "transparent";
-                    lightboxBtnLoad.style.border = "1px dashed rgba(52,211,153,0.4)";
-                    lightboxBtnLoad.style.color = "#34d399";
-                    lightboxBtnLoad.style.boxShadow = "none";
+                if (typeof info.onLoadMesh !== "function") {
+                    lightboxBtnLoad.style.display = "none";
                 } else {
-                    const labelText = info.snapNum ? `Snapshot #${info.snapNum}` : `no 3D`;
-                    lightboxBtnLoad.innerHTML = `<span>📥 Carregar ${labelText} no 3D</span>`;
-                    lightboxBtnLoad.style.background = "";
-                    lightboxBtnLoad.style.border = "";
-                    lightboxBtnLoad.style.color = "";
-                    lightboxBtnLoad.style.boxShadow = "";
-                }
-                lightboxBtnLoad.onclick = () => {
-                    closeSnapshotLightbox();
-                    if (typeof info.onLoadMesh === "function") {
-                        info.onLoadMesh();
+                    lightboxBtnLoad.style.display = "flex";
+                    if (info.isCurrent) {
+                        lightboxBtnLoad.innerHTML = `<span>⚡ Malha Otimizada Final (Já Descarregada no 3D)</span>`;
+                        lightboxBtnLoad.style.background = "transparent";
+                        lightboxBtnLoad.style.border = "1px dashed rgba(52,211,153,0.4)";
+                        lightboxBtnLoad.style.color = "#34d399";
+                        lightboxBtnLoad.style.boxShadow = "none";
+                    } else {
+                        const labelText = info.snapNum ? `Snapshot #${info.snapNum}` : `no 3D`;
+                        lightboxBtnLoad.innerHTML = `<span>📥 Carregar ${labelText} no 3D</span>`;
+                        lightboxBtnLoad.style.background = "";
+                        lightboxBtnLoad.style.border = "";
+                        lightboxBtnLoad.style.color = "";
+                        lightboxBtnLoad.style.boxShadow = "";
                     }
-                };
+                    lightboxBtnLoad.onclick = () => {
+                        closeSnapshotLightbox();
+                        info.onLoadMesh();
+                    };
+                }
             }
 
             snapshotLightbox.classList.add("open");
@@ -2370,8 +2578,8 @@
             latestActionsList = actions;
 
             // Atualizar métricas do relatório
-            const totalSteps = results?.steps || actions.length || actionLogEntries.length || realStats.low.steps || 100;
-            const totalDissolves = results?.accepted_dissolves ?? (actions.length ? actions.filter(a => a.accepted !== false && a.raw?.accepted !== false).length : (realStats.low.dissolves || 50));
+            const totalSteps = results?.steps ?? (actions.length || actionLogEntries.length || realStats.low.steps || 0);
+            const totalDissolves = results?.accepted_dissolves ?? (actions.length ? actions.filter(a => a.accepted !== false && a.raw?.accepted !== false).length : (realStats.low.dissolves || 0));
             const reductionPct = results?.face_reduction
                 ? Math.round(results.face_reduction * 100)
                 : (realStats.high.faces > 0 && realStats.low.faces > 0
@@ -2396,60 +2604,19 @@
 
             let displaySnaps = Array.isArray(snapshots) ? [...snapshots] : [];
 
-            // Se displaySnaps está vazio OU não tem snapshots
-            if (displaySnaps.length === 0) {
-                // Se temos dissolves ou malha low poly ou qualquer progresso:
-                const effectiveDiss = totalDissolves || realStats.low.dissolves || 50;
-                const effectiveSteps = totalSteps || actions.length || realStats.low.steps || 100;
-                const midDissolves = Math.max(1, Math.round(effectiveDiss / 2));
-                const midStep = Math.max(1, Math.round(effectiveSteps / 2));
-                const midFaces = realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (midDissolves * 2)) : 0;
-
-                displaySnaps.push({
-                    accepted_dissolves: midDissolves,
-                    step: midStep,
-                    faces: midFaces,
-                    is_intermediate: true
-                });
-
-                displaySnaps.push({
-                    accepted_dissolves: effectiveDiss,
-                    step: effectiveSteps,
-                    faces: realStats.low.faces || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (effectiveDiss * 2)) : 0),
-                    is_current: true
-                });
-            } else {
-                // Se tem snapshots vindos da API, normalizamos e garantimos que o estado final otimizado está incluído
-                const hasCurrent = displaySnaps.some(s => typeof s === "object" && s.is_current);
-                if (!hasCurrent) {
-                    const lastSnap = displaySnaps[displaySnaps.length - 1];
-                    const lastDiss = typeof lastSnap === "number" ? lastSnap : (lastSnap.accepted_dissolves || 0);
-                    if (totalDissolves > lastDiss || displaySnaps.length === 1) {
-                        displaySnaps.push({
-                            accepted_dissolves: totalDissolves || (lastDiss + 25),
-                            step: totalSteps || (displaySnaps.length * 50),
-                            faces: realStats.low.faces || (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - ((totalDissolves || lastDiss) * 2)) : 0),
-                            is_current: true
-                        });
-                    } else if (typeof displaySnaps[displaySnaps.length - 1] === "object") {
-                        displaySnaps[displaySnaps.length - 1].is_current = true;
-                    }
-                }
-            }
-
             if (displaySnaps.length === 0) {
                 const emptyDiv = document.createElement("div");
                 emptyDiv.className = "action-log-empty";
-                emptyDiv.innerHTML = `<span>⏳ Nenhum snapshot intermédio capturado ainda.</span>`;
+                emptyDiv.innerHTML = `<span>⏳ Nenhum snapshot intermédio capturado pela API para esta execução.</span>`;
                 snapshotsList.appendChild(emptyDiv);
                 return 0;
             }
 
             displaySnaps.forEach((snap, idx) => {
                 const rawDiss = typeof snap === "number" ? snap : (snap.accepted_dissolves ?? snap.dissolves ?? snap.step);
-                const dissolves = rawDiss ?? ((idx + 1) * 50);
-                const stepNum = typeof snap === "number" ? snap : (snap.step || (snap.is_intermediate ? Math.round((totalSteps || 100) / 2) : totalSteps || dissolves));
-                const facesCount = (typeof snap === "object" && snap.faces) ? snap.faces : (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - (dissolves * 2)) : "--");
+                const dissolves = rawDiss ?? 0;
+                const stepNum = typeof snap === "number" ? snap : (snap.step || totalSteps || dissolves);
+                const facesCount = (typeof snap === "object" && snap.faces) ? snap.faces : (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - dissolves) : "--");
 
                 // Agrupar as ações de arestas associadas a este snapshot
                 const matchingActions = actions.filter((act) => {
@@ -2476,7 +2643,7 @@
                     titleText = `Snapshot #${snapNum} • Progresso Intermédio (${dissolves} Dissolves)`;
                 }
 
-                const explanationText = `O agente avaliou as arestas do modelo, aceitando dissolver <strong>${acceptedCount} arestas</strong> em zonas coplanares de baixa curvatura (poupando <strong>~${acceptedCount * 2} faces</strong>). Ao mesmo tempo, reteve <strong>${rejectedCount} arestas</strong> em áreas de contorno e saliência identificadas pela rede GNN para preservar a silhueta tridimensional.`;
+                const explanationText = `O agente avaliou as arestas do modelo, aceitando dissolver <strong>${acceptedCount} arestas</strong> em zonas coplanares de baixa curvatura (reduzindo <strong>${acceptedCount} faces</strong>). Ao mesmo tempo, rejeitou <strong>${rejectedCount} arestas</strong> na validação geométrica e topológica para preservar os contornos e a silhueta da geometria.`;
 
                 card.innerHTML = `
                     <div class="snap-img-wrapper" title="Clique para ampliar a fotografia e ver a análise detalhada">
@@ -2500,7 +2667,7 @@
                                 <span class="chip">🎯 ${dissolves} Dissolves</span>
                                 <span class="chip">🔺 ${typeof facesCount === "number" ? facesCount.toLocaleString() : facesCount} Faces</span>
                                 <span class="chip" style="color:#34d399;">✂️ ${acceptedCount} Aceites</span>
-                                <span class="chip" style="color:#f87171;">🛡️ ${rejectedCount} Protegidas</span>
+                                <span class="chip" style="color:#f87171;">⚠️ ${rejectedCount} Rejeitadas</span>
                             </div>
                         </div>
 
@@ -2612,8 +2779,8 @@
                             }
                         }
 
-                        // 3. Fallback inteligente: buscar o .obj da malha otimizada na API
-                        if (!loaded && (!objText || !objText.includes("v "))) {
+                        // 3. Se for o estado atual final e ainda não temos o OBJ
+                        if (!loaded && isFinalMesh && (!objText || !objText.includes("v "))) {
                             if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
                                 objText = cachedSimplifiedObjText;
                             } else {
@@ -2625,25 +2792,8 @@
                         }
 
                         // 4. Carregar o OBJ recuperado no Three.js
-                        if (!loaded && objText && objText.includes("v ")) {
+                        if (objText && objText.includes("v ")) {
                             loadMeshIntoViewport(objText, `Snapshot #${snapNum} (${dissolves} Dissolves)`, dissolves, stepNum, effTxt, snapNum);
-                            loaded = true;
-                        }
-
-                        // 5. Fallback de contingência local se o servidor não entregar OBJ
-                        if (!loaded && highPolyGeo) {
-                            const fallbackGeo = lowPolyGeo ? lowPolyGeo.clone() : highPolyGeo.clone();
-                            const estFaces = realStats.low.faces || Math.max(1, realStats.high.faces - (dissolves * 2));
-                            const estVerts = realStats.low.verts || Math.max(1, realStats.high.verts - dissolves);
-                            loadGeometryIntoViewport(
-                                fallbackGeo,
-                                { faces: estFaces, verts: estVerts },
-                                `Snapshot #${snapNum} (${dissolves} Dissolves)`,
-                                dissolves,
-                                stepNum,
-                                effTxt,
-                                snapNum
-                            );
                             loaded = true;
                         }
 
@@ -2653,7 +2803,7 @@
                                 closeActionLog();
                             }, 450);
                         } else {
-                            throw new Error("Não foi possível carregar a geometria");
+                            throw new Error("O ficheiro 3D (.obj) deste snapshot não está disponível no servidor.");
                         }
                     } catch (err) {
                         console.warn("[Snapshot] Erro ao carregar mesh:", err);
@@ -2679,6 +2829,44 @@
             return "";
         }
 
+        function getRejectionExplanation(reasonRaw) {
+            if (!reasonRaw) return "Ação rejeitada pela validação para preservar a integridade da malha.";
+            const r = String(reasonRaw).toLowerCase();
+            if (r.includes("nonplanar") || r.includes("non_planar")) {
+                return "Ação rejeitada: a dissolução criaria um polígono não-planar.";
+            }
+            if (r.includes("boundary") || r.includes("nonmanifold") || r.includes("non_manifold")) {
+                return "Ação rejeitada: aresta pertence à fronteira aberta ou topologia não-manifold.";
+            }
+            if (r.includes("overlapping") || r.includes("folded") || r.includes("fold")) {
+                return "Ação rejeitada: causaria sobreposição ou dobra de faces (folded faces).";
+            }
+            if (r.includes("self_intersect") || r.includes("intersect")) {
+                return "Ação rejeitada: criaria polígonos auto-intersetados.";
+            }
+            if (r.includes("normal") || r.includes("flip") || r.includes("inversion")) {
+                return "Ação rejeitada: o colapso causaria inversão de normais da face.";
+            }
+            if (r.includes("degenerated") || r.includes("zero_area") || r.includes("collinear")) {
+                return "Ação rejeitada: geraria faces degeneradas de área nula ou vértices colineares.";
+            }
+            if (r.includes("valence") || r.includes("degree")) {
+                return "Ação rejeitada: violação dos limites de valência topológica.";
+            }
+            if (r.includes("crease") || r.includes("feature_edge")) {
+                return "Ação rejeitada: aresta classificada como vinco geométrico protegido.";
+            }
+            if (r.includes("aspect") || r.includes("ratio")) {
+                return "Ação rejeitada: criaria polígonos excessivamente alongados (mau aspect ratio).";
+            }
+            if (r.includes("genus") || r.includes("hole") || r.includes("topology")) {
+                return "Ação rejeitada: violação estrutural que alteraria a integridade topológica.";
+            }
+            return `Ação rejeitada pela validação: ${escapeHtml(reasonRaw)}`;
+        }
+
+        let historyCurrentPage = 1;
+
         function renderHistoryView(actions) {
             if (!actionLogBody) return;
             actionLogBody.innerHTML = "";
@@ -2703,7 +2891,41 @@
             // Thumbnail geral capturado para ilustrar ações onde a API não tem foto granular
             const defaultThumbnail = snapshotImagesMap.values().next().value || captureCanvasSnapshot();
 
-            filtered.forEach((entry) => {
+            const pageSize = 20;
+            const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+            if (historyCurrentPage > totalPages) historyCurrentPage = totalPages;
+            if (historyCurrentPage < 1) historyCurrentPage = 1;
+
+            const startIndex = (historyCurrentPage - 1) * pageSize;
+            const pageEntries = filtered.slice(startIndex, startIndex + pageSize);
+
+            // Barra de paginação
+            const nav = document.createElement("div");
+            nav.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:0.45rem 0.75rem;margin-bottom:0.75rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;font-size:0.78rem;color:#94a3b8;";
+            nav.innerHTML = `
+                <span>A mostrar ${startIndex + 1}–${Math.min(filtered.length, startIndex + pageSize)} de ${filtered.length} ações</span>
+                <div style="display:flex;gap:0.45rem;align-items:center;">
+                    <button type="button" class="btn-page-prev" style="padding:0.22rem 0.55rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:4px;color:#f8fafc;cursor:${historyCurrentPage > 1 ? 'pointer' : 'not-allowed'};opacity:${historyCurrentPage > 1 ? '1' : '0.4'};" ${historyCurrentPage > 1 ? '' : 'disabled'}>◀ Anterior</button>
+                    <span style="font-family:'JetBrains Mono',monospace;color:#60a5fa;font-weight:600;">Pág ${historyCurrentPage} / ${totalPages}</span>
+                    <button type="button" class="btn-page-next" style="padding:0.22rem 0.55rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:4px;color:#f8fafc;cursor:${historyCurrentPage < totalPages ? 'pointer' : 'not-allowed'};opacity:${historyCurrentPage < totalPages ? '1' : '0.4'};" ${historyCurrentPage < totalPages ? '' : 'disabled'}>Seguinte ▶</button>
+                </div>
+            `;
+            actionLogBody.appendChild(nav);
+
+            nav.querySelector(".btn-page-prev")?.addEventListener("click", () => {
+                if (historyCurrentPage > 1) {
+                    historyCurrentPage--;
+                    renderHistoryView(actions);
+                }
+            });
+            nav.querySelector(".btn-page-next")?.addEventListener("click", () => {
+                if (historyCurrentPage < totalPages) {
+                    historyCurrentPage++;
+                    renderHistoryView(actions);
+                }
+            });
+
+            pageEntries.forEach((entry) => {
                 const step = entry.step ?? entry.action_index ?? 0;
                 const isAcc = entry.accepted !== false && (entry.raw?.accepted !== false);
                 const actDissolves = entry.raw?.accepted_dissolves ?? entry.accepted_dissolves ?? 0;
@@ -2713,23 +2935,12 @@
                 // Imagem de contexto associada
                 const snapImg = snapshotImagesMap.get(actDissolves) || defaultThumbnail;
 
-                // Explicação clara e compreensível da decisão sobre a aresta
+                // Explicação clara e real da decisão sobre a aresta
                 let explanation = "";
                 if (isAcc) {
-                    explanation = "Aresta plana colapsada (-2 faces). Silhueta exterior intacta e normais preservadas.";
+                    explanation = "Aresta dissolvida com sucesso (-1 face). Passou nos testes de validação geométrica.";
                 } else {
-                    const r = reasonRaw.toUpperCase();
-                    if (r.includes("NORMAL") || r.includes("FLIP")) {
-                        explanation = "Aresta protegida: o colapso causaria inversão de normais (produzindo triângulos escuros/buracos).";
-                    } else if (r.includes("SILHOUETTE")) {
-                        explanation = "Aresta protegida: define a silhueta/contorno fundamental da geometria.";
-                    } else if (r.includes("ANGLE") || r.includes("ASPECT")) {
-                        explanation = "Aresta protegida: impediu a criação de triângulos degenerados com ângulo diedro excessivo.";
-                    } else if (r.includes("IMPORTANCE") || r.includes("FEATURE")) {
-                        explanation = "Aresta protegida: classificada com alta relevância estrutural pela rede GNN.";
-                    } else {
-                        explanation = reasonRaw ? `Aresta protegida: ${escapeHtml(reasonRaw)}` : "Aresta protegida para preservar a integridade da malha.";
-                    }
+                    explanation = getRejectionExplanation(reasonRaw);
                 }
 
                 const div = document.createElement("div");
@@ -2743,58 +2954,38 @@
                         <div class="al-header-row">
                             <span class="al-step-badge">#${step}</span>
                             <span class="al-status-badge ${isAcc ? 'accepted' : 'rejected'}">
-                                ${isAcc ? '✂️ DISSOLVIDA' : '🛡️ PROTEGIDA'}
+                                ${isAcc ? '✂️ DISSOLVIDA' : '⚠️ REJEITADA'}
                             </span>
                             <span style="font-size:0.75rem;font-weight:600;color:#f1f5f9;font-family:'JetBrains Mono',monospace;">
-                                ${escapeHtml(entry.action_name || (isAcc ? 'EDGE_DISSOLVE' : 'ATTEMPT_REJECTED'))}
+                                ${escapeHtml(entry.action_name || (isAcc ? 'EDGE_DISSOLVE' : 'VALIDATION_REJECTED'))}
                             </span>
                         </div>
                         <p class="al-explanation">${explanation}</p>
                         <div class="al-footer-row">
                             <span>${faces ? `Faces: ${faces.toLocaleString()}` : ''}</span>
-                            <button class="al-snap-link" type="button">
-                                📸 Ver Marco (${actDissolves} dissolves)
-                            </button>
+                            <span style="font-size:0.72rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">
+                                Dissolves acumulados: ${actDissolves}
+                            </span>
                         </div>
                     </div>
                 `;
 
-                // Clicar na miniatura abre o lightbox com a fotografia da malha
+                // Clicar na miniatura abre o lightbox apenas com informação real, sem carregar mesh falsa
                 const thumbWrap = div.querySelector(".al-thumb-wrap");
                 if (thumbWrap) {
                     thumbWrap.addEventListener("click", () => {
                         openSnapshotLightbox({
                             imgUrl: snapImg,
                             tag: `PASSO #${step}`,
-                            title: `Decisão de Aresta: ${entry.action_name || (isAcc ? 'EDGE_DISSOLVE' : 'PROTEGIDA')}`,
+                            title: `Decisão de Aresta: ${entry.action_name || (isAcc ? 'EDGE_DISSOLVE' : 'REJEITADA_VALIDAÇÃO')}`,
                             dissolves: actDissolves,
                             faces: faces,
                             acceptedCount: isAcc ? 1 : 0,
                             rejectedCount: isAcc ? 0 : 1,
                             totalEvaluated: 1,
-                            explanationHtml: `<p>${explanation}</p>`,
-                            onLoadMesh: () => {
-                                if (lowPolyGeo) {
-                                    loadGeometryIntoViewport(lowPolyGeo, { faces: faces || realStats.low.faces || realStats.high.faces, verts: realStats.low.verts || realStats.high.verts }, `Passo #${step}`);
-                                    return;
-                                }
-                                RetopoAPI.downloadSimplifiedMesh(currentModelId).then(meshText => {
-                                    loadMeshIntoViewport(meshText, `Passo #${step}`);
-                                }).catch(() => {
-                                    if (highPolyGeo) {
-                                        loadGeometryIntoViewport(highPolyGeo.clone(), { faces: faces || realStats.high.faces, verts: realStats.high.verts }, `Passo #${step}`);
-                                    }
-                                });
-                            }
+                            explanationHtml: `<p>${explanation}</p>`
+                            // Sem onLoadMesh enganador para cada passo unitário
                         });
-                    });
-                }
-
-                // Clicar no link do snapshot comuta para a aba de snapshots
-                const snapLink = div.querySelector(".al-snap-link");
-                if (snapLink && tabBtnSnapshots) {
-                    snapLink.addEventListener("click", () => {
-                        tabBtnSnapshots.click();
                     });
                 }
 

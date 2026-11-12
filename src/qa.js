@@ -6,7 +6,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 
-(function() {
+(function () {
     "use strict";
 
     // ═══════════════════════════════════════════════════════════════════
@@ -20,7 +20,7 @@
             color: "#3b82f6", // Azul
             priority: 9,
             what: "Faces compostas por 5 ou mais vértices.",
-            why: function(faceData, hasCollinear) {
+            why: function (faceData, hasCollinear) {
                 let msg = "Importam em pipelines que exigem quads/tris (subdivisão, UVs e game engines), podendo causar deformações e artefactos de sombreamento.";
                 if (hasCollinear || (faceData && faceData.max_angle && faceData.max_angle >= 170)) {
                     msg += " NOTA: O count é por vértices; um quad com vértices colineares (ângulo ~180°) conta como n-gon.";
@@ -36,7 +36,7 @@
             color: "#f97316", // Laranja vivo
             priority: 2,
             what: "Aresta partilhada por 3 ou mais faces, ou vértices com ligações não contíguas.",
-            why: function() {
+            why: function () {
                 return "Quebra operações booleanas, modificadores de subdivisão e impede a impressão 3D (a malha deixa de ser um sólido volumétrico 2-manifold válido).";
             },
             how: "Separar as faces adjacentes excedentes ou remover faces internas que partilham a mesma aresta."
@@ -48,7 +48,7 @@
             color: "#eab308", // Amarelo
             priority: 6,
             what: "Arestas de fronteira que pertencem a apenas uma face (aberturas na malha).",
-            why: function(faceData, hasTJunction) {
+            why: function (faceData, hasTJunction) {
                 if (hasTJunction) {
                     return "Fenda decorrente de uma T-junction (onde um vértice vizinho está sobre a aresta mas não foi soldado à face contígua).";
                 }
@@ -63,7 +63,7 @@
             color: "#ef4444", // Vermelho
             priority: 1,
             what: "Face com área aproximadamente nula ou com vértices repetidos/colapsados.",
-            why: function() {
+            why: function () {
                 return "Provoca artefactos graves de sombreamento, divisão por zero no cálculo de normais e instabilidade em simulações físicas.";
             },
             how: "Eliminar as faces degeneradas ou colapsar os vértices redundantes."
@@ -75,7 +75,7 @@
             color: "#d946ef", // Fúcsia
             priority: 7,
             what: "Faces duplicadas sobrepostas exatamente no mesmo espaço 3D.",
-            why: function() {
+            why: function () {
                 return "Provoca cintilação severa de renderização (Z-fighting) e aumenta desnecessariamente o peso do modelo.";
             },
             how: "Remover as faces duplicadas através da limpeza de geometria (Delete Duplicate Faces)."
@@ -87,7 +87,7 @@
             color: "#06b6d4", // Ciano
             priority: 8,
             what: "Quads com ângulos internos extremos (< mín_ângulo ou > máx_ângulo configurados).",
-            why: function() {
+            why: function () {
                 return "Quads com grande distorção provocam estiramento de texturas UV e artefactos de iluminação durante a animação.";
             },
             how: "Suavizar a distribuição dos vértices (Relax / Smooth) ou ajustar o fluxo das arestas."
@@ -99,7 +99,7 @@
             color: "#ec4899", // Rosa choque
             priority: 3,
             what: "Faces com normais invertidas (ordem de enrolamento dos vértices contrária à vizinhança).",
-            why: function() {
+            why: function () {
                 return "Faz com que a face pareça invisível ou receba iluminação do lado oposto devido ao backface culling.";
             },
             how: "Recalcular a orientação de todas as normais para o exterior (Recalculate Normals Outside)."
@@ -111,7 +111,7 @@
             color: "#8b5cf6", // Púrpura
             priority: 4,
             what: "Uma casca geométrica (shell) contida dentro de outra.",
-            why: function() {
+            why: function () {
                 return "Geometria oculta desnecessária que consome memória e pode conflituar em booleanos. NOTA: Não deteta auto-interseção no mesmo shell (ver limitações).";
             },
             how: "Eliminar cascas internas redundantes ou unificar via união booleana limpa."
@@ -123,7 +123,7 @@
             color: "#a855f7", // Lilás
             priority: 10,
             what: "Vértices interiores com valência diferente da regular (4 em quads, 6 em tris).",
-            why: function() {
+            why: function () {
                 return "Em malhas low-poly com cantos vivos ou extremidades, valência 3 é natural; em superfícies lisas com subdivisão, polos com valência 3 ou 5+ criam pontos de tensão (pinching).";
             },
             how: "Redirecionar os loopings de aresta (Edge Spin/Slide) para deslocar o polo para zonas planas ou de menor deformação."
@@ -135,7 +135,7 @@
             color: "#14b8a6", // Teal
             priority: 11,
             what: "Vértices de valência 2 com ângulo ~180° entre as arestas adjacentes.",
-            why: function() {
+            why: function () {
                 return "São vértices redundantes que aumentam a contagem sem contribuir para a curvatura ou silhueta da peça.";
             },
             how: "Dissolver os vértices colineares (Dissolve Vertices) sem alterar a forma do polígono."
@@ -147,7 +147,7 @@
             color: "#f43f5e", // Rosa avermelhado
             priority: 5,
             what: "Vértice pousado sobre a aresta de uma face vizinha sem pertencer à topologia dessa face.",
-            why: function() {
+            why: function () {
                 return "Quebra a continuidade da superfície criando micro-fendas visíveis na renderização; a malha deixa de ser hermética (watertight).";
             },
             how: "Inserir um vértice na aresta vizinha e soldar os dois vértices (Snap & Merge), ou triangular a face adjacente para absorver a junção."
@@ -236,10 +236,22 @@
         const drawerBtnAngle = document.getElementById("dss-drawer-btn-angle");
         const drawerBtnValence = document.getElementById("dss-drawer-btn-valence");
         const drawerBtnErrors = document.getElementById("dss-drawer-btn-errors");
+        const drawerMapBadge = document.getElementById("dss-drawer-map-badge");
 
         [sideBtnAngle, sideBtnValence, sideBtnErrors, drawerBtnAngle, drawerBtnValence, drawerBtnErrors].forEach(b => b?.classList.remove("active"));
 
         const isMapActive = (mode && mode !== "none");
+
+        let mapName = "Desativado";
+        if (mode === "min_angle" || mode === "angles") {
+            mapName = "Ângulos";
+        } else if (mode === "max_angle") {
+            mapName = "Ângulos Máx.";
+        } else if (mode === "valence") {
+            mapName = "Valência";
+        } else if (mode === "errors") {
+            mapName = "Topologia";
+        }
 
         // Atualização dos botões gerais de Ativar / Desativar Mapa de Cores DSS
         [sideBtnToggle, drawerBtnToggle].forEach(btn => {
@@ -248,58 +260,47 @@
                 btn.classList.add("active");
                 btn.classList.remove("btn-outline");
                 btn.classList.add("btn-primary");
-                btn.innerHTML = `<span>🎨 Desativar Mapa de Cores DSS</span>`;
-                btn.style.background = "linear-gradient(135deg, #0284c7, #2563eb)";
-                btn.style.borderColor = "#38bdf8";
-                btn.style.boxShadow = "0 0 10px rgba(56, 189, 248, 0.4)";
-                btn.style.color = "#ffffff";
+                btn.innerHTML = `<span>🎨 Desativar Mapa: ${mapName}</span>`;
+                btn.style.background = "";
+                btn.style.borderColor = "";
+                btn.style.boxShadow = "";
+                btn.style.color = "";
             } else {
                 btn.classList.remove("active");
                 btn.classList.remove("btn-primary");
                 btn.classList.add("btn-outline");
                 btn.innerHTML = `<span>🎨 Ativar Mapa de Cores DSS</span>`;
-                btn.style.background = "rgba(255, 255, 255, 0.03)";
-                btn.style.borderColor = "rgba(56, 189, 248, 0.35)";
-                btn.style.boxShadow = "none";
-                btn.style.color = "#93c5fd";
+                btn.style.background = "";
+                btn.style.borderColor = "";
+                btn.style.boxShadow = "";
+                btn.style.color = "";
             }
         });
 
         if (mode === "min_angle" || mode === "angles") {
             if (sideBtnAngle) sideBtnAngle.classList.add("active");
             if (drawerBtnAngle) drawerBtnAngle.classList.add("active");
-            if (sideMapBadge) {
-                sideMapBadge.textContent = "Ângulos";
-                sideMapBadge.style.color = "#38bdf8";
-                sideMapBadge.style.background = "rgba(56, 189, 248, 0.15)";
-                sideMapBadge.style.borderColor = "rgba(56, 189, 248, 0.35)";
-            }
         } else if (mode === "valence") {
             if (sideBtnValence) sideBtnValence.classList.add("active");
             if (drawerBtnValence) drawerBtnValence.classList.add("active");
-            if (sideMapBadge) {
-                sideMapBadge.textContent = "Valência";
-                sideMapBadge.style.color = "#c084fc";
-                sideMapBadge.style.background = "rgba(168, 85, 247, 0.15)";
-                sideMapBadge.style.borderColor = "rgba(168, 85, 247, 0.35)";
-            }
         } else if (mode === "errors") {
             if (sideBtnErrors) sideBtnErrors.classList.add("active");
             if (drawerBtnErrors) drawerBtnErrors.classList.add("active");
-            if (sideMapBadge) {
-                sideMapBadge.textContent = "Topologia";
-                sideMapBadge.style.color = "#f87171";
-                sideMapBadge.style.background = "rgba(239, 68, 68, 0.15)";
-                sideMapBadge.style.borderColor = "rgba(239, 68, 68, 0.35)";
-            }
-        } else {
-            if (sideMapBadge) {
-                sideMapBadge.textContent = "Desativado";
-                sideMapBadge.style.color = "#94a3b8";
-                sideMapBadge.style.background = "rgba(255, 255, 255, 0.06)";
-                sideMapBadge.style.borderColor = "rgba(255, 255, 255, 0.1)";
-            }
         }
+
+        [sideMapBadge, drawerMapBadge].forEach(badge => {
+            if (!badge) return;
+            badge.style.background = "";
+            badge.style.borderColor = "";
+            badge.style.color = "";
+            if (isMapActive) {
+                badge.textContent = `Ativo: ${mapName}`;
+                badge.classList.add("active");
+            } else {
+                badge.textContent = "Desativado";
+                badge.classList.remove("active");
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -330,14 +331,46 @@
         }
     }
 
-    function getValenceColor(val) {
-        if (val === null || val === undefined || isNaN(val)) return [0.25, 0.28, 0.35];
-        if (val === 4) return [0.06, 0.72, 0.50]; // Regular quad: Verde esmeralda (#10b981)
-        if (val === 3) return [0.23, 0.51, 0.96]; // Pólo 3: Azul (#3b82f6)
-        if (val === 5) return [0.95, 0.70, 0.03]; // Pólo 5: Âmbar/Amarelo (#f59e0b)
-        if (val === 2) return [0.06, 0.71, 0.83]; // Valência 2: Ciano (#06b6d4)
-        if (val >= 6) return [0.93, 0.26, 0.26]; // Valência 6+: Vermelho (#ef4444)
-        return [0.7, 0.7, 0.7];
+    // Escala fixa e cores corretas para Ângulo Mínimo: ≤20° (Crítico = Vermelho), 90° (Ortogonal/Ideal = Verde)
+    function getMinAngleColor(angle) {
+        if (angle === null || angle === undefined || isNaN(angle)) return [0.25, 0.28, 0.35];
+        if (angle <= 20) return [0.93, 0.26, 0.26]; // Vermelho
+        if (angle >= 90) return [0.06, 0.72, 0.50]; // Verde
+        const t = (angle - 20) / 70; // 0 = 20°, 1 = 90°
+        if (t < 0.5) {
+            return interpolateColor([0.93, 0.26, 0.26], [0.95, 0.70, 0.03], t / 0.5); // Vermelho -> Amarelo
+        } else {
+            return interpolateColor([0.95, 0.70, 0.03], [0.06, 0.72, 0.50], (t - 0.5) / 0.5); // Amarelo -> Verde
+        }
+    }
+
+    // Escala fixa e cores para Ângulo Máximo: 90° (Ideal = Verde), ≥160° (Crítico = Vermelho), ~180° colinear (Cinzento)
+    function getMaxAngleColor(angle) {
+        if (angle === null || angle === undefined || isNaN(angle)) return [0.25, 0.28, 0.35];
+        if (angle >= 178) return [0.55, 0.58, 0.64]; // Colinear -> cinzento neutro, não inflaciona como erro de canto
+        if (angle <= 90) return [0.06, 0.72, 0.50];  // Verde
+        if (angle >= 160) return [0.93, 0.26, 0.26]; // Vermelho
+        const t = (angle - 90) / 70; // 0 = 90°, 1 = 160°
+        if (t < 0.5) {
+            return interpolateColor([0.06, 0.72, 0.50], [0.95, 0.70, 0.03], t / 0.5); // Verde -> Amarelo
+        } else {
+            return interpolateColor([0.95, 0.70, 0.03], [0.93, 0.26, 0.26], (t - 0.5) / 0.5); // Amarelo -> Vermelho
+        }
+    }
+
+    // Mapa de valência centrado no regular_valence da API e tipo de vértice (Polo vs Fronteira/Colinear)
+    function getValenceColorByType(val, regular = 4, isPole = false, isCollinear = false) {
+        if (isCollinear) return [0.55, 0.58, 0.64]; // Vértice colinear -> cinzento neutro
+        if (val === regular) return [0.06, 0.72, 0.50]; // Regular -> Verde (#10b981)
+        if (!isPole) return [0.55, 0.58, 0.64]; // Vértice não-polo (ex: fronteira com valência 2 ou 3) -> cinzento neutro
+        // Polos genuínos da API:
+        if (val < regular) return [0.23, 0.51, 0.96]; // Polo com valência inferior à regular -> Azul (#3b82f6)
+        if (val === regular + 1) return [0.95, 0.70, 0.03]; // Polo regular + 1 -> Amarelo (#f59e0b)
+        if (val >= regular + 2) return [0.93, 0.26, 0.26]; // Polo de alta valência -> Vermelho (#ef4444)
+        return [0.55, 0.58, 0.64];
+    }
+    function getValenceColor(val, regular = 4) {
+        return getValenceColorByType(val, regular, val !== regular, false);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -549,8 +582,8 @@
 
         // Metadados estritos de polígonos e mapeamento da malha ativa
         const triangleToFace = geo.userData?.triangleToFace || qaTriangleToFaceMap;
-        const vertexIndices  = geo.userData?.vertexIndices  || qaTriangleVertexIndices;
-        const polygonFaces   = geo.userData?.polygonFaces   || qaPolygonFaces;
+        const vertexIndices = geo.userData?.vertexIndices || qaTriangleVertexIndices;
+        const polygonFaces = geo.userData?.polygonFaces || qaPolygonFaces;
 
         const numFaces = polygonFaces ? polygonFaces.length : (qaPolygonFaces ? qaPolygonFaces.length : 1);
         const maxTris = Math.min(triangleToFace ? triangleToFace.length : qaTriangleToFaceMap.length, Math.floor(posAttr.count / 3));
@@ -560,11 +593,17 @@
             viewer.setDSSHeatmapActive(true);
         }
 
+        const legendGradient = document.getElementById("qa-legend-gradient");
+
         // MODO 1: OVERLAYS DE ERRO E CONFORMIDADE TOPOLÓGICA (QUADS, TRIS, N-GONS)
         if (mode === "errors") {
-            if (legendTitle) legendTitle.textContent = "";
+            if (legendTitle) {
+                legendTitle.style.display = "block";
+                legendTitle.textContent = "Conformidade Topológica (Faces)";
+            }
             if (legendMin) legendMin.textContent = "Quads (Verde) / Tris (Azul)";
-            if (legendMax) legendMax.textContent = "N-gons / Anomalias (Vermelho)";
+            if (legendMax) legendMax.textContent = "Anomalias / N-gons (Vermelho)";
+            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #10b981 0%, #3b82f6 50%, #ef4444 100%)";
 
             const faceErrorMap = new Array(numFaces).fill(null);
             const priorityOrder = ["degenerate", "nonmanifold", "flipped", "overlap", "t_junction", "open_edges", "bad_quads", "dup_faces", "ngons"];
@@ -604,7 +643,7 @@
 
                 const offset = triIdx * 9;
                 for (let v = 0; v < 3; v++) {
-                    colors[offset + v * 3]     = col[0];
+                    colors[offset + v * 3] = col[0];
                     colors[offset + v * 3 + 1] = col[1];
                     colors[offset + v * 3 + 2] = col[2];
                 }
@@ -614,31 +653,21 @@
         // MODO 2: HEATMAP DE ÂNGULO MÍNIMO
         else if (mode === "min_angle" || mode === "angles") {
             const angles = res?.per_face?.min_angle || [];
-            let minVal = 0, maxVal = 180;
-            if (angles.length > 0) {
-                let actualMin = Infinity, actualMax = -Infinity;
-                for (let a of angles) {
-                    if (a !== null && !isNaN(a)) {
-                        if (a < actualMin) actualMin = a;
-                        if (a > actualMax) actualMax = a;
-                    }
-                }
-                if (actualMin < Infinity && actualMax > actualMin) {
-                    minVal = Math.floor(actualMin);
-                    maxVal = Math.ceil(actualMax);
-                }
+            if (legendTitle) {
+                legendTitle.style.display = "block";
+                legendTitle.textContent = "Mapa Térmico: Ângulo Mínimo";
             }
-            if (legendTitle) legendTitle.textContent = "";
-            if (legendMin) legendMin.textContent = `${minVal}° (Crítico)`;
-            if (legendMax) legendMax.textContent = `${maxVal}° (Ortogonal ~90°)`;
+            if (legendMin) legendMin.textContent = "≤ 20° (Crítico)";
+            if (legendMax) legendMax.textContent = "90° (Ortogonal / Ideal)";
+            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #ef4444 0%, #eab308 50%, #10b981 100%)";
 
             for (let triIdx = 0; triIdx < maxTris; triIdx++) {
                 const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
                 const val = (f < angles.length) ? angles[f] : 90;
-                const col = getHeatmapColor(val, minVal, maxVal);
+                const col = getMinAngleColor(val);
                 const offset = triIdx * 9;
                 for (let v = 0; v < 3; v++) {
-                    colors[offset + v * 3]     = col[0];
+                    colors[offset + v * 3] = col[0];
                     colors[offset + v * 3 + 1] = col[1];
                     colors[offset + v * 3 + 2] = col[2];
                 }
@@ -648,59 +677,53 @@
         // MODO 3: HEATMAP DE ÂNGULO MÁXIMO
         else if (mode === "max_angle") {
             const angles = res?.per_face?.max_angle || [];
-            let minVal = 0, maxVal = 180;
-            if (angles.length > 0) {
-                let actualMin = Infinity, actualMax = -Infinity;
-                for (let a of angles) {
-                    if (a !== null && !isNaN(a)) {
-                        if (a < actualMin) actualMin = a;
-                        if (a > actualMax) actualMax = a;
-                    }
-                }
-                if (actualMin < Infinity && actualMax > actualMin) {
-                    minVal = Math.floor(actualMin);
-                    maxVal = Math.ceil(actualMax);
-                }
+            if (legendTitle) {
+                legendTitle.style.display = "block";
+                legendTitle.textContent = "Mapa Térmico: Ângulo Máximo";
             }
-            if (legendTitle) legendTitle.textContent = "";
-            if (legendMin) legendMin.textContent = `${minVal}° (Ortogonal ~90°)`;
-            if (legendMax) legendMax.textContent = `${maxVal}° (Colinear ~180°)`;
+            if (legendMin) legendMin.textContent = "90° (Ortogonal)";
+            if (legendMax) legendMax.textContent = "≥ 160° (Obtuso Crítico)";
+            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #10b981 0%, #eab308 50%, #ef4444 100%)";
 
             for (let triIdx = 0; triIdx < maxTris; triIdx++) {
                 const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
                 const val = (f < angles.length) ? angles[f] : 90;
-                const col = getHeatmapColor(val, minVal, maxVal);
+                const col = getMaxAngleColor(val);
                 const offset = triIdx * 9;
                 for (let v = 0; v < 3; v++) {
-                    colors[offset + v * 3]     = col[0];
+                    colors[offset + v * 3] = col[0];
                     colors[offset + v * 3 + 1] = col[1];
                     colors[offset + v * 3 + 2] = col[2];
                 }
             }
         }
 
-        // MODO 4: HEATMAP DE VALÊNCIA POR VÉRTICE (COM PÓLOS)
+        // MODO 4: HEATMAP DE VALÊNCIA POR VÉRTICE (COM PÓLOS E COLINEARES DA API)
         else if (mode === "valence") {
             const valences = res?.per_vertex?.valence || [];
-            let minVal = Infinity, maxVal = -Infinity;
-            for (let v of valences) {
-                if (v !== null && !isNaN(v)) {
-                    if (v < minVal) minVal = v;
-                    if (v > maxVal) maxVal = v;
-                }
-            }
-            if (minVal === Infinity) { minVal = 2; maxVal = 8; }
+            const regular = QAState.statusData?.summary?.regular_valence || QAState.statusData?.regular_valence || 4;
+            const polesSet = new Set(Array.isArray(res?.poles?.vertices) ? res.poles.vertices : []);
+            const collinearData = res?.per_vertex?.collinear;
+            const collinearSet = new Set(Array.isArray(res?.collinear_vertices?.vertices) ? res.collinear_vertices.vertices : []);
 
-            if (legendTitle) legendTitle.textContent = "";
-            if (legendMin) legendMin.textContent = `Val 3 (Pólo Azul) / Val 4 (Verde)`;
-            if (legendMax) legendMax.textContent = `Val 5 (Amarelo) / ≥6 (Vermelho)`;
+            if (legendTitle) {
+                legendTitle.style.display = "block";
+                legendTitle.textContent = `Valência dos Vértices (Regular = ${regular})`;
+            }
+            if (legendMin) legendMin.textContent = `Val < ${regular} (Azul) / Val ${regular} (Verde)`;
+            if (legendMax) legendMax.textContent = `Val ${regular + 1} (Amarelo) / ≥${regular + 2} (Vermelho)`;
+            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #3b82f6 0%, #10b981 33%, #eab308 66%, #ef4444 100%)";
 
             for (let triIdx = 0; triIdx < maxTris; triIdx++) {
                 for (let v = 0; v < 3; v++) {
                     const vertIdx = (triIdx * 3) + v;
                     const origV = vertexIndices ? vertexIndices[vertIdx] : (qaTriangleVertexIndices[vertIdx] ?? vertIdx);
-                    const val = (origV < valences.length) ? valences[origV] : 4;
-                    const c = getValenceColor(val);
+                    const val = (origV < valences.length) ? valences[origV] : regular;
+
+                    const isCollinear = (Array.isArray(collinearData) && collinearData[origV] === true) || collinearSet.has(origV);
+                    const isPole = polesSet.has(origV);
+
+                    const c = getValenceColorByType(val, regular, isPole, isCollinear);
                     colors[vertIdx * 3 + 0] = c[0];
                     colors[vertIdx * 3 + 1] = c[1];
                     colors[vertIdx * 3 + 2] = c[2];
@@ -789,9 +812,9 @@
         // Construir linha sobre os triângulos da face
         for (const tIdx of triIndices) {
             const off = tIdx * 9;
-            const x0 = posAttr.array[off], y0 = posAttr.array[off+1], z0 = posAttr.array[off+2];
-            const x1 = posAttr.array[off+3], y1 = posAttr.array[off+4], z1 = posAttr.array[off+5];
-            const x2 = posAttr.array[off+6], y2 = posAttr.array[off+7], z2 = posAttr.array[off+8];
+            const x0 = posAttr.array[off], y0 = posAttr.array[off + 1], z0 = posAttr.array[off + 2];
+            const x1 = posAttr.array[off + 3], y1 = posAttr.array[off + 4], z1 = posAttr.array[off + 5];
+            const x2 = posAttr.array[off + 6], y2 = posAttr.array[off + 7], z2 = posAttr.array[off + 8];
             linePositions.push(x0, y0, z0, x1, y1, z1);
             linePositions.push(x1, y1, z1, x2, y2, z2);
             linePositions.push(x2, y2, z2, x0, y0, z0);
@@ -886,7 +909,8 @@
         const criticalTypes = ["degenerate", "nonmanifold", "flipped", "t_junction"];
 
         for (const [key, check] of Object.entries(checks)) {
-            const c = check.count || 0;
+            if (check.count === null || check.count === undefined || check.evaluated === false) continue;
+            const c = check.count;
             if (c > 0) {
                 if (criticalTypes.includes(key)) critCount += c;
                 else if (key !== "poles" && key !== "collinear_vertices") warnCount += c;
@@ -894,12 +918,14 @@
         }
 
         const watertight = summary.topology?.is_watertight;
+        const issueFaces = summary.issue_faces || 0;
         const parts = [];
-        if (critCount > 0) parts.push(`⚠️ ${critCount} erro(s) crítico(s)`);
-        if (warnCount > 0) parts.push(`${warnCount} aviso(s) topológico(s)`);
+        if (critCount > 0) parts.push(`❌ ${critCount} erro(s) crítico(s)`);
+        if (issueFaces > 0) parts.push(`⚠️ ${issueFaces} anomalia(s) topológica(s)`);
+        else if (warnCount > 0) parts.push(`⚠️ ${warnCount} aviso(s) topológico(s)`);
         if (watertight === false) parts.push("Não estanque");
 
-        if (parts.length === 0) return "✅ Sem erros críticos • Malha aprovada";
+        if (parts.length === 0) return "✅ Conformidade topológica verificada";
         return parts.join(" • ");
     }
 
@@ -924,7 +950,7 @@
         if (titleEl) titleEl.textContent = targetName;
         if (topChip) topChip.textContent = targetName;
         if (drawerTitle) drawerTitle.textContent = targetName;
-        
+
         const statusClass = `status-badge ${stat.status === 'done' ? 'online' : (stat.status === 'failed' ? 'error' : 'working')}`;
         const statusTxt = stat.status === 'done' ? 'Concluído' : (stat.status === 'failed' ? 'Falhou' : 'A Processar');
         if (statusEl) {
@@ -1047,12 +1073,15 @@
         if (sideBarTris) sideBarTris.style.width = `${trisPct}%`;
         if (sideBarNgons) sideBarNgons.style.width = `${ngonsPct}%`;
 
-        const origWtEl = document.getElementById("orig-watertight-val");
-        const origMfEl = document.getElementById("orig-manifold-val");
-        const origBdEl = document.getElementById("orig-boundary-val");
-        if (origWtEl) origWtEl.innerHTML = topo.is_watertight ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
-        if (origMfEl) origMfEl.innerHTML = topo.is_manifold ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
-        if (origBdEl) origBdEl.textContent = (topo.boundary_edges || 0).toLocaleString();
+        const isOriginalMesh = (QAState.activeSnapshot === 0 || QAState.activeMeshName?.includes("Original"));
+        if (isOriginalMesh) {
+            const origWtEl = document.getElementById("orig-watertight-val");
+            const origMfEl = document.getElementById("orig-manifold-val");
+            const origBdEl = document.getElementById("orig-boundary-val");
+            if (origWtEl) origWtEl.innerHTML = topo.is_watertight ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
+            if (origMfEl) origMfEl.innerHTML = topo.is_manifold ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
+            if (origBdEl) origBdEl.textContent = (topo.boundary_edges || 0).toLocaleString();
+        }
 
         // Ângulos
         if (angles) {
@@ -1099,11 +1128,28 @@
 
         for (const [checkKey, checkData] of Object.entries(summaryChecks)) {
             const info = getCheckInfo(checkKey);
-            const count = checkData.count || 0;
-            const ratio = checkData.ratio !== undefined ? (checkData.ratio * 100).toFixed(1) : null;
+            const isEvaluated = checkData && checkData.count !== null && checkData.count !== undefined && checkData.evaluated !== false;
+            const count = isEvaluated ? checkData.count : null;
+            const ratio = (isEvaluated && checkData.ratio !== undefined && checkData.ratio !== null) ? (checkData.ratio * 100).toFixed(1) : null;
             const basis = checkData.ratio_basis || "faces";
 
-            let severity = count === 0 ? "ok" : info.severity;
+            // Comparação com baseline de referência da malha original (snapshot 0)
+            let originComparisonNote = "";
+            if (QAState.originalBaseline && QAState.activeSnapshot !== 0 && isEvaluated && count !== null) {
+                const baseCheck = QAState.originalBaseline.statusData?.summary?.checks?.[checkKey];
+                const baseCount = (baseCheck && typeof baseCheck.count === "number") ? baseCheck.count : null;
+                if (baseCount !== null) {
+                    if (baseCount > 0 && count > 0) {
+                        originComparisonNote = `<span style="font-size:0.69rem;color:#94a3b8;display:block;margin-top:2px;">(Já existia no original: ${baseCount} ${basis})</span>`;
+                    } else if (baseCount === 0 && count > 0) {
+                        originComparisonNote = `<span style="font-size:0.69rem;color:#f87171;display:block;margin-top:2px;">(Introduzido no processo RL: +${count} ${basis})</span>`;
+                    } else if (baseCount > 0 && count === 0) {
+                        originComparisonNote = `<span style="font-size:0.69rem;color:#34d399;display:block;margin-top:2px;">(Corrigido face ao original)</span>`;
+                    }
+                }
+            }
+
+            let severity = !isEvaluated ? "neutral" : (count === 0 ? "ok" : info.severity);
 
             const item = document.createElement("div");
             item.className = `qa-check-item severity-${severity}`;
@@ -1120,12 +1166,13 @@
                         <input type="checkbox" class="qa-check-toggle" data-check="${checkKey}" ${isChecked ? "checked" : ""}>
                         <div>
                             <span class="qa-check-name">${info.title}</span>
-                            <span class="qa-check-counts">${count} ${basis} ${ratio !== null ? `(${ratio}%)` : ""}</span>
+                            <span class="qa-check-counts">${isEvaluated ? `${count} ${basis} ${ratio !== null ? `(${ratio}%)` : ""}` : "Não avaliado"}</span>
+                            ${originComparisonNote}
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.4rem;">
-                        <span class="qa-badge ${severity === 'ok' ? 'ok' : (severity === 'critical' ? 'critical' : 'warning')}">
-                            ${count === 0 ? "0 erros" : `${count} prob.`}
+                        <span class="qa-badge ${!isEvaluated ? 'neutral' : (severity === 'ok' ? 'ok' : (severity === 'critical' ? 'critical' : 'warning'))}">
+                            ${!isEvaluated ? "Não avaliado" : (count === 0 ? "0 erros" : `${count} prob.`)}
                         </span>
                         <span class="qa-chevron" style="color:#64748b;font-size:0.7rem;">▼</span>
                     </div>
@@ -1531,6 +1578,7 @@
 
                 let objText = null;
                 if (snapshot === 0) {
+                    QAState.originalBaseline = { statusData: statusResult, resultData: resultData };
                     objText = window.currentUploadedObjText || QAState.rawObjText;
                 } else if (snapshot === null) {
                     objText = window.cachedSimplifiedObjText;
@@ -1542,7 +1590,7 @@
                 if (!objText && !resultData?.geometry) {
                     try {
                         objText = await window.RetopoAPI.downloadSimplifiedMesh(idToRun);
-                    } catch (_) {}
+                    } catch (_) { }
                 }
 
                 dssAnalysisCache.set(cacheKey, { statusData: statusResult, resultData, rawObjText: objText });
@@ -1702,7 +1750,7 @@
         const btnCloseWin = document.getElementById("btn-close-dss-window");
         const btnDssBack = document.getElementById("btn-dss-back");
 
-        openDSSWindow = function() {
+        openDSSWindow = function () {
             if (window.updateSidebarContext) {
                 window.updateSidebarContext("dss");
             }
@@ -1713,7 +1761,7 @@
             }
         };
 
-        closeDSSWindow = function() {
+        closeDSSWindow = function () {
             if (window.updateSidebarContext) {
                 const prev = window.getPreviousSidebarContext ? window.getPreviousSidebarContext() : "low";
                 window.updateSidebarContext(prev);
@@ -1731,7 +1779,7 @@
             }
         });
 
-        setViewMode = function(mode) {
+        setViewMode = function (mode) {
             // Se estiver em High Poly e for ativar um modo DSS, muda automaticamente para Low Poly (onde incide a auditoria DSS)
             if (mode !== "none" && typeof window.getActiveView === "function" && window.getActiveView() === "high") {
                 const btnLow = document.getElementById("btn-low-poly");
