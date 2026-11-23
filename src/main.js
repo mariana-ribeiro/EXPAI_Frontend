@@ -1069,6 +1069,55 @@
         window.fetchFinalMeshObj = fetchFinalMeshObj;
         window.getFinalMeshObjText = () => cachedSimplifiedObjText;
 
+        // ─── Quads dos snapshots (a pedido) ─────────────────────────────────
+        // O RL só converte em quads o resultado final. O quad de um snapshot
+        // pede-se com POST /v1/quad/{id}?snapshot=N (~1 min) e consulta-se até done.
+        const snapQuadJobs = new Map(); // `${modelId}_${dissolves}` → Promise do job em curso
+
+        /** Estado do quad de um snapshot: "none" (nunca pedido), "queued", "running", "done" ou "failed". */
+        async function getSnapshotQuadState(dissolves) {
+            try {
+                const job = await RetopoAPI.getQuadStatus(currentModelId, dissolves);
+                return job?.status || "none";
+            } catch (err) {
+                if (err?.status === 404) return "none";
+                throw err;
+            }
+        }
+
+        /** Gera (se preciso) e espera pelo quad de um snapshot. Resolve com o estado final do job. */
+        function ensureSnapshotQuad(dissolves, onProgress) {
+            const modelId = currentModelId;
+            const key = `${modelId}_${dissolves}`;
+            if (snapQuadJobs.has(key)) return snapQuadJobs.get(key);
+            const job = (async () => {
+                const state = await getSnapshotQuadState(dissolves);
+                if (state === "done") return { status: "done" };
+                if (state !== "queued" && state !== "running") {
+                    await RetopoAPI.startQuad(modelId, dissolves);
+                }
+                return RetopoAPI.waitForQuad(modelId, dissolves, onProgress);
+            })().finally(() => snapQuadJobs.delete(key));
+            snapQuadJobs.set(key, job);
+            return job;
+        }
+
+        /** OBJ de um snapshot: os quads se já existirem, senão os triângulos do RL. */
+        async function fetchSnapshotObj(dissolves) {
+            try {
+                const text = await RetopoAPI.downloadQuadMesh(currentModelId, dissolves);
+                if (text && text.includes("v ")) return { text, isQuad: true };
+            } catch (err) {
+                if (err?.status !== 404 && err?.status !== 409) {
+                    console.warn(`[Snapshot] Quads do snapshot ${dissolves} indisponíveis:`, err.message);
+                }
+            }
+            const snapData = await RetopoAPI.getRLSnapshot(currentModelId, dissolves);
+            return { text: extractObjFromSnap(snapData), isQuad: false };
+        }
+
+        window.getCurrentSnapIsQuad = () => Boolean(currentSnapGeo?.userData?.isQuad);
+
         let currentEdgeFilter = "all";
         let latestActionsList = [];
         const snapshotImagesMap = new Map();
@@ -1557,47 +1606,6 @@
 
         window.updateSidebarContext = updateSidebarContext;
         window.getPreviousSidebarContext = () => previousSidebarContext;
-
-        async function loadSnapshotInto3D(snap, dissolves) {
-            let loaded = false;
-            const stepNum = snap?.step || (snap?.is_intermediate ? Math.round((realStats.low.steps || 100) / 2) : realStats.low.steps || dissolves);
-            const effTxt = (snap?.step && dissolves) ? `${Math.min(100, Math.round((dissolves / snap.step) * 100))}% aceites` : null;
-
-            if (snap?.is_current && lowPolyGeo) {
-                loadGeometryIntoViewport(
-                    lowPolyGeo,
-                    { faces: realStats.low.faces || realStats.high.faces, verts: realStats.low.verts || realStats.high.verts },
-                    `Malha Otimizada Atual (${dissolves} dissolves)`,
-                    dissolves,
-                    stepNum,
-                    effTxt
-                );
-                return true;
-            }
-
-            let objText = null;
-            if (!snap?.is_current) {
-                try {
-                    const snapData = await RetopoAPI.getRLSnapshot(currentModelId, dissolves);
-                    objText = extractObjFromSnap(snapData);
-                } catch (e) {
-                    console.warn(`[Snapshot] Endpoint /snapshots/${dissolves}:`, e.message);
-                }
-            }
-
-            if (!objText || !objText.includes("v ")) {
-                try {
-                    objText = await fetchFinalMeshObj();
-                } catch (_) { }
-            }
-
-            if (objText && objText.includes("v ")) {
-                loadMeshIntoViewport(objText, `Snapshot ${dissolves} Dissolves`, dissolves, stepNum, effTxt);
-                return true;
-            }
-
-            return false;
-        }
 
         function renderDssSnapshotTimeline() { }
         window.renderDssSnapshotTimeline = renderDssSnapshotTimeline;
@@ -2352,7 +2360,8 @@
                 if (activeView === "snapshot" && currentSnapGeo) {
                     const snapDiss = (currentSnapDissolves !== null && currentSnapDissolves !== undefined) ? currentSnapDissolves : (currentSnapStats?.faces || "snap");
                     if (currentSnapGeo.userData && currentSnapGeo.userData.rawObjText) {
-                        downloadObjFile(`retopo_snapshot_${snapDiss}dissolves.obj`, currentSnapGeo.userData.rawObjText);
+                        const quadSuffix = currentSnapGeo.userData.isQuad ? "_quads" : "";
+                        downloadObjFile(`retopo_snapshot_${snapDiss}dissolves${quadSuffix}.obj`, currentSnapGeo.userData.rawObjText);
                         return;
                     }
                     if (window.THREE.OBJExporter) {
@@ -2464,48 +2473,6 @@
             link.click();
             document.body.removeChild(link);
             setTimeout(() => URL.revokeObjectURL(url), 1500);
-        }
-
-        async function downloadSnapshotMesh(dissolves, isCurrent) {
-            try {
-                let objContent = null;
-
-                // 1. Tentar descarregar do snapshot intermédio específico da API
-                if (!isCurrent) {
-                    try {
-                        const snapData = await RetopoAPI.getRLSnapshot(currentModelId, dissolves);
-                        objContent = extractObjFromSnap(snapData);
-                    } catch (e) {
-                        console.warn(`[Download] Snapshot ${dissolves} não existe na API:`, e.message);
-                    }
-                }
-
-                // 2. Se for o estado atual ou se o endpoint específico não existir, usar a malha simplificada da API
-                if (!objContent || !objContent.includes("v ")) {
-                    objContent = await fetchFinalMeshObj();
-                }
-
-                // 3. Fallback: exportar a geometria atual via OBJExporter
-                if (!objContent || !objContent.includes("v ")) {
-                    if (currentSnapGeo && window.THREE.OBJExporter) {
-                        const tempMesh = new THREE.Mesh(currentSnapGeo, baseMaterial);
-                        const exporter = new THREE.OBJExporter();
-                        objContent = exporter.parse(tempMesh);
-                    }
-                }
-
-                if (objContent && objContent.includes("v ")) {
-                    const filename = `snapshot_${dissolves || "intermedio"}_dissolves.obj`;
-                    downloadObjFile(filename, objContent);
-                    return true;
-                } else {
-                    throw new Error("Geometria não disponível para download");
-                }
-            } catch (err) {
-                console.error("[Download Snapshot]", err);
-                alert(`Não foi possível descarregar o snapshot: ${err.message}`);
-                return false;
-            }
         }
 
         function openSnapshotLightbox(info) {
@@ -2652,6 +2619,16 @@
 
             let displaySnaps = Array.isArray(snapshots) ? [...snapshots] : [];
 
+            // Os snapshots da API são intermédios; a malha final (quads do RL) entra como último cartão.
+            if (lowPolyGeo && !displaySnaps.some((s) => s && s.is_current)) {
+                displaySnaps.push({
+                    is_current: true,
+                    accepted_dissolves: totalDissolves,
+                    step: totalSteps,
+                    faces: realStats.low.faces || undefined
+                });
+            }
+
             if (displaySnaps.length === 0) {
                 const emptyDiv = document.createElement("div");
                 emptyDiv.className = "action-log-empty";
@@ -2679,7 +2656,7 @@
                 card.className = "snapshot-card glass";
 
                 const snapNum = idx + 1;
-                const isFinalMesh = Boolean(snap.is_current || (idx === displaySnaps.length - 1 && displaySnaps.length > 1));
+                const isFinalMesh = Boolean(snap && snap.is_current);
                 let tagText = `SNAPSHOT #${snapNum}`;
                 let titleText = `Snapshot #${snapNum} • ${dissolves} Dissolves (Passo ${stepNum})`;
 
@@ -2731,8 +2708,11 @@
                                     <span>⚡ Malha Otimizada Final (Já Descarregada no 3D)</span>
                                 </button>
                             ` : `
-                                <button class="btn-load-snap-mesh" data-dissolves="${dissolves}" style="width:100%;">
+                                <button class="btn-load-snap-mesh" data-dissolves="${dissolves}">
                                     <span>📥 Carregar Snapshot #${snapNum} no 3D</span>
+                                </button>
+                                <button type="button" class="btn-load-snap-mesh btn-gen-snap-quads" data-dissolves="${dissolves}" style="display:none;background:transparent;border:1px dashed rgba(192,132,252,0.5);color:#c084fc;box-shadow:none;">
+                                    <span>🔷 Gerar quads (≈1 min)</span>
                                 </button>
                             `}
                         </div>
@@ -2755,29 +2735,105 @@
                     placeholder.style.display = "none";
                 }
 
-                // Tentar buscar imagem da API ou usar captura instantânea da cena 3D Three.js
-                const imagePromise = isFinalMesh
-                    ? RetopoAPI.getQuadImageBlobUrl(currentModelId)
-                    : RetopoAPI.getSnapshotImageBlobUrl(currentModelId, dissolves);
-                imagePromise.then((blobUrl) => {
+                const btnGenQuads = card.querySelector(".btn-gen-snap-quads");
+
+                function setNoQuadImage() {
+                    placeholder.innerHTML = "<span>🔷 Sem quads ainda<br><small>Gere os quads para ver a imagem</small></span>";
+                }
+
+                /** Mostra o estado do quad deste snapshot: imagem se pronto, botão "Gerar quads" se não. */
+                async function refreshSnapshotQuadUI() {
+                    const blobUrl = await RetopoAPI.getQuadImageBlobUrl(currentModelId, dissolves);
                     if (blobUrl) {
                         applyImage(blobUrl);
-                    } else {
-                        const localSnap = captureCanvasSnapshot();
-                        if (localSnap) {
-                            applyImage(localSnap);
-                        } else {
-                            placeholder.innerHTML = "<span>📷 Sem fotografia</span>";
+                        if (btnGenQuads) btnGenQuads.style.display = "none";
+                        btnLoad.innerHTML = `<span>📥 Carregar quads do Snapshot #${snapNum}</span>`;
+                        return "done";
+                    }
+                    let state = "none";
+                    try { state = await getSnapshotQuadState(dissolves); } catch (_) { }
+                    if (!resolvedImgUrl) setNoQuadImage();
+                    if (btnGenQuads) {
+                        btnGenQuads.style.display = "";
+                        if (state === "queued" || state === "running") {
+                            runQuadGeneration(); // já está a correr: acompanhar
+                        } else if (state === "failed") {
+                            btnGenQuads.innerHTML = "<span>🔁 Quads falharam — tentar de novo</span>";
                         }
                     }
-                }).catch(() => {
-                    const localSnap = captureCanvasSnapshot();
-                    if (localSnap) {
-                        applyImage(localSnap);
-                    } else {
-                        placeholder.innerHTML = "<span>📷 Sem fotografia</span>";
+                    return state;
+                }
+
+                async function runQuadGeneration() {
+                    if (!btnGenQuads || btnGenQuads.disabled) return;
+                    btnGenQuads.disabled = true;
+                    const t0 = Date.now();
+                    const tick = (job) => {
+                        const secs = Math.round((Date.now() - t0) / 1000);
+                        const what = job?.status === "queued" ? "Em fila" : "A gerar quads";
+                        btnGenQuads.innerHTML = `<span>⏳ ${what}... ${secs}s</span>`;
+                    };
+                    tick({ status: "running" });
+                    const timer = setInterval(() => tick({ status: "running" }), 1000);
+                    try {
+                        const final = await ensureSnapshotQuad(dissolves, tick);
+                        if (final?.status === "failed") {
+                            throw new Error(final.error || "A conversão em quads falhou.");
+                        }
+                        await refreshSnapshotQuadUI();
+                        // Se este snapshot está aberto no 3D, trocar para os quads e correr o DSS
+                        if (activeView === "snapshot" && currentSnapDissolves === dissolves) {
+                            const { text, isQuad } = await fetchSnapshotObj(dissolves);
+                            if (text && isQuad) {
+                                const effTxtNow = `${Math.min(100, Math.round((dissolves / (stepNum || 1)) * 100))}% aceites`;
+                                loadMeshIntoViewport(text, `Snapshot #${snapNum} (${dissolves} Dissolves, quads)`, dissolves, stepNum, effTxtNow, snapNum, true);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`[Snapshot] Quads do snapshot ${dissolves}:`, err.message);
+                        btnGenQuads.innerHTML = `<span>⚠️ ${escapeHtml(err.message || "Erro ao gerar quads")}</span>`;
+                        setTimeout(() => {
+                            btnGenQuads.innerHTML = "<span>🔁 Tentar gerar quads de novo</span>";
+                        }, 4000);
+                    } finally {
+                        clearInterval(timer);
+                        btnGenQuads.disabled = false;
                     }
-                });
+                }
+
+                if (btnGenQuads) {
+                    btnGenQuads.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        runQuadGeneration();
+                    });
+                }
+
+                if (isFinalMesh) {
+                    // Imagem dos quads da malha final (feita pela API no fim do RL)
+                    RetopoAPI.getQuadImageBlobUrl(currentModelId).then((blobUrl) => {
+                        if (blobUrl) {
+                            applyImage(blobUrl);
+                        } else {
+                            const localSnap = captureCanvasSnapshot();
+                            if (localSnap) applyImage(localSnap);
+                            else placeholder.innerHTML = "<span>📷 Sem fotografia</span>";
+                        }
+                    });
+                } else {
+                    // Snapshots: só pedir à API quando o cartão aparece no ecrã (pode haver muitos)
+                    const lazy = () => refreshSnapshotQuadUI().catch(() => setNoQuadImage());
+                    if ("IntersectionObserver" in window) {
+                        const io = new IntersectionObserver((entries) => {
+                            if (entries.some((en) => en.isIntersecting)) {
+                                io.disconnect();
+                                lazy();
+                            }
+                        }, { root: null, rootMargin: "200px" });
+                        io.observe(card);
+                    } else {
+                        lazy();
+                    }
+                }
 
                 // Abertura do Lightbox com análise ao clicar na imagem
                 imgWrapper.addEventListener("click", () => {
@@ -2819,25 +2875,29 @@
                             return;
                         }
 
-                        // 2. Se for snapshot da API com marco específico, tentar buscar da API
+                        // 2. Snapshot intermédio: quads se já foram gerados, senão os triângulos do RL
                         let objText = null;
+                        let objIsQuad = false;
                         if (!loaded && !snap.is_current) {
                             try {
-                                const snapData = await RetopoAPI.getRLSnapshot(currentModelId, dissolves);
-                                objText = extractObjFromSnap(snapData);
+                                const snapObj = await fetchSnapshotObj(dissolves);
+                                objText = snapObj.text;
+                                objIsQuad = snapObj.isQuad;
                             } catch (e) {
-                                console.warn(`[Snapshot] Endpoint /snapshots/${dissolves} não existe na API (comum quando dissolves < 50):`, e.message);
+                                console.warn(`[Snapshot] Snapshot ${dissolves} indisponível na API:`, e.message);
                             }
                         }
 
                         // 3. Se for o estado atual final e ainda não temos o OBJ
                         if (!loaded && isFinalMesh && (!objText || !objText.includes("v "))) {
                             objText = await fetchFinalMeshObj();
+                            objIsQuad = finalMeshIsQuad;
                         }
 
                         // 4. Carregar o OBJ recuperado no Three.js
                         if (objText && objText.includes("v ")) {
-                            loadMeshIntoViewport(objText, `Snapshot #${snapNum} (${dissolves} Dissolves)`, dissolves, stepNum, effTxt, snapNum);
+                            const label = `Snapshot #${snapNum} (${dissolves} Dissolves${objIsQuad ? ", quads" : ""})`;
+                            loadMeshIntoViewport(objText, label, dissolves, stepNum, effTxt, snapNum, objIsQuad);
                             loaded = true;
                         }
 
@@ -2858,6 +2918,9 @@
 
                 snapshotsList.appendChild(card);
             });
+
+            // Número de snapshots intermédios (o cartão da malha final não conta)
+            return displaySnaps.filter((s) => !(s && s.is_current)).length;
         }
 
         function extractObjFromSnap(data) {
@@ -3107,10 +3170,12 @@
             }
         }
 
-        function loadMeshIntoViewport(objText, label, dissolves, step, efficiency, snapIndex) {
+        function loadMeshIntoViewport(objText, label, dissolves, step, efficiency, snapIndex, isQuad = false) {
             if (!objText) return;
             const snapGeo = buildCustomOBJGeometry(objText);
             if (snapGeo) {
+                snapGeo.userData = snapGeo.userData || {};
+                snapGeo.userData.isQuad = Boolean(isQuad);
                 const intermStats = computeObjStats(objText);
                 loadGeometryIntoViewport(snapGeo, intermStats, label, dissolves, step, efficiency, snapIndex);
             }

@@ -43,6 +43,14 @@ Base: [frontend-api.md](frontend-api.md) e o código atual de `C:\DEV\API_EXPAI`
   - `409` no `POST` da análise → estado "À Espera do Quad" (ou "Sem Quads" se o quad falhou) com a `message` da API, em vez de "Falhou".
   - Ao arrancar um novo RL, as análises em cache dessa malha e a referência original são esquecidas (`MeshQA.invalidateMesh`).
 
+- **Fase 5 — feita.**
+  - Drawer: os snapshots da API são todos intermédios; a malha final entra como último cartão (antes o último snapshot era tratado como "final"). O contador "Snapshots" passou a mostrar o número certo.
+  - Cada snapshot sem quads tem "🔷 Gerar quads (≈1 min)" → `POST /v1/quad/{id}?snapshot=N` + polling com contador de segundos; um quad já em curso é acompanhado. Quando termina: imagem dos quads no cartão e, se esse snapshot estiver aberto no 3D, troca para os quads e corre o DSS do snapshot.
+  - Imagens dos snapshots: só a da API (`/v1/quad/{id}/image?snapshot=N`), pedida quando o cartão fica visível; sem quads → "Sem quads ainda" (já não usa a captura do canvas, que mostrava a malha errada).
+  - Carregar/exportar um snapshot: quads se existirem, senão os triângulos do RL (nome do ficheiro com `_quads`).
+  - DSS de um snapshot sem quads → "Sem Quads" com a indicação de onde os gerar; a geometria do DSS de um snapshot é a dos quads.
+  - Removido código morto (`loadSnapshotInto3D`, `downloadSnapshotMesh`).
+
 ### Notas sobre a API (encontradas nos testes)
 - **`max_steps` deixou de ser usado** (alterações por commitar em `app/routes/rl.py` e `app/services/rl_jobs.py`): o RL corre sempre o horizon do modelo (50 000 passos) e o parâmetro é ignorado. O `frontend-api.md` ainda o lista. A fase 2 deve deixar de depender do input de passos.
 - **500 passageiro no `GET .../status`**: `read_status` verifica `is_file()` e depois lê; se o job reescrever o `status.json` entre os dois, dá `FileNotFoundError` → 500 sem cabeçalhos CORS (o browser vê "Failed to fetch"). Visto com o `./storage` montado do Windows. O frontend já tolera; vale a pena avisar quem mantém a API.
