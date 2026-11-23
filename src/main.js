@@ -1124,6 +1124,63 @@
         let gnnLoaded = false;
         let gnnPromise = null;
         let gnnColorsArray = null;
+
+        // ─── Malha limpa (High) ─────────────────────────────────────────────
+        // A API limpa o upload uma vez (funde vértices, remove faces duplicadas e
+        // degeneradas) e usa só essa malha: o vértice i da malha limpa é a linha i
+        // do CSV da GNN, o vértice i do heatmap, do RL e do DSS da original.
+        // A vista High passa a mostrar essa malha para tudo ficar alinhado.
+        let highPolyIsClean = false;
+        let cleanMeshObjText = null;
+        let cleanHighPromise = null;
+
+        function ensureCleanHighPoly() {
+            if (highPolyIsClean) return Promise.resolve(true);
+            if (cleanHighPromise) return cleanHighPromise;
+            const modelId = currentModelId;
+            const download = RetopoAPI.downloadCleanMesh(modelId); // entra já na fila da malha
+            cleanHighPromise = (async () => {
+                try {
+                    const text = await download;
+                    if (modelId !== currentModelId || !text || !text.includes("v ")) return false;
+                    const geo = buildCustomOBJGeometry(text);
+                    if (!geo) return false;
+                    geo.userData.isCleanMesh = true;
+
+                    const oldGeo = highPolyGeo;
+                    highPolyGeo = geo;
+                    highPolyIsClean = true;
+                    cleanMeshObjText = text;
+
+                    const stats = computeObjStats(text);
+                    realStats.high.verts = stats.verts;
+                    realStats.high.faces = stats.faces;
+                    if (origFacesVal) origFacesVal.textContent = stats.faces.toLocaleString();
+                    if (origVertsVal) origVertsVal.textContent = stats.verts.toLocaleString();
+                    if (origEdgesVal) origEdgesVal.textContent = Math.round(stats.faces * 1.5).toLocaleString();
+
+                    if (mesh.geometry === oldGeo) {
+                        mesh.geometry = highPolyGeo;
+                        syncVisualOverlays();
+                        updateFloatingStats(stats.verts, stats.faces);
+                    }
+                    if (activeView === "high" && typeof updateSidebarContext === "function") {
+                        updateSidebarContext("high");
+                    }
+                    if (oldGeo && oldGeo !== lowPolyGeo && oldGeo !== currentSnapGeo) {
+                        disposeGeo(oldGeo);
+                    }
+                    return true;
+                } catch (err) {
+                    console.warn("[High] Malha limpa indisponível; a manter o ficheiro enviado:", err.message);
+                    return false;
+                } finally {
+                    cleanHighPromise = null;
+                }
+            })();
+            return cleanHighPromise;
+        }
+        window.getCleanMeshObjText = () => cleanMeshObjText;
         let gnnScores = null;
         let isRLRunning = false;
         let previousSidebarContext = "low";
@@ -1267,6 +1324,10 @@
             gnnLoaded = false;
             gnnScores = null;
             gnnPromise = null;
+            gnnColorsArray = null;
+            highPolyIsClean = false;
+            cleanMeshObjText = null;
+            cleanHighPromise = null;
             isRLRunning = false;
 
             // Fechar Gavetas se Abertas
@@ -1836,8 +1897,22 @@
             }
             if (minImp === maxImp || !isFinite(minImp)) { minImp = 0; maxImp = 1; }
 
-            // Emparelhamento espacial robusto por posição (x, y, z) entre a malha Three.js e os scores da GNN
-            const cellSize = 0.05;
+            // a) Malha limpa da API: a linha i do CSV é o vértice i → emparelhar por índice
+            const byIndex = Boolean(highPolyGeo.userData?.isCleanMesh && rawVerts && vertexIndices);
+            const scoreById = new Map();
+            if (byIndex) {
+                for (const s of scoreEntries) scoreById.set(s.id, s);
+            }
+
+            // b) Alternativa (malha enviada, não limpa): emparelhar por posição (x, y, z),
+            //    com uma grelha proporcional ao tamanho do modelo
+            let bbMin = [Infinity, Infinity, Infinity], bbMax = [-Infinity, -Infinity, -Infinity];
+            for (const s of scoreEntries) {
+                bbMin = [Math.min(bbMin[0], s.x), Math.min(bbMin[1], s.y), Math.min(bbMin[2], s.z)];
+                bbMax = [Math.max(bbMax[0], s.x), Math.max(bbMax[1], s.y), Math.max(bbMax[2], s.z)];
+            }
+            const diag = Math.hypot(bbMax[0] - bbMin[0], bbMax[1] - bbMin[1], bbMax[2] - bbMin[2]);
+            const cellSize = diag > 0 && isFinite(diag) ? diag / 200 : 0.05;
             const grid = new Map();
             for (let s of scoreEntries) {
                 const gx = Math.floor(s.x / cellSize);
@@ -1890,7 +1965,7 @@
                     vz = posAttr.getZ(i);
                 }
 
-                const s = getScoreForPosition(vx, vy, vz);
+                const s = byIndex ? scoreById.get(origV) : getScoreForPosition(vx, vy, vz);
                 if (!s || s.imp === undefined || s.imp === null) {
                     // Sem correspondência segura próxima: vértice a cinzento neutro
                     colors[i * 3] = 0.55;
@@ -1933,9 +2008,13 @@
 
             gnnPromise = (async () => {
                 try {
+                    // 0. Malha limpa para a vista High (os scores seguem a ordem dos vértices dela)
+                    const cleanReady = ensureCleanHighPoly();
+
                     // 1+2. Predição da rede neuronal e scores CSV dos vértices, numa só
                     // entrada da fila da malha (corre antes da simplificação RL)
                     const scoresCsv = await RetopoAPI.predictGNNWithScores(currentModelId);
+                    await cleanReady;
 
                     // 3. Processar CSV e mapear importância
                     const lines = scoresCsv.trim().split(/\r?\n/);
@@ -1952,6 +2031,7 @@
                     for (let i = 1; i < lines.length; i++) {
                         const row = lines[i].split(sep);
                         if (row.length >= 5) {
+                            const id = parseInt(row[0], 10);
                             const x = parseFloat(row[1]) || 0;
                             const y = parseFloat(row[2]) || 0;
                             const z = parseFloat(row[3]) || 0;
@@ -1965,7 +2045,7 @@
                             else if (imp >= 0.30) midCount++;
                             else lowCount++;
 
-                            scoreEntries.push({ x, y, z, imp, keep });
+                            scoreEntries.push({ id: Number.isFinite(id) ? id : scoreEntries.length, x, y, z, imp, keep });
                         }
                     }
 
