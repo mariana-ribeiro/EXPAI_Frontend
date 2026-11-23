@@ -454,7 +454,7 @@ window.RetopoAPI = {
      * reproduz o registo de ações através de onRLStep.
      * @param {(status: object) => void} [onProgress] estado do job a cada consulta (stage/percent)
      */
-    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = 100, onError, onProgress) {
+    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = null, onError, onProgress) {
         try {
             await this.startRLWhenFree(modelId, { maxSteps }, onProgress);
             const final = await this.waitForRL(modelId, onProgress);
@@ -494,7 +494,7 @@ window.RetopoAPI = {
                 }
             } else if (typeof onRLStep === "function") {
                 onRLStep({
-                    step: simplifyResult.steps || maxSteps,
+                    step: simplifyResult.steps || maxSteps || 0,
                     progress: 100,
                     log_message: `[Concluído] ${simplifyResult.accepted_dissolves || 0} dissolves aceites`,
                     is_critical: false,

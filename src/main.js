@@ -1034,7 +1034,6 @@
         const sideLowInfo = document.getElementById("side-low-info");
 
         const btnSideReport = document.getElementById("btn-side-report");
-        const inputMaxSteps = document.getElementById("input-max-steps");
 
         const actionLogEntries = [];
         let cachedSnapshots = [];
@@ -1073,7 +1072,7 @@
             if (origWatertightVal) origWatertightVal.textContent = "--";
             if (origManifoldVal) origManifoldVal.textContent = "--";
             if (origBoundaryVal) origBoundaryVal.textContent = "--";
-            if (sideOrigStepsVal) sideOrigStepsVal.textContent = `${inputMaxSteps?.value || 1800} iterações`;
+            if (sideOrigStepsVal) sideOrigStepsVal.textContent = "--"; // definido pelo modelo RL (progress.total)
 
             // Comparativos RL
             if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
@@ -1275,8 +1274,7 @@
 
             // 3. Iniciar cálculo GNN em background e decimação RL para o novo modelo
             ensureGNNHeatmap().catch(err => console.warn("[GNN Auto] Erro no cálculo automático:", err));
-            const initialSteps = parseInt(inputMaxSteps?.value || "1800", 10) || 1800;
-            runRLDecimation(initialSteps);
+            runRLDecimation();
         }
 
         window.RetopoViewer = {
@@ -1320,7 +1318,7 @@
         if (origWatertightVal) origWatertightVal.textContent = "--";
         if (origManifoldVal) origManifoldVal.textContent = "--";
         if (origBoundaryVal) origBoundaryVal.textContent = "--";
-        if (sideOrigStepsVal) sideOrigStepsVal.textContent = `${inputMaxSteps?.value || 1800} iterações`;
+        if (sideOrigStepsVal) sideOrigStepsVal.textContent = "--"; // definido pelo modelo RL (progress.total)
         if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
         if (sideCompFacesAfter) sideCompFacesAfter.textContent = "⏳ A otimizar...";
         if (sideRLEfficiency) sideRLEfficiency.textContent = "--%";
@@ -2035,15 +2033,14 @@
         // ══════════════════════════════════════════════════════
         // isRLRunning declarado no escopo de topo do initThreeJS
 
-        function runRLDecimation(stepsToRun) {
+        // O número de passos é o horizon do modelo RL (a API ignora max_steps).
+        function runRLDecimation() {
             if (isRLRunning) return;
             isRLRunning = true;
 
             if (window.MeshQA && typeof window.MeshQA.setWaitingRL === "function") {
                 window.MeshQA.setWaitingRL();
             }
-
-            const steps = parseInt(stepsToRun || inputMaxSteps?.value || "1800", 10) || 1800;
 
             if (sideLowInfo) {
                 sideLowInfo.textContent = "⏳ A otimizar...";
@@ -2097,6 +2094,7 @@
                         `A simplificar: passo ${Number(p.current || 0).toLocaleString()} de ${Number(p.total || 0).toLocaleString()}`
                     );
                     if (sideSteps) sideSteps.textContent = p.current ?? "--";
+                    if (sideOrigStepsVal && p.total) sideOrigStepsVal.textContent = `${Number(p.total).toLocaleString()} iterações`;
                 } else if (p.stage === "quad") {
                     setOptProgress(90 + percent * 0.1, "A converter o resultado em quads...");
                 }
@@ -2166,15 +2164,15 @@
                     realStats.low.faces = typeof finalFaces === "number" ? finalFaces : (lowStats?.faces || "--");
                     realStats.low.verts = typeof finalVerts === "number" ? finalVerts : (lowStats?.verts || "--");
                     realStats.low.dissolves = acceptedDissolves;
-                    realStats.low.steps = simplifyResult?.steps || stepsToRun || 1800;
+                    realStats.low.steps = simplifyResult?.steps || 0;
 
                     if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
                     if (sideCompFacesAfter) {
                         sideCompFacesAfter.textContent = typeof finalFaces === "number" ? finalFaces.toLocaleString() : "--";
                     }
                     if (sideRLEfficiency) {
-                        const totalSteps = simplifyResult?.steps || stepsToRun || 1800;
-                        const eff = Math.min(100, Math.round(((acceptedDissolves || 0) / totalSteps) * 100));
+                        const totalSteps = simplifyResult?.steps || 0;
+                        const eff = totalSteps ? Math.min(100, Math.round(((acceptedDissolves || 0) / totalSteps) * 100)) : 0;
                         sideRLEfficiency.textContent = `${eff}% aceites`;
                         realStats.low.efficiencyText = `${eff}% aceites`;
                     }
@@ -2245,7 +2243,7 @@
                         btnLow.click();
                     }
                 },
-                steps,
+                undefined, // max_steps: a API usa o horizon do modelo
                 (err) => {
                     isRLRunning = false;
                     if (optimizingOverlay) optimizingOverlay.classList.add("hidden");
@@ -2293,8 +2291,7 @@
 
         // Executar com o valor de iterações configurado no input inicial de upload
         if (currentModelId) {
-            const initialSteps = parseInt(inputMaxSteps?.value || "1800", 10) || 1800;
-            runRLDecimation(initialSteps);
+            runRLDecimation();
             updateSidebarContext("high");
         }
 
