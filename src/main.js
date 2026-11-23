@@ -328,12 +328,8 @@
             window.currentActiveModelId = modelId;
             window.currentUploadedObjText = fileText;
 
-            // Iniciar auditoria DSS para a malha original como referência (snapshot=0)
-            if (window.MeshQA && typeof window.MeshQA.runAnalysis === "function") {
-                window.MeshQA.runAnalysis(modelId, 0).catch(err => {
-                    console.warn("[DSS Auto Original] Análise do modelo original:", err.message);
-                });
-            }
+            // A auditoria DSS da malha original (snapshot=0) arranca depois do POST do RL
+            // (ver runRLDecimation): um novo RL apaga as análises desta malha.
 
             // 3. Transição direta para a cena 3D: fecha o modal inicial
             uploadModal.classList.add("hidden");
@@ -2065,12 +2061,17 @@
         //  EXECUÇÃO REAL DO AGENTE RL (POST /v1/rl/simplify)
         // ══════════════════════════════════════════════════════
         // isRLRunning declarado no escopo de topo do initThreeJS
+        window.isRLRunning = () => isRLRunning;
 
         // O número de passos é o horizon do modelo RL (a API ignora max_steps).
         function runRLDecimation() {
             if (isRLRunning) return;
             isRLRunning = true;
 
+            // Um novo RL apaga quads e análises desta malha na API
+            if (window.MeshQA && typeof window.MeshQA.invalidateMesh === "function") {
+                window.MeshQA.invalidateMesh(currentModelId);
+            }
             if (window.MeshQA && typeof window.MeshQA.setWaitingRL === "function") {
                 window.MeshQA.setWaitingRL();
             }
@@ -2326,7 +2327,13 @@
                         alert(`${title}: ${err?.message || err}`);
                     }
                 },
-                onRLProgress
+                onRLProgress,
+                // onStarted: o RL foi aceite (202) → DSS da malha original como referência
+                () => {
+                    if (window.MeshQA && typeof window.MeshQA.runOriginalBaseline === "function") {
+                        window.MeshQA.runOriginalBaseline(currentModelId);
+                    }
+                }
             );
         }
 

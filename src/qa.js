@@ -1854,6 +1854,78 @@
         }
     }
 
+    /**
+     * Análise DSS da malha original (snapshot=0) em segundo plano, como referência
+     * para comparar antes/depois. Não mexe no painel DSS (só guarda o resultado).
+     * Tem de arrancar depois do POST do RL: um novo RL apaga as análises da malha.
+     */
+    function runOriginalBaseline(meshId) {
+        if (!meshId) return Promise.resolve();
+        const cacheKey = `${meshId}_0`;
+        if (dssAnalysisCache.has(cacheKey)) return Promise.resolve();
+        if (dssInFlight.has(cacheKey)) return dssInFlight.get(cacheKey);
+
+        const promise = (async () => {
+            try {
+                const statusResult = await window.MeshQAAPI.runFullAnalysis(meshId, QAState.params, 0);
+                if (!statusResult || statusResult.status !== "done") return;
+                const resultData = await window.MeshQAAPI.downloadAnalysisResult(meshId, true, 0);
+                if ((QAState.activeMeshId || window.currentActiveModelId) !== meshId) return;
+                dssAnalysisCache.set(cacheKey, {
+                    statusData: statusResult,
+                    resultData,
+                    rawObjText: window.currentUploadedObjText || null
+                });
+                QAState.originalBaseline = { statusData: statusResult, resultData };
+                // Atualizar comparações antes/depois se já houver outra análise no painel
+                if (QAState.resultData && QAState.activeSnapshot !== 0) renderDSSUI();
+            } catch (err) {
+                console.warn("[DSS Original] Análise da malha original falhou:", err.message);
+            } finally {
+                dssInFlight.delete(cacheKey);
+            }
+        })();
+        dssInFlight.set(cacheKey, promise);
+        return promise;
+    }
+
+    /** Um novo RL apaga quads e análises da malha: esquecer o que estava em cache. */
+    function invalidateMeshAnalyses(meshId) {
+        if (!meshId) return;
+        for (const key of [...dssAnalysisCache.keys()]) {
+            if (key.startsWith(`${meshId}_`)) dssAnalysisCache.delete(key);
+        }
+        QAState.originalBaseline = null;
+        QAState.statusData = null;
+        QAState.resultData = null;
+        QAState.rawObjText = null;
+    }
+
+    /** Estado "indisponível" (409): falta um passo antes desta análise (ex.: o quad). */
+    function renderDSSUnavailable(message) {
+        const statusEl = document.getElementById("qa-header-status");
+        const verdictEl = document.getElementById("qa-header-verdict");
+        const drawerStatus = document.getElementById("dss-drawer-status");
+        const drawerVerdict = document.getElementById("dss-drawer-verdict");
+        const quadFailed = /failed/i.test(message || "");
+        const label = quadFailed ? "Sem Quads" : "À Espera do Quad";
+        const hint = quadFailed
+            ? "A conversão em quads desta malha falhou, por isso não há malha em quads para analisar."
+            : "A análise DSS precisa da malha em quads, que ainda não está pronta. Tente de novo quando a conversão terminar.";
+        const html = `<span style="color:#fbbf24;font-weight:600;">⏳ ${hint}</span> <span style="color:#94a3b8;">(${message})</span>`;
+        for (const el of [statusEl, drawerStatus]) {
+            if (el) {
+                el.className = "status-badge working";
+                el.textContent = label;
+            }
+        }
+        if (verdictEl) verdictEl.innerHTML = html;
+        if (drawerVerdict) {
+            drawerVerdict.innerHTML = html;
+            drawerVerdict.style.color = "";
+        }
+    }
+
     async function runDSSAnalysis(meshId, snapshot = null) {
         const idToRun = meshId || QAState.activeMeshId || window.currentActiveModelId;
         if (!idToRun) {
@@ -1862,6 +1934,12 @@
         }
         QAState.activeMeshId = idToRun;
         QAState.activeSnapshot = snapshot;
+
+        // A malha final (quads) só existe quando o RL e o quad final terminam.
+        if (snapshot === null && typeof window.isRLRunning === "function" && window.isRLRunning()) {
+            setWaitingRLState();
+            return;
+        }
 
         if (snapshot === 0) {
             QAState.activeMeshName = "Malha Original (Upload)";
@@ -1946,6 +2024,11 @@
                 await loadDSSData(statusResult, resultData, objText);
 
             } catch (err) {
+                if (err?.status === 409) {
+                    console.info("[DSS] Análise indisponível por agora:", err.message);
+                    renderDSSUnavailable(err.message);
+                    return;
+                }
                 console.warn("[DSS] Falha na API ao auditar:", err.message);
                 const verdictEl = document.getElementById("qa-header-verdict");
                 if (statusEl) {
@@ -2240,6 +2323,8 @@
     window.MeshQA = {
         loadData: loadDSSData,
         runAnalysis: runDSSAnalysis,
+        runOriginalBaseline: runOriginalBaseline,
+        invalidateMesh: invalidateMeshAnalyses,
         setWaitingRL: setWaitingRLState,
         loadFixtures: loadDSSFromFixtures,
         selectFace: selectFaceInQA,

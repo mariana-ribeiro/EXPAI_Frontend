@@ -453,10 +453,14 @@ window.RetopoAPI = {
      * Compatibilidade com o main.js atual: arranca o RL, espera pelo fim e
      * reproduz o registo de ações através de onRLStep.
      * @param {(status: object) => void} [onProgress] estado do job a cada consulta (stage/percent)
+     * @param {(job: object) => void} [onStarted] chamado quando a API aceita o RL (202)
      */
-    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = null, onError, onProgress) {
+    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = null, onError, onProgress, onStarted) {
         try {
-            await this.startRLWhenFree(modelId, { maxSteps }, onProgress);
+            const startedJob = await this.startRLWhenFree(modelId, { maxSteps }, onProgress);
+            if (typeof onStarted === "function") {
+                try { onStarted(startedJob); } catch (_) { }
+            }
             const final = await this.waitForRL(modelId, onProgress);
 
             if (final.status === "failed") {
