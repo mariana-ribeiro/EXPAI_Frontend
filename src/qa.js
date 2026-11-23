@@ -1874,7 +1874,7 @@
                 dssAnalysisCache.set(cacheKey, {
                     statusData: statusResult,
                     resultData,
-                    rawObjText: window.currentUploadedObjText || null
+                    rawObjText: (typeof window.getCleanMeshObjText === "function" && window.getCleanMeshObjText()) || window.currentUploadedObjText || null
                 });
                 QAState.originalBaseline = { statusData: statusResult, resultData };
                 // Atualizar comparações antes/depois se já houver outra análise no painel
@@ -2006,7 +2006,9 @@
                 let objText = null;
                 if (snapshot === 0) {
                     QAState.originalBaseline = { statusData: statusResult, resultData: resultData };
-                    objText = window.currentUploadedObjText || QAState.rawObjText;
+                    // snapshot=0 analisa a malha limpa (vértices fundidos, faces degeneradas removidas)
+                    objText = (typeof window.getCleanMeshObjText === "function" && window.getCleanMeshObjText())
+                        || window.currentUploadedObjText || QAState.rawObjText;
                 } else if (snapshot === null) {
                     objText = typeof window.getFinalMeshObjText === "function" ? window.getFinalMeshObjText() : null;
                 } else {
