@@ -29,6 +29,11 @@ Base: [frontend-api.md](frontend-api.md) e o código atual de `C:\DEV\API_EXPAI`
   - `startRLDecimation` e `runFullAnalysis` mantêm a assinatura; o `main.js`/`qa.js` continuam a funcionar sem alterações de UI.
   - `pollJob` tolera até 5 falhas seguidas de rede/5xx (ver bug da API abaixo).
 
+- **Fase 2 — feita.** Barra com progresso real (`simplifying` → 0–90 %, `quad` → 90–100 %, `queued` → "Em fila no servidor..."); `failed` → modal com o erro do servidor; quad final falhado → aviso e badge "RL: Concluído (quad falhou)"; `409` → o arranque espera e tenta de novo até 90 s (`startRLWhenFree`), depois modal "Não é Possível Otimizar Agora" com a `message` da API.
+  - Fica por decidir: o input "Iterações do Agente RL" no upload já não tem efeito (a API ignora `max_steps`). Esconder ou retirar?
+  - **Para a fase 4:** logo após o upload, o `main.js` arranca o DSS da original (`snapshot=0`) *antes* do RL. O `POST` do RL apaga todas as análises da malha, incluindo essa, e o polling do DSS original dá `404 Analysis not found`. O DSS original tem de arrancar depois do `POST` do RL.
+  - A API só corre um RL de cada vez (semáforo); os outros ficam `queued`.
+
 ### Notas sobre a API (encontradas nos testes)
 - **`max_steps` deixou de ser usado** (alterações por commitar em `app/routes/rl.py` e `app/services/rl_jobs.py`): o RL corre sempre o horizon do modelo (50 000 passos) e o parâmetro é ignorado. O `frontend-api.md` ainda o lista. A fase 2 deve deixar de depender do input de passos.
 - **500 passageiro no `GET .../status`**: `read_status` verifica `is_file()` e depois lê; se o job reescrever o `status.json` entre os dois, dá `FileNotFoundError` → 500 sem cabeçalhos CORS (o browser vê "Failed to fetch"). Visto com o `./storage` montado do Windows. O frontend já tolera; vale a pena avisar quem mantém a API.

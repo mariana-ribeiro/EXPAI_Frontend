@@ -2072,30 +2072,35 @@
                 rlStatusBadge.textContent = "RL: A Otimizar...";
             }
 
-            // Animação proporcional e adaptativa calibrada pelo número de passos da otimização
-            // ~28ms por passo no motor Python (aprox. 35 passos/segundo)
+            // Progresso real do job RL (GET /v1/rl/simplify/{id}/status):
+            //   stage "simplifying" → 0–90 % da barra; stage "quad" → 90–100 %.
             let currentPct = 0;
-            const targetInterim = 82;
-            const interimInterval = 250; // ms
-            const estimatedMs = Math.max(2500, steps * 28);
-            const nominalIncrement = (targetInterim / (estimatedMs / interimInterval));
+            const setOptProgress = (pct, label) => {
+                currentPct = Math.max(currentPct, Math.min(100, pct)); // nunca recua
+                const rounded = Math.round(currentPct);
+                if (optProgressBar) optProgressBar.style.width = `${rounded}%`;
+                if (optPctLabel) optPctLabel.textContent = `${rounded}%`;
+                if (label && optStepLabel) optStepLabel.textContent = label;
+            };
 
-            const interimTimer = setInterval(() => {
-                if (currentPct < targetInterim) {
-                    // Avanço proporcional: velocidade constante até ~65% e desaceleração suave até 82%
-                    let factor = 1.0;
-                    if (currentPct > 65) {
-                        factor = Math.max(0.15, (targetInterim - currentPct) / (targetInterim - 65));
-                    }
-                    const delta = Math.max(0.04, nominalIncrement * factor);
-                    currentPct = Math.min(targetInterim, currentPct + delta);
-                    const rounded = Math.round(currentPct);
-
-                    if (optProgressBar) optProgressBar.style.width = `${rounded}%`;
-                    if (optPctLabel) optPctLabel.textContent = `${rounded}%`;
-                    if (optStepLabel) optStepLabel.textContent = "A processar simplificação no motor RL...";
+            const onRLProgress = (job) => {
+                if (!isRLRunning || !job) return;
+                const p = job.progress;
+                if (job.status === "queued" || !p) {
+                    setOptProgress(0, job.status === "queued" ? "Em fila no servidor..." : "A iniciar agente RL...");
+                    return;
                 }
-            }, interimInterval);
+                const percent = typeof p.percent === "number" ? p.percent : 0;
+                if (p.stage === "simplifying") {
+                    setOptProgress(
+                        percent * 0.9,
+                        `A simplificar: passo ${Number(p.current || 0).toLocaleString()} de ${Number(p.total || 0).toLocaleString()}`
+                    );
+                    if (sideSteps) sideSteps.textContent = p.current ?? "--";
+                } else if (p.stage === "quad") {
+                    setOptProgress(90 + percent * 0.1, "A converter o resultado em quads...");
+                }
+            };
 
             RetopoAPI.startRLDecimation(currentModelId,
                 // onRLStep: cada passo transmitido
@@ -2110,7 +2115,6 @@
                 },
                 // onComplete: decimação concluída
                 async (simplifyResult) => {
-                    clearInterval(interimTimer);
                     isRLRunning = false;
 
                     // 1. Atualizar métricas garantidas vindas da API
@@ -2118,22 +2122,12 @@
                         ? simplifyResult.accepted_dissolves
                         : (parseInt(sideDissolves?.textContent, 10) || 0);
 
-                    // Conclusão fluida e rápida de ~80% até 100%
-                    let finalPct = Math.max(80, Math.round(currentPct));
-                    const finishTimer = setInterval(() => {
-                        finalPct += 4;
-                        if (finalPct >= 100) {
-                            finalPct = 100;
-                            clearInterval(finishTimer);
-                            if (optProgressBar) optProgressBar.style.width = "100%";
-                            if (optPctLabel) optPctLabel.textContent = "100%";
-                            if (optTitle) optTitle.textContent = "Otimização Concluída!";
-                            if (optStepLabel) optStepLabel.textContent = "Otimização concluída com sucesso!";
-                        } else {
-                            if (optProgressBar) optProgressBar.style.width = `${finalPct}%`;
-                            if (optPctLabel) optPctLabel.textContent = `${finalPct}%`;
-                        }
-                    }, 30);
+                    setOptProgress(100, "A carregar a malha otimizada...");
+
+                    // O quad final falhou: o RL fica "done" na mesma; mostra-se o resultado do RL e avisa-se.
+                    const quadError = simplifyResult?.quad?.status === "failed" || simplifyResult?.quad?.error
+                        ? (simplifyResult.quad.error || "Erro desconhecido na conversão em quads.")
+                        : null;
 
                     if (sideDissolves) {
                         sideDissolves.textContent = acceptedDissolves;
@@ -2221,8 +2215,17 @@
                     }, 550);
 
                     if (rlStatusBadge) {
-                        rlStatusBadge.className = "status-badge online";
-                        rlStatusBadge.textContent = "RL: Decimação Concluída";
+                        rlStatusBadge.className = quadError ? "status-badge working" : "status-badge online";
+                        rlStatusBadge.textContent = quadError ? "RL: Concluído (quad falhou)" : "RL: Decimação Concluída";
+                    }
+
+                    if (quadError && window.ErrorModal?.show) {
+                        window.ErrorModal.show({
+                            title: "Conversão em Quads Falhou",
+                            message: "A simplificação RL terminou, mas a conversão do resultado em quads falhou. É apresentado o resultado do RL em triângulos.",
+                            errors: [quadError],
+                            buttonText: "Entendido"
+                        });
                     }
 
                     if (!lowPolyGeo) {
@@ -2244,24 +2247,47 @@
                 },
                 steps,
                 (err) => {
-                    clearInterval(interimTimer);
                     isRLRunning = false;
                     if (optimizingOverlay) optimizingOverlay.classList.add("hidden");
                     btnLow.disabled = false;
                     btnLow.style.opacity = "1";
                     btnLow.style.cursor = "pointer";
                     btnLow.innerText = "⚡ Otimizado (Low)";
+                    if (sideLowInfo) sideLowInfo.textContent = "Otimização não concluída";
+                    if (sideReduction) sideReduction.textContent = "--%";
+
+                    // 409: há um quad, uma análise DSS ou outro RL a correr para esta malha.
+                    // JobFailed: o job RL terminou em "failed" (err.message traz o erro do servidor).
+                    const status = err?.status;
+                    const isConflict = status === 409;
+                    const isJobFailed = err?.error === "JobFailed";
+
+                    if (rlStatusBadge) {
+                        rlStatusBadge.className = isConflict ? "status-badge working" : "status-badge offline";
+                        rlStatusBadge.textContent = isConflict ? "RL: Malha ocupada" : "RL: Falhou";
+                    }
+
+                    const title = isConflict
+                        ? "Não é Possível Otimizar Agora"
+                        : isJobFailed ? "A Simplificação RL Falhou" : "Erro na Simplificação RL";
+                    const message = isConflict
+                        ? "Há outra operação a correr para esta malha (RL, conversão em quads ou análise DSS). Espere que termine e tente de novo."
+                        : isJobFailed
+                            ? "O servidor não conseguiu concluir a simplificação desta malha."
+                            : "Ocorreu um erro ao comunicar com a API do modelo RL.";
+
                     if (window.ErrorModal?.show) {
                         window.ErrorModal.show({
-                            title: "Erro na Simplificação RL",
-                            message: "Ocorreu um erro ao comunicar com a API do modelo RL.",
-                            errors: [err.message || String(err)],
+                            title,
+                            message,
+                            errors: [err?.message || String(err)],
                             buttonText: "Entendido"
                         });
                     } else {
-                        alert(`Erro na simplificação RL: ${err.message}`);
+                        alert(`${title}: ${err?.message || err}`);
                     }
-                }
+                },
+                onRLProgress
             );
         }
 

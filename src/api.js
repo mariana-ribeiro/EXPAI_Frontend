@@ -364,6 +364,26 @@ window.RetopoAPI = {
     },
 
     /**
+     * Arranca o RL; se a API responder 409 (ex.: a análise DSS da malha original
+     * ainda está a correr), espera e tenta de novo até `waitMs`.
+     * Enquanto espera, chama onProgress({ status: "queued", waiting: message }).
+     */
+    startRLWhenFree: async function (meshId, opts = {}, onProgress, { waitMs = 90000, intervalMs = 2000 } = {}) {
+        const start = Date.now();
+        for (;;) {
+            try {
+                return await this.startRL(meshId, opts);
+            } catch (err) {
+                if (!(err instanceof ApiError) || err.status !== 409 || Date.now() - start >= waitMs) throw err;
+                if (typeof onProgress === "function") {
+                    try { onProgress({ status: "queued", waiting: err.message }); } catch (_) { }
+                }
+                await sleep(intervalMs);
+            }
+        }
+    },
+
+    /**
      * Estado do job RL. Enquanto corre: progress = { stage: "simplifying"|"quad", current, total, percent }.
      * Quando done: links = { download, results, actions, snapshots, quad, image }; summary.quad.error se o quad falhou.
      * GET /v1/rl/simplify/{mesh_id}/status
@@ -436,7 +456,7 @@ window.RetopoAPI = {
      */
     startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = 100, onError, onProgress) {
         try {
-            await this.startRL(modelId, { maxSteps });
+            await this.startRLWhenFree(modelId, { maxSteps }, onProgress);
             const final = await this.waitForRL(modelId, onProgress);
 
             if (final.status === "failed") {
