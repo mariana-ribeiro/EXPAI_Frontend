@@ -1898,11 +1898,9 @@
 
             gnnPromise = (async () => {
                 try {
-                    // 1. Executar predição da rede neuronal
-                    await RetopoAPI.predictGNN(currentModelId);
-
-                    // 2. Descarregar scores CSV dos vértices
-                    const scoresCsv = await RetopoAPI.getGNNScores(currentModelId);
+                    // 1+2. Predição da rede neuronal e scores CSV dos vértices, numa só
+                    // entrada da fila da malha (corre antes da simplificação RL)
+                    const scoresCsv = await RetopoAPI.predictGNNWithScores(currentModelId);
 
                     // 3. Processar CSV e mapear importância
                     const lines = scoresCsv.trim().split(/\r?\n/);
