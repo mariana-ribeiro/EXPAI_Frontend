@@ -1927,7 +1927,7 @@
                     QAState.originalBaseline = { statusData: statusResult, resultData: resultData };
                     objText = window.currentUploadedObjText || QAState.rawObjText;
                 } else if (snapshot === null) {
-                    objText = window.cachedSimplifiedObjText;
+                    objText = typeof window.getFinalMeshObjText === "function" ? window.getFinalMeshObjText() : null;
                 } else {
                     if (typeof window.getCurrentSnapObjText === "function") {
                         objText = window.getCurrentSnapObjText();
@@ -1935,7 +1935,10 @@
                 }
                 if (!objText && !resultData?.geometry) {
                     try {
-                        objText = await window.RetopoAPI.downloadSimplifiedMesh(idToRun);
+                        // O DSS da malha final analisa os quads do quad final
+                        objText = snapshot === null
+                            ? await window.RetopoAPI.downloadQuadMesh(idToRun)
+                            : await window.RetopoAPI.downloadSimplifiedMesh(idToRun);
                     } catch (_) { }
                 }
 

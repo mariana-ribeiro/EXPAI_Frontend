@@ -1038,7 +1038,40 @@
         const actionLogEntries = [];
         let cachedSnapshots = [];
         let cachedResults = null;
+        // OBJ da malha final mostrada: os quads do quad final (GET /v1/quad/{id}/download)
+        // ou, se o quad falhou, os triângulos do RL (GET /v1/rl/simplify/{id}).
         let cachedSimplifiedObjText = null;
+        let finalMeshIsQuad = false;
+        let finalQuadFailed = false;
+
+        async function fetchFinalMeshObj() {
+            if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
+                return cachedSimplifiedObjText;
+            }
+            const modelId = currentModelId;
+            let text = null;
+            let isQuad = false;
+            if (!finalQuadFailed) {
+                try {
+                    text = await RetopoAPI.downloadQuadMesh(modelId);
+                    isQuad = true;
+                } catch (err) {
+                    console.warn("[Main] Malha final em quads indisponível; a usar os triângulos do RL:", err.message);
+                }
+            }
+            if (!text || !text.includes("v ")) {
+                text = await RetopoAPI.downloadSimplifiedMesh(modelId);
+                isQuad = false;
+            }
+            if (modelId !== currentModelId) return null; // entretanto foi carregado outro modelo
+            if (text && text.includes("v ")) {
+                cachedSimplifiedObjText = text;
+                finalMeshIsQuad = isQuad;
+            }
+            return text;
+        }
+        window.fetchFinalMeshObj = fetchFinalMeshObj;
+        window.getFinalMeshObjText = () => cachedSimplifiedObjText;
 
         let currentEdgeFilter = "all";
         let latestActionsList = [];
@@ -1179,6 +1212,8 @@
             cachedSnapshots = [];
             cachedResults = null;
             cachedSimplifiedObjText = null;
+            finalMeshIsQuad = false;
+            finalQuadFailed = false;
             if (typeof snapshotImagesMap !== "undefined" && snapshotImagesMap?.clear) {
                 snapshotImagesMap.clear();
             }
@@ -1255,6 +1290,9 @@
             realStats.low.steps = 0;
             realStats.low.efficiencyText = "--%";
             realStats.low.reduction = "0%";
+            realStats.low.rlFacesBefore = null;
+            realStats.low.rlFacesAfter = null;
+            realStats.low.isQuad = false;
             if (btnSnapPoly) {
                 btnSnapPoly.style.display = "none";
                 btnSnapPoly.classList.remove("active");
@@ -1391,10 +1429,12 @@
                     sideSteps.textContent = realStats.low.steps ?? "--";
                 }
                 if (sideCompFacesBefore) {
-                    sideCompFacesBefore.textContent = realStats.high.faces > 0 ? realStats.high.faces.toLocaleString() : "--";
+                    const before = realStats.low.rlFacesBefore ?? realStats.high.faces;
+                    sideCompFacesBefore.textContent = before > 0 ? before.toLocaleString() : "--";
                 }
                 if (sideCompFacesAfter) {
-                    sideCompFacesAfter.textContent = realStats.low.faces > 0 ? realStats.low.faces.toLocaleString() : "--";
+                    const after = realStats.low.rlFacesAfter ?? realStats.low.faces;
+                    sideCompFacesAfter.textContent = after > 0 ? after.toLocaleString() : "--";
                     sideCompFacesAfter.style.color = "#34d399";
                 }
                 if (sideRLEfficiency) {
@@ -1421,7 +1461,7 @@
                 }
                 if (sideLowInfo) {
                     sideLowInfo.textContent = realStats.low.faces > 0
-                        ? `${realStats.low.faces.toLocaleString()} faces / ${realStats.low.verts.toLocaleString()} vértices`
+                        ? `${realStats.low.faces.toLocaleString()} ${realStats.low.isQuad ? "faces (quads)" : "faces"} / ${realStats.low.verts.toLocaleString()} vértices`
                         : "--";
                     sideLowInfo.style.color = "#34d399";
                 }
@@ -1550,16 +1590,9 @@
             }
 
             if (!objText || !objText.includes("v ")) {
-                if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
-                    objText = cachedSimplifiedObjText;
-                } else {
-                    try {
-                        objText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
-                        if (objText && objText.includes("v ")) {
-                            cachedSimplifiedObjText = objText;
-                        }
-                    } catch (_) { }
-                }
+                try {
+                    objText = await fetchFinalMeshObj();
+                } catch (_) { }
             }
 
             if (objText && objText.includes("v ")) {
@@ -2134,12 +2167,14 @@
                         sideSteps.textContent = simplifyResult.steps;
                     }
 
-                    // 2. Descarregar imediatamente a malha OBJ real otimizada da API (única fonte de verdade)
+                    // 2. Descarregar a malha final da API (única fonte de verdade): os quads do
+                    //    quad final, ou os triângulos do RL se o quad falhou.
                     let lowStats = null;
+                    cachedSimplifiedObjText = null;
+                    finalQuadFailed = Boolean(quadError);
                     try {
-                        const lowPolyText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
+                        const lowPolyText = await fetchFinalMeshObj();
                         if (lowPolyText && lowPolyText.includes("v ")) {
-                            cachedSimplifiedObjText = lowPolyText;
                             lowStats = computeObjStats(lowPolyText);
                             realStats.low.verts = lowStats.verts;
                             realStats.low.faces = lowStats.faces;
@@ -2157,18 +2192,24 @@
                         console.warn("[Main] Não foi possível carregar o modelo Low Poly da API:", err.message);
                     }
 
-                    // Se a API tiver fornecido contagens no payload simplifyResult caso o download tenha falhado
+                    // Malha mostrada (quads, ou triângulos do RL se o quad falhou)
                     const finalFaces = lowStats?.faces ?? simplifyResult?.final_faces ?? null;
                     const finalVerts = lowStats?.verts ?? simplifyResult?.final_verts ?? null;
+                    // Métricas do RL (triângulos antes → depois da simplificação)
+                    const rlFacesBefore = typeof simplifyResult?.initial_faces === "number" ? simplifyResult.initial_faces : realStats.high.faces;
+                    const rlFacesAfter = typeof simplifyResult?.final_faces === "number" ? simplifyResult.final_faces : finalFaces;
 
                     realStats.low.faces = typeof finalFaces === "number" ? finalFaces : (lowStats?.faces || "--");
                     realStats.low.verts = typeof finalVerts === "number" ? finalVerts : (lowStats?.verts || "--");
                     realStats.low.dissolves = acceptedDissolves;
                     realStats.low.steps = simplifyResult?.steps || 0;
+                    realStats.low.rlFacesBefore = typeof rlFacesBefore === "number" ? rlFacesBefore : null;
+                    realStats.low.rlFacesAfter = typeof rlFacesAfter === "number" ? rlFacesAfter : null;
+                    realStats.low.isQuad = finalMeshIsQuad;
 
-                    if (sideCompFacesBefore) sideCompFacesBefore.textContent = realStats.high.faces.toLocaleString();
+                    if (sideCompFacesBefore) sideCompFacesBefore.textContent = Number(rlFacesBefore || 0).toLocaleString();
                     if (sideCompFacesAfter) {
-                        sideCompFacesAfter.textContent = typeof finalFaces === "number" ? finalFaces.toLocaleString() : "--";
+                        sideCompFacesAfter.textContent = typeof rlFacesAfter === "number" ? rlFacesAfter.toLocaleString() : "--";
                     }
                     if (sideRLEfficiency) {
                         const totalSteps = simplifyResult?.steps || 0;
@@ -2179,20 +2220,20 @@
 
                     if (sideLowInfo) {
                         if (typeof finalFaces === "number" && typeof finalVerts === "number") {
-                            sideLowInfo.textContent = `${finalFaces.toLocaleString()} faces / ${finalVerts.toLocaleString()} vértices`;
+                            sideLowInfo.textContent = `${finalFaces.toLocaleString()} ${finalMeshIsQuad ? "faces (quads)" : "faces (triângulos)"} / ${finalVerts.toLocaleString()} vértices`;
                         } else {
                             sideLowInfo.textContent = "Geometria otimizada não disponível";
                         }
                     }
 
                     if (sideReduction) {
-                        if (realStats.high.faces > 0 && typeof finalFaces === "number") {
-                            const rawRed = ((1 - (finalFaces / realStats.high.faces)) * 100);
+                        if (typeof simplifyResult?.face_reduction === "number") {
+                            const rawRed = simplifyResult.face_reduction * 100;
                             const formatted = rawRed >= 1 ? `${Math.round(rawRed)}%` : `${Math.max(0, rawRed).toFixed(1)}%`;
                             sideReduction.textContent = formatted;
                             realStats.low.reduction = formatted;
-                        } else if (simplifyResult?.face_reduction !== undefined) {
-                            const rawRed = simplifyResult.face_reduction * 100;
+                        } else if (rlFacesBefore > 0 && typeof rlFacesAfter === "number") {
+                            const rawRed = ((1 - (rlFacesAfter / rlFacesBefore)) * 100);
                             const formatted = rawRed >= 1 ? `${Math.round(rawRed)}%` : `${Math.max(0, rawRed).toFixed(1)}%`;
                             sideReduction.textContent = formatted;
                             realStats.low.reduction = formatted;
@@ -2321,7 +2362,7 @@
                 }
                 // Descarregar o ficheiro OBJ original retornado pela API sem passar pelo conversor Three.js
                 if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
-                    downloadObjFile("retopo_lowpoly.obj", cachedSimplifiedObjText);
+                    downloadObjFile(finalMeshIsQuad ? "retopo_lowpoly_quads.obj" : "retopo_lowpoly.obj", cachedSimplifiedObjText);
                     return;
                 }
                 if (!window.THREE.OBJExporter) return;
@@ -2434,14 +2475,7 @@
 
                 // 2. Se for o estado atual ou se o endpoint específico não existir, usar a malha simplificada da API
                 if (!objContent || !objContent.includes("v ")) {
-                    if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
-                        objContent = cachedSimplifiedObjText;
-                    } else {
-                        objContent = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
-                        if (objContent && objContent.includes("v ")) {
-                            cachedSimplifiedObjText = objContent;
-                        }
-                    }
+                    objContent = await fetchFinalMeshObj();
                 }
 
                 // 3. Fallback: exportar a geometria atual via OBJExporter
@@ -2715,7 +2749,10 @@
                 }
 
                 // Tentar buscar imagem da API ou usar captura instantânea da cena 3D Three.js
-                RetopoAPI.getSnapshotImageBlobUrl(currentModelId, dissolves).then((blobUrl) => {
+                const imagePromise = isFinalMesh
+                    ? RetopoAPI.getQuadImageBlobUrl(currentModelId)
+                    : RetopoAPI.getSnapshotImageBlobUrl(currentModelId, dissolves);
+                imagePromise.then((blobUrl) => {
                     if (blobUrl) {
                         applyImage(blobUrl);
                     } else {
@@ -2788,14 +2825,7 @@
 
                         // 3. Se for o estado atual final e ainda não temos o OBJ
                         if (!loaded && isFinalMesh && (!objText || !objText.includes("v "))) {
-                            if (cachedSimplifiedObjText && cachedSimplifiedObjText.includes("v ")) {
-                                objText = cachedSimplifiedObjText;
-                            } else {
-                                objText = await RetopoAPI.downloadSimplifiedMesh(currentModelId);
-                                if (objText && objText.includes("v ")) {
-                                    cachedSimplifiedObjText = objText;
-                                }
-                            }
+                            objText = await fetchFinalMeshObj();
                         }
 
                         // 4. Carregar o OBJ recuperado no Three.js

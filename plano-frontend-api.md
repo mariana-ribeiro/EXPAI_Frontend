@@ -34,6 +34,9 @@ Base: [frontend-api.md](frontend-api.md) e o código atual de `C:\DEV\API_EXPAI`
   - **Para a fase 4:** logo após o upload, o `main.js` arranca o DSS da original (`snapshot=0`) *antes* do RL. O `POST` do RL apaga todas as análises da malha, incluindo essa, e o polling do DSS original dá `404 Analysis not found`. O DSS original tem de arrancar depois do `POST` do RL.
   - A API só corre um RL de cada vez (semáforo); os outros ficam `queued`.
 
+- **Fase 3 — feita.** A malha final no viewport, no download (`retopo_lowpoly_quads.obj`), no drawer de snapshots e no DSS da malha final é o OBJ em quads (`fetchFinalMeshObj` → `GET /v1/quad/{id}/download`); se o quad final falhou, usa os triângulos do RL. A imagem do cartão da malha final no drawer é o PNG dos quads da API.
+  - Cartão "Desempenho RL" mostra as métricas do RL (triângulos `initial_faces → final_faces`, `face_reduction`); a info "Otimizado (Low)" e o contador do viewport mostram a malha mostrada (ex.: "360 faces (quads)").
+
 ### Notas sobre a API (encontradas nos testes)
 - **`max_steps` deixou de ser usado** (alterações por commitar em `app/routes/rl.py` e `app/services/rl_jobs.py`): o RL corre sempre o horizon do modelo (50 000 passos) e o parâmetro é ignorado. O `frontend-api.md` ainda o lista. A fase 2 deve deixar de depender do input de passos.
 - **500 passageiro no `GET .../status`**: `read_status` verifica `is_file()` e depois lê; se o job reescrever o `status.json` entre os dois, dá `FileNotFoundError` → 500 sem cabeçalhos CORS (o browser vê "Failed to fetch"). Visto com o `./storage` montado do Windows. O frontend já tolera; vale a pena avisar quem mantém a API.
