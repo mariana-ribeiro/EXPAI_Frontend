@@ -1908,10 +1908,13 @@
         const drawerStatus = document.getElementById("dss-drawer-status");
         const drawerVerdict = document.getElementById("dss-drawer-verdict");
         const quadFailed = /failed/i.test(message || "");
-        const label = quadFailed ? "Sem Quads" : "À Espera do Quad";
+        const quadMissing = /run the quad first/i.test(message || "");
+        const label = quadFailed ? "Sem Quads" : (quadMissing ? "Sem Quads" : "À Espera do Quad");
         const hint = quadFailed
             ? "A conversão em quads desta malha falhou, por isso não há malha em quads para analisar."
-            : "A análise DSS precisa da malha em quads, que ainda não está pronta. Tente de novo quando a conversão terminar.";
+            : quadMissing
+                ? "Este snapshot ainda não tem quads. Gere-os no Relatório de Decimação → Snapshots (\u201cGerar quads\u201d); a análise DSS corre quando terminarem."
+                : "A análise DSS precisa da malha em quads, que ainda não está pronta. Tente de novo quando a conversão terminar.";
         const html = `<span style="color:#fbbf24;font-weight:600;">⏳ ${hint}</span> <span style="color:#94a3b8;">(${message})</span>`;
         for (const el of [statusEl, drawerStatus]) {
             if (el) {
@@ -2007,8 +2010,15 @@
                 } else if (snapshot === null) {
                     objText = typeof window.getFinalMeshObjText === "function" ? window.getFinalMeshObjText() : null;
                 } else {
-                    if (typeof window.getCurrentSnapObjText === "function") {
+                    // O DSS de um snapshot analisa os quads desse snapshot
+                    const snapIsQuad = typeof window.getCurrentSnapIsQuad === "function" && window.getCurrentSnapIsQuad();
+                    if (snapIsQuad && typeof window.getCurrentSnapObjText === "function") {
                         objText = window.getCurrentSnapObjText();
+                    }
+                    if (!objText) {
+                        try {
+                            objText = await window.RetopoAPI.downloadQuadMesh(idToRun, snapshot);
+                        } catch (_) { }
                     }
                 }
                 if (!objText && !resultData?.geometry) {
