@@ -75,11 +75,15 @@ function describeApiError(err) {
     const d = (title, message, hint, short) => ({ title, message, hint, short, detail });
 
     if (code === "Config") {
-        return d("Configuração em Falta", detail, "Preencha API_URL e API_KEY em config.js.", "Configuração em falta");
+        return d("Configuração em Falta", detail, "Preencha API_URL e API_KEY no .env (ou env.json).", "Configuração em falta");
+    }
+    if (code === "UploadRejected") {
+        return d("Upload Recusado", "A API recusou o ficheiro.",
+            "Confirme o tamanho do ficheiro e tente de novo.", "Upload recusado");
     }
     if (code === "Network" || status === 0 && code !== "Timeout" && code !== "JobFailed") {
         return d("Sem Ligação à API", "Não foi possível contactar o servidor.",
-            "Confirme que a API está a correr e que o endereço em config.js está certo.", "Sem ligação à API");
+            "Confirme que a API está a correr e que o API_URL no .env está certo.", "Sem ligação à API");
     }
     if (code === "Timeout") {
         return d("Tempo Limite Excedido", "O servidor demorou demasiado a responder.",
@@ -91,7 +95,7 @@ function describeApiError(err) {
     }
     switch (status) {
         case 401: return d("Chave de API Inválida", "A API recusou a chave de acesso.",
-            "Verifique a API key em config.js.", "Chave de API inválida");
+            "Verifique a API_KEY no .env.", "Chave de API inválida");
         case 404: return d("Não Encontrado", "A malha ou o resultado já não existe no servidor.",
             "Os resultados expiram ao fim de algum tempo; volte a carregar o modelo.", "Não encontrado no servidor");
         case 409: return d("Operação em Curso", "Já há uma operação a correr para esta malha, ou falta um passo anterior.",
@@ -116,6 +120,26 @@ function describeApiError(err) {
     return d("Erro", detail || "Ocorreu um erro inesperado.", "", detail || "Erro");
 }
 window.describeApiError = describeApiError;
+
+/**
+ * Causa provável de um upload que falhou sem resposta legível (ver uploadModel).
+ * @returns {Promise<ApiError>}
+ */
+async function diagnoseUploadFailure() {
+    if (!(await RetopoAPI.checkHealth())) {
+        return new ApiError(0, "Network", "Erro de rede ao carregar ficheiro para a API.");
+    }
+    try {
+        // Pedido autenticado barato: 401 = chave errada; 404 = chave aceite
+        await apiRequest("/v1/rl/simplify/00000000-0000-0000-0000-000000000000/status");
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+            return new ApiError(401, err.error || "Unauthorized", err.message || "Invalid API key.");
+        }
+    }
+    return new ApiError(0, "UploadRejected",
+        "A API está a responder e aceita a chave, mas recusou o upload sem dizer porquê (por exemplo, ficheiro acima do limite de tamanho).");
+}
 
 /**
  * Mostra um erro da API no pop-up de erros. `overrides` pode trocar o título,
@@ -345,8 +369,11 @@ window.RetopoAPI = {
                 }
             };
 
-            xhr.onerror = () => {
-                reject(new ApiError(0, "Network", "Erro de rede ao carregar ficheiro para a API."));
+            // A API recusa alguns uploads (chave errada, X-Upload-Size acima do limite) antes
+            // de acrescentar os cabeçalhos CORS: o browser esconde a resposta e o XHR só vê
+            // um erro de rede. Dois pedidos pequenos dizem qual foi a causa.
+            xhr.onerror = async () => {
+                reject(await diagnoseUploadFailure());
             };
 
             const formData = new FormData();
