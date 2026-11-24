@@ -56,6 +56,14 @@ Base: [frontend-api.md](frontend-api.md) e o código atual de `C:\DEV\API_EXPAI`
   - Heatmap: linha *i* do CSV (`vertex_id_clean`) = vértice *i* da malha limpa (emparelhamento por índice). A procura por posição fica só como alternativa, com grelha proporcional ao tamanho do modelo (antes: 0,05 fixo).
   - Testado: esfera com 408 vértices → 362 limpos; os 2 160 cantos de triângulo com a cor exata do CSV, nenhum cinzento.
 
+- **Fase 7 — feita.**
+  - `describeApiError(err)` (em `api.js`) dá título, mensagem, dica e texto curto em PT para 401, 404, 409, 413, 415, 422, 429, 503, 507, 5xx, sem ligação, tempo limite, configuração em falta e job falhado. A `message` da API aparece sempre como pormenor. `showApiError(err, overrides)` mostra-o no pop-up de erros.
+  - Ligado ao upload (deixou de ser `alert`), ao RL (409 e job falhado mantêm o texto próprio), ao heatmap da GNN (diz porque falhou), aos botões dos snapshots e ao veredito do DSS.
+  - O pop-up passa a escapar a lista de erros (o texto da API não é interpretado como HTML).
+  - Removido o alias `getSnapshotImageBlobUrl`. Não havia barra simulada nem fallbacks para `detail` a remover.
+  - `fixtures/status.json` com `snapshot` e `links`, como a API devolve hoje.
+  - Não feito (opcional): `quad_tolerance` / `quad_method` nas opções avançadas; o frontend usa os valores por omissão da API.
+
 ### Malhas de teste (`test-meshes/`, não versionadas)
 - `cubo_8_snapshots.obj` — cubo 1×1×1 subdividido (387 v / 768 f). Um RL completo deu 414 dissolves e 8 snapshots (50, 100, …, 400) em ~23 min.
 - `esfera_polos_duplicados.obj` — esfera UV (408 v / 768 f) com vértices duplicados nos polos; a malha limpa fica com 362 v / 720 f.

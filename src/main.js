@@ -358,7 +358,10 @@
             mainApp.style.filter = "blur(10px)";
             mainApp.style.pointerEvents = "none";
 
-            alert(`Erro no upload: ${error.message}`);
+            // Erros da API (401, 413, 415, 507...) com texto por código; erros locais com título genérico
+            window.showApiError(error, error instanceof window.ApiError
+                ? { hint: error.status === 409 ? "Tente de novo daqui a pouco." : undefined }
+                : { title: "Erro no Upload" });
 
             if (selectedFileInfo) selectedFileInfo.style.display = "flex";
             if (btnUploadNext) {
@@ -1124,6 +1127,7 @@
         let gnnLoaded = false;
         let gnnPromise = null;
         let gnnColorsArray = null;
+        let gnnLastError = null;
 
         // ─── Malha limpa (High) ─────────────────────────────────────────────
         // A API limpa o upload uma vez (funde vértices, remove faces duplicadas e
@@ -1325,6 +1329,7 @@
             gnnScores = null;
             gnnPromise = null;
             gnnColorsArray = null;
+            gnnLastError = null;
             highPolyIsClean = false;
             cleanMeshObjText = null;
             cleanHighPromise = null;
@@ -2080,6 +2085,7 @@
 
                 } catch (err) {
                     console.warn("[GNN] Falha na API GNN:", err.message);
+                    gnnLastError = err;
                     gnnLoaded = false;
                     gnnColorsArray = null;
                     if (sideGnnBadge) sideGnnBadge.textContent = "GNN • Indisponível";
@@ -2115,10 +2121,13 @@
                         await ensureGNNHeatmap();
                     }
                     if (!gnnColorsArray) {
+                        const why = gnnLastError ? window.describeApiError(gnnLastError) : null;
                         if (window.ErrorModal?.show) {
                             window.ErrorModal.show({
                                 title: "Heatmap GNN Indisponível",
                                 message: "Não foi possível carregar as pontuações da rede GNN para esta malha.",
+                                errors: why ? [`${why.short}: ${why.detail}`] : [],
+                                hint: why?.hint || undefined,
                                 buttonText: "Entendido"
                             });
                         } else {
@@ -2390,29 +2399,25 @@
                     const isConflict = status === 409;
                     const isJobFailed = err?.error === "JobFailed";
 
+                    const info = window.describeApiError(err);
                     if (rlStatusBadge) {
                         rlStatusBadge.className = isConflict ? "status-badge working" : "status-badge offline";
-                        rlStatusBadge.textContent = isConflict ? "RL: Malha ocupada" : "RL: Falhou";
+                        rlStatusBadge.textContent = isConflict ? "RL: Malha ocupada" : `RL: ${isJobFailed ? "Falhou" : info.short}`;
                     }
 
-                    const title = isConflict
-                        ? "Não é Possível Otimizar Agora"
-                        : isJobFailed ? "A Simplificação RL Falhou" : "Erro na Simplificação RL";
-                    const message = isConflict
-                        ? "Há outra operação a correr para esta malha (RL, conversão em quads ou análise DSS). Espere que termine e tente de novo."
-                        : isJobFailed
-                            ? "O servidor não conseguiu concluir a simplificação desta malha."
-                            : "Ocorreu um erro ao comunicar com a API do modelo RL.";
-
-                    if (window.ErrorModal?.show) {
-                        window.ErrorModal.show({
-                            title,
-                            message,
-                            errors: [err?.message || String(err)],
-                            buttonText: "Entendido"
+                    // 409 e JobFailed têm texto próprio do RL; os restantes códigos usam o mapa geral
+                    if (isConflict) {
+                        window.showApiError(err, {
+                            title: "Não é Possível Otimizar Agora",
+                            message: "Há outra operação a correr para esta malha (RL, conversão em quads ou análise DSS)."
+                        });
+                    } else if (isJobFailed) {
+                        window.showApiError(err, {
+                            title: "A Simplificação RL Falhou",
+                            message: "O servidor não conseguiu concluir a simplificação desta malha."
                         });
                     } else {
-                        alert(`${title}: ${err?.message || err}`);
+                        window.showApiError(err, { title: `Erro na Simplificação RL — ${info.title}` });
                     }
                 },
                 onRLProgress,
@@ -2871,7 +2876,8 @@
                         }
                     } catch (err) {
                         console.warn(`[Snapshot] Quads do snapshot ${dissolves}:`, err.message);
-                        btnGenQuads.innerHTML = `<span>⚠️ ${escapeHtml(err.message || "Erro ao gerar quads")}</span>`;
+                        btnGenQuads.innerHTML = `<span>⚠️ ${escapeHtml(err?.error === "JobFailed" ? "Conversão em quads falhou" : window.describeApiError(err).short)}</span>`;
+                        btnGenQuads.title = err?.message || "";
                         setTimeout(() => {
                             btnGenQuads.innerHTML = "<span>🔁 Tentar gerar quads de novo</span>";
                         }, 4000);
@@ -2991,7 +2997,8 @@
                         }
                     } catch (err) {
                         console.warn("[Snapshot] Erro ao carregar mesh:", err);
-                        btnLoad.innerHTML = `<span>⚠️ ${err.message || 'Erro ao carregar'}</span>`;
+                        const msg = err instanceof window.ApiError ? window.describeApiError(err).short : (err.message || "Erro ao carregar");
+                        btnLoad.innerHTML = `<span>⚠️ ${escapeHtml(msg)}</span>`;
                         setTimeout(() => { btnLoad.innerHTML = originalText; btnLoad.disabled = false; }, 2500);
                     }
                 });
