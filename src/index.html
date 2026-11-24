@@ -1,21 +1,26 @@
 <!DOCTYPE html>
 <html lang="pt">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Retopo Tool</title>
+    <link rel="icon" type="image/png" href="logo.png">
     <!-- Google Fonts: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
-    
+
     <!-- Three.js e Loaders Necessários -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
 </head>
+
 <body>
     <!-- Modal de Upload Inicial (Confirmação em 2 passos) -->
     <div id="upload-modal" class="modal-overlay">
@@ -24,43 +29,40 @@
         <img src="logo.png" alt="" class="bg-logo-lane lane2" aria-hidden="true">
         <img src="logo.png" alt="" class="bg-logo-lane lane3" aria-hidden="true">
         <div class="upload-card glass">
+            <button type="button" id="btn-close-upload-modal" class="btn-icon-sidebar"
+                style="position: absolute; top: 1.2rem; right: 1.2rem; font-size: 1.1rem; display: none; width: 32px; height: 32px;"
+                title="Fechar">✕</button>
             <div class="logo-modal">
                 <img src="logo.png" alt="Retopo Tool Logo" class="logo-img-modal">
                 <h2>Retopo Tool</h2>
             </div>
             <p>Importa o teu modelo High Poly para iniciar o agente de Reinforcement Learning.</p>
-            
+
             <label class="upload-zone" id="drop-zone" for="file-input" style="display: block;">
                 <div class="upload-icon">📁</div>
                 <h3>Arrasta o ficheiro para aqui</h3>
-                <p class="small-text">Suporta .OBJ, .PLY, .GLB (Max 1GB)</p>
-                <input type="file" id="file-input" style="display: none;" accept=".obj,.ply,.glb">
-                <span class="btn btn-outline" style="margin-top: 1rem; display: inline-block;">Ou clica para procurar</span>
+                <p class="small-text">Suporta .OBJ (Até 1.500 faces)</p>
+                <input type="file" id="file-input" style="display: none;" accept=".obj">
+                <span class="btn btn-outline" style="margin-top: 1rem; display: inline-block;">Ou clica para
+                    procurar</span>
             </label>
 
             <!-- Card de Ficheiro Selecionado -->
-            <div id="selected-file-info" style="display: none; margin-top: 1rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.75rem 1rem; border-radius: 8px; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 0.75rem; text-align: left;">
+            <div id="selected-file-info" class="selected-file-card" style="display: none;">
+                <div class="selected-file-left">
                     <span style="font-size: 1.5rem;">📦</span>
                     <div>
-                        <strong id="selected-file-name" style="font-size: 0.88rem; color: #f8fafc; display: block; word-break: break-all;">modelo.obj</strong>
-                        <span id="selected-file-size" style="font-size: 0.75rem; color: #94a3b8;">0 KB</span>
+                        <strong id="selected-file-name" class="selected-file-name">modelo.obj</strong>
+                        <span id="selected-file-size" class="selected-file-size">0 KB</span>
                     </div>
                 </div>
-                <button type="button" id="btn-change-file" class="btn btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.75rem;">Trocar</button>
+                <button type="button" id="btn-change-file" class="btn btn-outline btn-change-file">Trocar</button>
             </div>
 
-            <!-- Configuração de Iterações RL -->
-            <div style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 0.6rem 0.9rem; border-radius: 8px;">
-                <div style="text-align: left;">
-                    <label for="input-max-steps" style="font-size: 0.82rem; font-weight: 600; color: #e2e8f0; display: block;">Iterações do Agente RL</label>
-                    <span style="font-size: 0.72rem; color: #94a3b8;">Passos de simplificação a executar</span>
-                </div>
-                <input type="number" id="input-max-steps" min="1" max="5000" value="100" style="width: 80px; padding: 0.4rem 0.6rem; background: rgba(15,23,42,0.85); border: 1px solid rgba(59,130,246,0.45); border-radius: 6px; color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; font-weight: bold; text-align: center;">
-            </div>
-
-            <!-- Botão Seguinte para confirmar ambos os parâmetros -->
-            <button type="button" id="btn-upload-next" class="btn btn-primary" style="width: 100%; margin-top: 1.2rem; padding: 0.75rem; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; opacity: 0.45; cursor: not-allowed;" disabled>
+            <!-- Botão Seguinte para confirmar o ficheiro -->
+            <button type="button" id="btn-upload-next" class="btn btn-primary"
+                style="width: 100%; margin-top: 1.2rem; padding: 0.75rem; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; opacity: 0.45; cursor: not-allowed;"
+                disabled>
                 <span>Seguinte</span>
                 <span>➔</span>
             </button>
@@ -73,277 +75,877 @@
             <div class="opt-header">
                 <span class="opt-tag">REINFORCEMENT LEARNING</span>
                 <h2 id="opt-title">A Otimizar Malha...</h2>
-                <p id="opt-subtitle" class="opt-subtitle">O agente RL está a simplificar a geometria preservando a silhueta.</p>
+                <p id="opt-subtitle" class="opt-subtitle">O agente RL está a simplificar a geometria preservando a
+                    silhueta.</p>
             </div>
 
             <div class="opt-progress-box">
                 <div class="opt-progress-meta">
-                    <span id="opt-step-label">A iniciar agente...</span>
+                    <span id="opt-step-label">A processar otimização...</span>
                     <span id="opt-pct-label">0%</span>
                 </div>
                 <div class="bar-bg opt-bar-bg">
-                    <div id="opt-progress-bar" class="bar-fill blue" style="width: 0%; transition: width 0.3s ease-out;"></div>
-                </div>
-            </div>
-
-            <div class="opt-metrics-live">
-                <div class="opt-live-item">
-                    <span class="opt-live-label">Passo</span>
-                    <strong id="opt-live-step" class="opt-live-val">0</strong>
-                </div>
-                <div class="opt-live-item">
-                    <span class="opt-live-label">Dissolves</span>
-                    <strong id="opt-live-dissolves" class="opt-live-val text-blue">0</strong>
-                </div>
-                <div class="opt-live-item">
-                    <span class="opt-live-label">Iterações</span>
-                    <strong id="opt-live-total" class="opt-live-val text-green">100</strong>
+                    <div id="opt-progress-bar" class="bar-fill blue"
+                        style="width: 0%; transition: width 0.3s ease-out;"></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="app-container" id="main-app" style="filter: blur(10px); pointer-events: none; transition: filter 0.5s;">
-        <!-- Barra de Topo -->
-        <header class="topbar glass">
-            <div class="logo">
-                <img src="logo.png" alt="Retopo Tool Logo" class="logo-img">
-                <h1>Retopo Tool</h1>
+    <!-- ═══════════════ APP CONTAINER PRINCIPAL ═══════════════ -->
+    <div class="app-container" id="main-app"
+            style="filter: blur(10px); pointer-events: none; transition: filter 0.5s;">
+            <!-- Barra de Topo -->
+            <header class="topbar glass">
+                <div class="logo" id="topbar-logo" style="cursor: pointer;" title="Carregar Novo Modelo (Upload)">
+                    <img src="logo.png" alt="Retopo Tool Logo" class="logo-img">
+                    <h1>Retopo Tool</h1>
+                </div>
+
+                <!-- Seletores de Malha na Barra Superior (Original, Snapshot intermédio no meio, e Otimizado) -->
+                <div class="topbar-mesh-controls">
+                    <button id="btn-high-poly" class="view-btn active">🏛️ Original (High)</button>
+                    <button id="btn-snap-poly" class="view-btn view-btn-snap" style="display:none;">📸 Snapshot</button>
+                    <button id="btn-low-poly" class="view-btn">⚡ Otimizado (Low)</button>
+                </div>
+
+                <div class="topbar-actions">
+                    <span class="status-badge online" id="rl-status-badge">API: A verificar...</span>
+                    <button type="button" id="btn-theme-toggle" class="btn-topbar-sidebar"
+                        title="Alternar Modo Escuro / Claro">
+                        <span id="theme-toggle-icon" class="sidebar-toggle-icon">🌙</span>
+                        <span id="theme-toggle-text" class="sidebar-toggle-text">Escuro</span>
+                    </button>
+                    <button type="button" id="btn-toggle-sidebar" class="btn-topbar-sidebar active"
+                        title="Alternar Painel Lateral">
+                        <span class="sidebar-toggle-icon">◨</span>
+                        <span class="sidebar-toggle-text">Painel</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- ═══════════════ RL ACTION LOG & REPORT DRAWER ═══════════════ -->
+            <div id="action-log-drawer" class="report-drawer-overlay">
+                <aside class="report-drawer glass">
+                    <!-- Header do Relatório -->
+                    <div class="report-header">
+                        <div class="report-title-group">
+                            <span class="report-tag">RL EXECUTION REPORT</span>
+                            <h2>📋 Decimation Report</h2>
+                        </div>
+                        <div class="report-header-actions">
+                            <span id="action-log-count" class="badge-count">0 acções</span>
+                            <button id="action-log-close" class="btn-icon-close" title="Fechar Relatório">✕</button>
+                        </div>
+                    </div>
+
+                    <!-- Resumo Executivo / Métricas Rápidas -->
+                    <div class="report-summary-cards">
+                        <div class="summary-card">
+                            <span class="sc-label">Total Steps</span>
+                            <span class="sc-value" id="rep-steps">0</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="sc-label">Dissolves</span>
+                            <span class="sc-value text-blue" id="rep-dissolves">0</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="sc-label">Redução Faces</span>
+                            <span class="sc-value text-green" id="rep-reduction">0%</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="sc-label">Snapshots</span>
+                            <span class="sc-value text-purple" id="rep-snapshots">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Tabs de Navegação -->
+                    <div class="report-tabs">
+                        <button class="rep-tab-btn active" id="tab-btn-snapshots">📸 Snapshots & Malhas</button>
+                        <button class="rep-tab-btn" id="tab-btn-history">📝 Histórico de Edges</button>
+                    </div>
+
+                    <!-- Conteúdo Tab 1: Snapshots intermédios com fotos, explicações de arestas e botão de carregar mesh -->
+                    <div class="report-tab-pane active" id="tab-pane-snapshots">
+                        <div id="snapshots-list" class="snapshots-grid">
+                            <div class="action-log-empty" id="snapshots-empty">
+                                <span>⏳ Nenhum snapshot intermédio capturado ainda.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Conteúdo Tab 2: Histórico detalhado de edges com ilustrações visuais -->
+                    <div class="report-tab-pane" id="tab-pane-history">
+                        <div class="history-filter-bar">
+                            <button class="filter-chip active" data-filter="all">Todas as Edges (<span
+                                    id="count-all-edges">0</span>)</button>
+                            <button class="filter-chip" data-filter="accepted">✂️ Dissolvidas (<span
+                                    id="count-accepted-edges">0</span>)</button>
+                            <button class="filter-chip" data-filter="rejected">⚠️ Rejeitadas pela Validação (<span
+                                    id="count-rejected-edges">0</span>)</button>
+                        </div>
+                        <div class="action-log-body" id="action-log-body">
+                            <div class="action-log-empty" id="action-log-empty">
+                                <span>⏳ Aguarda o início da simulação RL...</span>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
             </div>
-            <div class="topbar-actions">
-                <span class="status-badge online" id="rl-status-badge">API: A verificar...</span>
-            </div>
-        </header>
 
-        <!-- ═══════════════ RL ACTION LOG & REPORT DRAWER ═══════════════ -->
-        <div id="action-log-drawer" class="report-drawer-overlay">
-            <aside class="report-drawer glass">
-                <!-- Header do Relatório -->
-                <div class="report-header">
-                    <div class="report-title-group">
-                        <span class="report-tag">RL EXECUTION REPORT</span>
-                        <h2>📋 Decimation Report</h2>
+            <!-- ═══════════════ LIGHTBOX DE FOTOGRAFIA & ANÁLISE DE EDGES ═══════════════ -->
+            <div id="snapshot-lightbox" class="lightbox-overlay">
+                <div class="lightbox-content glass">
+                    <div class="lightbox-header">
+                        <div class="lightbox-title-group">
+                            <span class="report-tag" id="lightbox-tag">SNAPSHOT #1</span>
+                            <h3 id="lightbox-title">Análise Visual da Malha & Edges</h3>
+                        </div>
+                        <button id="lightbox-close" class="btn-icon-close" title="Fechar Visualização">✕</button>
                     </div>
-                    <div class="report-header-actions">
-                        <span id="action-log-count" class="badge-count">0 acções</span>
-                        <button id="action-log-close" class="btn-icon-close" title="Fechar Relatório">✕</button>
-                    </div>
-                </div>
+                    <div class="lightbox-body">
+                        <div class="lightbox-img-wrap">
+                            <img id="lightbox-img" src="" alt="Fotografia do Snapshot da Malha">
+                        </div>
+                        <div class="lightbox-info">
+                            <div class="snap-chips" id="lightbox-chips"></div>
+                            <h4 style="margin:0.8rem 0 0.3rem 0;color:#f1f5f9;font-size:0.95rem;">Explicação da
+                                Decimação de Arestas</h4>
+                            <p id="lightbox-explanation"
+                                style="font-size:0.82rem;color:#94a3b8;line-height:1.5;margin:0 0 1rem 0;"></p>
 
-                <!-- Resumo Executivo / Métricas Rápidas -->
-                <div class="report-summary-cards">
-                    <div class="summary-card">
-                        <span class="sc-label">Total Steps</span>
-                        <span class="sc-value" id="rep-steps">0</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="sc-label">Dissolves</span>
-                        <span class="sc-value text-blue" id="rep-dissolves">0</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="sc-label">Redução Faces</span>
-                        <span class="sc-value text-green" id="rep-reduction">0%</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="sc-label">Snapshots</span>
-                        <span class="sc-value text-purple" id="rep-snapshots">0</span>
-                    </div>
-                </div>
+                            <div id="lightbox-actions-summary" class="lightbox-edge-summary"></div>
 
-                <!-- Tabs de Navegação -->
-                <div class="report-tabs">
-                    <button class="rep-tab-btn active" id="tab-btn-snapshots">📸 Snapshots & Malhas</button>
-                    <button class="rep-tab-btn" id="tab-btn-history">📝 Histórico de Edges</button>
-                </div>
-
-                <!-- Conteúdo Tab 1: Snapshots intermédios com fotos, explicações de arestas e botão de carregar mesh -->
-                <div class="report-tab-pane active" id="tab-pane-snapshots">
-                    <div id="snapshots-list" class="snapshots-grid">
-                        <div class="action-log-empty" id="snapshots-empty">
-                            <span>⏳ Nenhum snapshot intermédio capturado ainda.</span>
+                            <div style="margin-top:auto;padding-top:1rem;display:flex;gap:0.6rem;">
+                                <button id="lightbox-btn-load" class="btn-load-snap-mesh"
+                                    style="width:100%;padding:0.75rem 1rem;font-size:0.88rem;">
+                                    <span>📥 Carregar no 3D</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
-
-                <!-- Conteúdo Tab 2: Histórico detalhado de edges com ilustrações visuais -->
-                <div class="report-tab-pane" id="tab-pane-history">
-                    <div class="history-filter-bar">
-                        <button class="filter-chip active" data-filter="all">Todas as Edges (<span id="count-all-edges">0</span>)</button>
-                        <button class="filter-chip" data-filter="accepted">✂️ Dissolvidas (<span id="count-accepted-edges">0</span>)</button>
-                        <button class="filter-chip" data-filter="rejected">🛡️ Protegidas (<span id="count-rejected-edges">0</span>)</button>
-                    </div>
-                    <div class="action-log-body" id="action-log-body">
-                        <div class="action-log-empty" id="action-log-empty">
-                            <span>⏳ Aguarda o início da simulação RL...</span>
-                        </div>
-                    </div>
-                </div>
-            </aside>
-        </div>
-
-        <!-- ═══════════════ LIGHTBOX DE FOTOGRAFIA & ANÁLISE DE EDGES ═══════════════ -->
-        <div id="snapshot-lightbox" class="lightbox-overlay">
-            <div class="lightbox-content glass">
-                <div class="lightbox-header">
-                    <div class="lightbox-title-group">
-                        <span class="report-tag" id="lightbox-tag">SNAPSHOT #1</span>
-                        <h3 id="lightbox-title">Análise Visual da Malha & Edges</h3>
-                    </div>
-                    <button id="lightbox-close" class="btn-icon-close" title="Fechar Visualização">✕</button>
-                </div>
-                <div class="lightbox-body">
-                    <div class="lightbox-img-wrap">
-                        <img id="lightbox-img" src="" alt="Fotografia do Snapshot da Malha">
-                    </div>
-                    <div class="lightbox-info">
-                        <div class="snap-chips" id="lightbox-chips"></div>
-                        <h4 style="margin:0.8rem 0 0.3rem 0;color:#f1f5f9;font-size:0.95rem;">Explicação da Decimação de Arestas</h4>
-                        <p id="lightbox-explanation" style="font-size:0.82rem;color:#94a3b8;line-height:1.5;margin:0 0 1rem 0;"></p>
-                        
-                        <div id="lightbox-actions-summary" class="lightbox-edge-summary"></div>
-
-                        <div style="margin-top:auto;padding-top:1rem;display:flex;gap:0.6rem;flex-wrap:wrap;">
-                            <button id="lightbox-btn-load" class="btn-load-snap-mesh" style="flex:1;min-width:180px;">
-                                <span>📥 Carregar Malha no 3D</span>
-                            </button>
-                            <button id="lightbox-btn-download" class="btn btn-outline" style="font-size:0.85rem;padding:0.6rem 1rem;">
-                                <span>💾 Descarregar Snapshot (.obj)</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
             </div>
-        </div>
 
-        <!-- Container Principal -->
-        <main class="main-content">
-            
-            <!-- Viewport 3D Principal -->
-            <section class="viewport-container">
-                <canvas id="canvas3d"></canvas>
-                
-                <!-- Viewport Overlay UI -->
-                <div class="viewport-overlay">
-                    <div class="view-controls glass">
-                        <!-- Âncora para Original (High) + sub-botão Heatmap GNN diretamente por baixo -->
-                        <div class="view-btn-anchor">
-                            <button id="btn-high-poly" class="view-btn active">Original (High)</button>
-                            
-                            <div id="heatmap-subbar" class="heatmap-subbar">
-                                <button id="btn-heatmap" class="view-btn heatmap-toggle-btn">🔥 Heatmap GNN</button>
+            <!-- Container Principal -->
+            <main class="main-content">
+
+                <!-- Viewport 3D Principal Único -->
+                <section class="viewport-container" id="main-viewport-container">
+                    <canvas id="canvas3d"></canvas>
+
+                    <!-- Viewport Overlay UI: Modos Visuais no Canto Superior Direito -->
+                    <div class="viewport-overlay-top-right">
+                        <div class="view-controls-group glass">
+                            <button id="btn-surface" class="view-btn view-btn-mode active"
+                                title="Superfície Sólida (Base Contínua)">🎨 Superfície</button>
+                            <button id="btn-edges" class="view-btn view-btn-mode"
+                                title="Alternar visualização das Arestas Reais (Topologia / Quads)">📐 Arestas</button>
+                            <button id="btn-verts" class="view-btn view-btn-mode"
+                                title="Alternar visualização dos Vértices">✦ Vértices</button>
+                            <button id="btn-reset-cam" class="view-btn view-btn-mode" title="Repor Posição da Câmara">🎯
+                                Centrar</button>
+                        </div>
+                    </div>
+
+                    <!-- Stats flutuantes (Dados Reais do Modelo Carregado) -->
+                    <div class="mesh-stats glass">
+                        <div class="stat-item">
+                            <span class="stat-label">Faces (Polígonos)</span>
+                            <span class="stat-value" id="val-tris">--</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Vértices</span>
+                            <span class="stat-value" id="val-verts">--</span>
+                        </div>
+                    </div>
+
+                    <!-- Legenda Flutuante do Heatmap (visível nos modos heatmap) -->
+                    <div id="qa-heatmap-legend" class="qa-heatmap-legend glass" style="display:none;">
+                        <span id="qa-legend-title" class="qa-legend-title"></span>
+                        <div class="qa-legend-bar-wrap">
+                            <span id="qa-legend-min" class="qa-legend-val">20.0°</span>
+                            <div id="qa-legend-gradient" class="qa-legend-gradient"></div>
+                            <span id="qa-legend-max" class="qa-legend-val">180.0°</span>
+                        </div>
+                    </div>
+
+                    <!-- Painel Flutuante Raycaster de Inspeção de Face -->
+                    <div id="qa-detail-panel" class="qa-detail-panel glass" style="display:none;">
+                        <div class="qa-detail-header">
+                            <div>
+                                <span class="qa-detail-tag">INSPEÇÃO TOPOLÓGICA</span>
+                                <h4 id="qa-detail-title">Face #0</h4>
+                            </div>
+                            <button id="qa-detail-close" class="btn-icon-close" title="Fechar">✕</button>
+                        </div>
+                        <div class="qa-detail-body">
+                            <div class="qa-detail-row">
+                                <span class="qa-detail-label">Tipo de Face:</span>
+                                <strong id="qa-detail-type">N-gon (8 vértices)</strong>
+                            </div>
+                            <div class="qa-detail-row">
+                                <span class="qa-detail-label">Ângulo Mínimo:</span>
+                                <strong id="qa-detail-min-angle">34.7°</strong>
+                            </div>
+                            <div class="qa-detail-row">
+                                <span class="qa-detail-label">Ângulo Máximo:</span>
+                                <strong id="qa-detail-max-angle">180.0°</strong>
+                            </div>
+
+                            <div style="margin-top:0.6rem;">
+                                <span class="qa-detail-label" style="display:block;margin-bottom:0.3rem;">Problemas
+                                    Detetados nesta Face:</span>
+                                <div id="qa-detail-errors" class="qa-detail-errors-box"></div>
+                            </div>
+
+                            <div style="margin-top:0.6rem;">
+                                <span class="qa-detail-label" style="display:block;margin-bottom:0.3rem;">Valência dos
+                                    Vértices:</span>
+                                <div id="qa-detail-verts" class="qa-detail-verts-chips"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </section>
+
+                <!-- Painel Lateral: Estúdio Modular Descomplicado -->
+                <!-- Painel Lateral: Estúdio Modular Reestruturado -->
+                <aside class="sidebar glass" id="app-sidebar">
+
+                    <!-- ══════════════════════════════════════════════════════════
+                     CONTEXTO 1: MALHA ORIGINAL (HIGH POLY)
+                     ══════════════════════════════════════════════════════════ -->
+                    <div id="sidebar-context-high" class="sidebar-context-view">
+
+                        <!-- Banner de Contexto -->
+                        <div class="sidebar-context-banner">
+                            <div style="display:flex;align-items:center;gap:0.55rem;">
+                                <span style="font-size:1.25rem;">🏛️</span>
+                                <div>
+                                    <h3 style="margin:0;font-size:0.98rem;color:#f8fafc;font-weight:700;">Original (High
+                                        Poly)</h3>
+                                    <span style="font-size:0.76rem;color:#94a3b8;">Malha de Entrada & Saliência
+                                        IA</span>
+                                </div>
+                            </div>
+                            <span class="badge-tag purple">ORIGINAL</span>
+                        </div>
+
+                        <!-- Módulo A: Geometria de Entrada & Sanidade -->
+                        <div class="panel-section unified-card">
+                            <div class="panel-section-header">
+                                <div style="display:flex;align-items:center;gap:0.45rem;">
+                                    <span style="font-size:0.95rem;">📐</span>
+                                    <h4 style="margin:0;font-size:0.92rem;color:#f8fafc;font-weight:700;">Geometria de
+                                        Entrada</h4>
+                                </div>
+                                <span class="badge-mini"
+                                    style="background:rgba(255,255,255,0.06);color:#94a3b8;font-size:0.72rem;">Wavefront
+                                    OBJ</span>
+                            </div>
+
+                            <div
+                                style="display:grid;grid-template-columns:repeat(2, 1fr);gap:0.5rem;margin-top:0.55rem;">
+                                <div class="metric-cell"
+                                    style="padding:0.6rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span class="cell-label"
+                                        style="font-size:0.74rem;color:#94a3b8;display:block;">Triângulos / Faces</span>
+                                    <strong id="orig-faces-val" class="cell-val text-white"
+                                        style="font-family:'JetBrains Mono',monospace;font-size:1.05rem;">--</strong>
+                                </div>
+                                <div class="metric-cell"
+                                    style="padding:0.6rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span class="cell-label"
+                                        style="font-size:0.74rem;color:#94a3b8;display:block;">Vértices Totais</span>
+                                    <strong id="orig-verts-val" class="cell-val text-blue"
+                                        style="font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:#60a5fa;">--</strong>
+                                </div>
+                            </div>
+
+                            <!-- Sanidade Topológica Inicial -->
+                            <div
+                                style="margin-top:0.55rem;padding:0.55rem 0.75rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;gap:0.35rem;font-size:0.82rem;">
+                                <div style="display:flex;justify-content:space-between;">
+                                    <span style="color:#94a3b8;">Estanque (Watertight):</span>
+                                    <strong id="orig-watertight-val" style="color:#34d399;">Sim</strong>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;">
+                                    <span style="color:#94a3b8;">Topologia (2-Manifold):</span>
+                                    <strong id="orig-manifold-val" style="color:#34d399;">Sim</strong>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;">
+                                    <span style="color:#94a3b8;">Arestas de Fronteira:</span>
+                                    <strong id="orig-boundary-val"
+                                        style="color:#cbd5e1;font-family:'JetBrains Mono',monospace;">0</strong>
+                                </div>
                             </div>
                         </div>
 
-                        <button id="btn-low-poly" class="view-btn">Otimizado (Low)</button>
-                        <button id="btn-snap-poly" class="view-btn" style="display:none; border: 1px solid rgba(168, 85, 247, 0.5); color: #c084fc;">📸 Snapshot</button>
-                        <div class="divider"></div>
-                        <button id="btn-surface" class="view-btn view-btn-mode active" title="Alternar visualização da Superfície Sólida">🎨 Superfície</button>
-                        <button id="btn-edges" class="view-btn view-btn-mode" title="Alternar visualização das Arestas Reais (Topologia / Quads)">📐 Arestas</button>
-                        <button id="btn-triangles" class="view-btn view-btn-mode" title="Alternar visualização da Triangulação da GPU">▲ Triângulos</button>
-                        <button id="btn-verts" class="view-btn view-btn-mode" title="Alternar visualização dos Vértices">✦ Vértices</button>
+                        <!-- Módulo B: GNN Saliency & Feature Importance (IA) -->
+                        <div class="panel-section unified-card" id="section-gnn">
+                            <div class="panel-section-header">
+                                <div style="display:flex;align-items:center;gap:0.45rem;">
+                                    <span style="font-size:0.95rem;">🧠</span>
+                                    <h4 style="margin:0;font-size:0.92rem;color:#f8fafc;font-weight:700;">GNN Feature
+                                        Saliency</h4>
+                                </div>
+                                <span class="badge-tag purple" id="side-gnn-badge">IA / EGNN</span>
+                            </div>
+
+                            <div
+                                style="display:grid;grid-template-columns:repeat(2, 1fr);gap:0.5rem;margin-top:0.55rem;">
+                                <div class="metric-cell"
+                                    style="padding:0.6rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span class="cell-label"
+                                        style="font-size:0.74rem;color:#94a3b8;display:block;">Vértices
+                                        Analisados</span>
+                                    <strong id="side-gnn-verts" class="cell-val text-blue"
+                                        style="font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:#60a5fa;">--</strong>
+                                </div>
+                                <div class="metric-cell"
+                                    style="padding:0.6rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span class="cell-label"
+                                        style="font-size:0.74rem;color:#94a3b8;display:block;">Score Médio
+                                        Saliência</span>
+                                    <strong id="side-gnn-avg-score" class="cell-val"
+                                        style="font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:#cbd5e1;">--</strong>
+                                </div>
+                            </div>
+
+                            <div style="display:flex;flex-direction:column;gap:0.45rem;margin-top:0.55rem;">
+                                <div
+                                    style="padding:0.55rem 0.75rem;background:rgba(239,68,68,0.08);border-radius:8px;border:1px solid rgba(239,68,68,0.25);display:flex;justify-content:space-between;align-items:center;">
+                                    <div>
+                                        <span
+                                            style="font-size:0.82rem;font-weight:600;color:#f87171;display:block;">Vértices
+                                            Críticos (Keep = 1)</span>
+                                        <span style="font-size:0.74rem;color:#94a3b8;">Silhueta & cantos a
+                                            preservar</span>
+                                    </div>
+                                    <div style="text-align:right;">
+                                        <strong id="side-gnn-critical"
+                                            style="color:#f87171;font-family:'JetBrains Mono',monospace;font-size:0.98rem;">--</strong>
+                                        <span id="side-gnn-crit-pct"
+                                            style="display:block;font-size:0.74rem;color:#fca5a5;">--%</span>
+                                    </div>
+                                </div>
+
+                                <div
+                                    style="padding:0.55rem 0.75rem;background:rgba(56,189,248,0.08);border-radius:8px;border:1px solid rgba(56,189,248,0.25);display:flex;justify-content:space-between;align-items:center;">
+                                    <div>
+                                        <span
+                                            style="font-size:0.82rem;font-weight:600;color:#38bdf8;display:block;">Vértices
+                                            Dispensáveis (Keep = 0)</span>
+                                        <span style="font-size:0.74rem;color:#94a3b8;">Planos livres para decimação
+                                            RL</span>
+                                    </div>
+                                    <div style="text-align:right;">
+                                        <strong id="side-gnn-dispensable"
+                                            style="color:#38bdf8;font-family:'JetBrains Mono',monospace;font-size:0.98rem;">--</strong>
+                                        <span id="side-gnn-disp-pct"
+                                            style="display:block;font-size:0.74rem;color:#7dd3fc;">--%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Distribuição de Saliência -->
+                            <div
+                                style="margin-top:0.55rem;padding:0.55rem 0.75rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                <div
+                                    style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+                                    <span style="font-size:0.76rem;font-weight:600;color:#cbd5e1;">Distribuição de
+                                        Importância</span>
+                                    <span style="font-size:0.72rem;color:#94a3b8;">Threshold: 0.50</span>
+                                </div>
+                                <div
+                                    style="height:7px;width:100%;border-radius:4px;display:flex;overflow:hidden;background:rgba(255,255,255,0.08);">
+                                    <div id="side-gnn-bar-high" style="width:33%;background:#ef4444;"
+                                        title="Alta Importância (>= 0.70)"></div>
+                                    <div id="side-gnn-bar-mid" style="width:34%;background:#f59e0b;"
+                                        title="Média Importância (0.30 - 0.70)"></div>
+                                    <div id="side-gnn-bar-low" style="width:33%;background:#38bdf8;"
+                                        title="Baixa Importância (< 0.30)"></div>
+                                </div>
+                                <div
+                                    style="display:flex;justify-content:space-between;margin-top:0.4rem;font-size:0.74rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">
+                                    <span style="color:#f87171;">🔴 Alta: <strong
+                                            id="side-gnn-dist-high">--</strong></span>
+                                    <span style="color:#fbbf24;">🟡 Média: <strong
+                                            id="side-gnn-dist-mid">--</strong></span>
+                                    <span style="color:#38bdf8;">🔵 Baixa: <strong
+                                            id="side-gnn-dist-low">--</strong></span>
+                                </div>
+                            </div>
+
+                            <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+                                <button id="side-btn-heatmap" class="btn btn-outline btn-sm"
+                                    style="flex:1;font-size:0.84rem;padding:0.55rem 0.65rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;border-radius:8px;">
+                                    <span>🔥 Ativar Heatmap GNN</span>
+                                </button>
+                                <button id="btn-gnn-explainer" class="btn btn-outline btn-sm"
+                                    style="font-size:0.84rem;padding:0.55rem 0.75rem;border-radius:8px;"
+                                    title="Como funciona o GNN Explainer?">
+                                    <span>ℹ️ Explicador</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Módulo C: Agente de Simplificação RL -->
+                        <div class="panel-section unified-card" style="margin-top:auto;">
+                            <div class="panel-section-header">
+                                <div style="display:flex;align-items:center;gap:0.45rem;">
+                                    <span style="font-size:0.95rem;">⚙️</span>
+                                    <h4 style="margin:0;font-size:0.92rem;color:#f8fafc;font-weight:700;">Agente RL
+                                        Configurado</h4>
+                                </div>
+                                <span class="badge-tag blue">MOTOR DE DECIMAÇÃO</span>
+                            </div>
+
+                            <div
+                                style="display:flex;flex-direction:column;gap:0.4rem;font-size:0.82rem;margin-top:0.5rem;">
+                                <div
+                                    style="display:flex;justify-content:space-between;padding:0.45rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span style="color:#94a3b8;">Iterações Alvo:</span>
+                                    <strong id="side-orig-steps-val"
+                                        style="color:#38bdf8;font-family:'JetBrains Mono',monospace;">--</strong>
+                                </div>
+                                <div
+                                    style="display:flex;justify-content:space-between;padding:0.45rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span style="color:#94a3b8;">Política de Seleção:</span>
+                                    <strong style="color:#cbd5e1;">Curvature-Guided Edge Dissolve</strong>
+                                </div>
+                                <div
+                                    style="display:flex;justify-content:space-between;padding:0.45rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span style="color:#94a3b8;">Recompensas Ativas:</span>
+                                    <strong style="color:#4ade80;">Silhueta + Redução + UV</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════════════
+                     CONTEXTO 2: MALHA OTIMIZADA OU SNAPSHOT
+                     ══════════════════════════════════════════════════════════ -->
+                    <div id="sidebar-context-low" class="sidebar-context-view" style="display:none;">
+
+                        <!-- Banner de Contexto -->
+                        <div class="sidebar-context-banner">
+                            <div style="display:flex;align-items:center;gap:0.55rem;">
+                                <span style="font-size:1.25rem;" id="side-opt-icon">⚡</span>
+                                <div>
+                                    <h3 style="margin:0;font-size:0.98rem;color:#f8fafc;font-weight:700;"
+                                        id="side-opt-title">Otimizado (Low Poly)</h3>
+                                    <span style="font-size:0.76rem;color:#94a3b8;" id="side-opt-subtitle">Topologia
+                                        Simplificada por Reinforcement Learning</span>
+                                </div>
+                            </div>
+                            <span class="badge-tag green" id="side-opt-tag">OTIMIZADO</span>
+                        </div>
+
+                        <!-- Módulo A: Performance RL & Redução Real -->
+                        <div class="panel-section unified-card" id="section-rl">
+                            <div class="panel-section-header">
+                                <div style="display:flex;align-items:center;gap:0.45rem;">
+                                    <span style="font-size:0.95rem;">🔄</span>
+                                    <h4 style="margin:0;font-size:0.92rem;color:#f8fafc;font-weight:700;">Desempenho RL
+                                    </h4>
+                                </div>
+                                <span class="badge-tag blue">RESULTADOS</span>
+                            </div>
+
+                            <!-- Métricas Principais RL -->
+                            <div class="metrics-quad-grid"
+                                style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.5rem;margin-top:0.5rem;">
+                                <div class="metric-cell"
+                                    style="padding:0.6rem 0.5rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+                                    <span class="cell-label"
+                                        style="font-size:0.74rem;color:#94a3b8;display:block;">Redução</span>
+                                    <strong id="side-face-reduction" class="cell-val text-green"
+                                        style="font-size:1.05rem;font-family:'JetBrains Mono',monospace;">--</strong>
+                                </div>
+                                <div class="metric-cell"
+                                    style="padding:0.6rem 0.5rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+                                    <span class="cell-label"
+                                        style="font-size:0.74rem;color:#94a3b8;display:block;">Dissolves</span>
+                                    <strong id="side-dissolves" class="cell-val text-blue"
+                                        style="font-size:1.05rem;font-family:'JetBrains Mono',monospace;">--</strong>
+                                </div>
+                                <div class="metric-cell"
+                                    style="padding:0.6rem 0.5rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);text-align:center;">
+                                    <span class="cell-label"
+                                        style="font-size:0.74rem;color:#94a3b8;display:block;">Passos</span>
+                                    <strong id="side-steps" class="cell-val text-white"
+                                        style="font-size:1.05rem;font-family:'JetBrains Mono',monospace;">--</strong>
+                                </div>
+                            </div>
+
+                            <!-- Comparativo Rápido & Eficiência -->
+                            <div
+                                style="margin-top:0.55rem;padding:0.55rem 0.75rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;gap:0.35rem;font-size:0.82rem;">
+                                <div style="display:flex;justify-content:space-between;">
+                                    <span style="color:#94a3b8;">Faces (Antes ➔ Depois):</span>
+                                    <span style="font-family:'JetBrains Mono',monospace;"><strong
+                                            id="side-comp-faces-before" style="color:#94a3b8;">--</strong> ➔ <strong
+                                            id="side-comp-faces-after" style="color:#34d399;">--</strong></span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;">
+                                    <span style="color:#94a3b8;">Eficiência de Aceitação:</span>
+                                    <strong id="side-rl-efficiency"
+                                        style="color:#38bdf8;font-family:'JetBrains Mono',monospace;">--%</strong>
+                                </div>
+                            </div>
+
+                            <button id="btn-side-report" class="btn btn-outline"
+                                style="width:100%;margin-top:0.65rem;font-size:0.84rem;padding:0.55rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;border-radius:8px;">
+                                <span>📋 Decimation Report & Gráficos</span>
+                            </button>
+                        </div>
+
+                        <!-- Módulo B: Auditoria Topológica DSS -->
+                        <div class="panel-section unified-card dss-section" id="section-dss">
+                            <div class="panel-section-header">
+                                <div style="display:flex;align-items:center;gap:0.45rem;">
+                                    <span style="font-size:0.95rem;">🛡️</span>
+                                    <h4 style="margin:0;font-size:0.92rem;color:#38bdf8;font-weight:700;">Auditoria
+                                        Topológica DSS</h4>
+                                </div>
+                                <span id="qa-header-status" class="status-badge online"
+                                    style="font-size:0.72rem;padding:0.18rem 0.5rem;">Pronto</span>
+                            </div>
+
+                            <div id="qa-summary-box" class="qa-summary-box">
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span id="qa-target-title"
+                                        style="font-size:0.84rem;font-weight:700;color:#38bdf8;">Malha Otimizada</span>
+                                </div>
+                                <p id="qa-header-verdict" class="qa-verdict-text"
+                                    style="margin:0.3rem 0 0.5rem 0;font-size:0.82rem;line-height:1.4;">A calcular
+                                    veredito...</p>
+
+                                <!-- Distribuição de Faces (Quad-Dominance) -->
+                                <div style="margin-bottom:0.6rem;">
+                                    <div
+                                        style="display:flex;justify-content:space-between;font-size:0.74rem;color:#94a3b8;margin-bottom:0.3rem;">
+                                        <span>Distribuição Topológica</span>
+                                        <span>Quad-Dominant</span>
+                                    </div>
+                                    <div
+                                        style="height:7px;width:100%;border-radius:4px;display:flex;overflow:hidden;background:rgba(255,255,255,0.08);">
+                                        <div id="side-bar-quads" style="width:0%;background:#10b981;" title="Quads">
+                                        </div>
+                                        <div id="side-bar-tris" style="width:0%;background:#f59e0b;" title="Triângulos">
+                                        </div>
+                                        <div id="side-bar-ngons" style="width:0%;background:#ef4444;" title="N-gons">
+                                        </div>
+                                    </div>
+                                    <div
+                                        style="display:flex;justify-content:space-between;margin-top:0.35rem;font-size:0.74rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">
+                                        <span style="color:#34d399;">🟩 Quads: <strong
+                                                id="side-dss-quads">--%</strong></span>
+                                        <span style="color:#fbbf24;">🟧 Tris: <strong
+                                                id="side-dss-tris">--%</strong></span>
+                                        <span style="color:#f87171;">🟥 N-gons: <strong
+                                                id="side-dss-ngons">--%</strong></span>
+                                    </div>
+                                </div>
+
+                                <!-- Opções de Aplicação do Mapa DSS ao Vértice / Malha Otimizada -->
+                                <div
+                                    style="margin-top:0.6rem;padding:0.6rem 0.75rem;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(56,189,248,0.25);">
+                                    <div
+                                        style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.45rem;">
+                                        <span
+                                            style="font-size:0.76rem;font-weight:700;color:#93c5fd;letter-spacing:0.04em;">APLICAR
+                                            MAPA DSS AO 3D</span>
+                                        <span id="side-dss-map-badge" class="badge-mini"
+                                            style="background:rgba(255,255,255,0.06);color:#94a3b8;border-color:rgba(255,255,255,0.1);font-size:0.72rem;">Desativado</span>
+                                    </div>
+                                    <button type="button" id="side-btn-dss-toggle" class="btn btn-outline btn-sm"
+                                        style="width:100%;margin-bottom:0.45rem;font-size:0.84rem;padding:0.5rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;border-radius:8px;transition:all 0.2s ease;">
+                                        <span>🎨 Ativar Mapa de Cores DSS</span>
+                                    </button>
+                                    <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.45rem;">
+                                        <button id="side-btn-dss-angle" class="btn btn-outline btn-sm dss-map-btn"
+                                            style="font-size:0.78rem;padding:0.48rem 0.3rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;border-radius:6px;"
+                                            title="Heatmap de Ângulos Internos (Defeitos Min/Max nos Vértices e Faces)">
+                                            <span>🌡️ Ângulos</span>
+                                        </button>
+                                        <button id="side-btn-dss-valence" class="btn btn-outline btn-sm dss-map-btn"
+                                            style="font-size:0.78rem;padding:0.48rem 0.3rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;border-radius:6px;"
+                                            title="Heatmap de Valência por Vértice e Singularidades/Pólos">
+                                            <span>🟣 Valência</span>
+                                        </button>
+                                        <button id="side-btn-dss-errors" class="btn btn-outline btn-sm dss-map-btn"
+                                            style="font-size:0.78rem;padding:0.48rem 0.3rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;border-radius:6px;"
+                                            title="Mapa de Conformidade Topológica (Quads, Tris, N-gons, Aberturas)">
+                                            <span>⚠️ Topologia</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.6rem;">
+                                    <button id="btn-open-dss-modal" class="btn btn-primary"
+                                        style="width:100%;font-size:0.85rem;padding:0.55rem;display:flex;align-items:center;justify-content:center;gap:0.45rem;background:linear-gradient(135deg,#0284c7,#2563eb);border-color:#38bdf8;border-radius:8px;">
+                                        <span>🛡️ Abrir Auditoria DSS Completa</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Módulo C: Exportação Low Poly -->
+                        <div class="panel-section unified-card" id="section-export"
+                            style="margin-top:auto;margin-bottom:0;">
+                            <div style="display:flex;flex-direction:column;gap:0.4rem;font-size:0.82rem;">
+                                <div
+                                    style="display:flex;justify-content:space-between;padding:0.45rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span style="color:#64748b;">ORIGINAL (HIGH):</span>
+                                    <span id="side-high-info"
+                                        style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
+                                </div>
+                                <div
+                                    style="display:flex;justify-content:space-between;padding:0.45rem 0.7rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                                    <span id="side-low-info-label" style="color:#64748b;">OTIMIZADO (LOW):</span>
+                                    <span id="side-low-info"
+                                        style="font-family:'JetBrains Mono',monospace;color:#34d399;">--</span>
+                                </div>
+                            </div>
+
+                            <button id="btn-export" class="btn btn-primary"
+                                style="width:100%;margin-top:0.65rem;padding:0.65rem;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:0.45rem;border-radius:8px;">
+                                <span>💾 Exportar Low Poly (.obj)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════════════
+                     CONTEXTO 3: AUDITORIA TOPOLÓGICA DSS (DIRETO NO MENU LATERAL)
+                     ══════════════════════════════════════════════════════════ -->
+                    <div id="sidebar-context-dss" class="sidebar-context-view" style="display:none;">
+
+                        <!-- Banner de Navegação DSS -->
+                        <div class="sidebar-context-banner dss-context-banner">
+                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                <button type="button" id="btn-dss-back" class="btn btn-outline btn-sm"
+                                    style="font-size:0.75rem;padding:0.3rem 0.55rem;border-color:rgba(255,255,255,0.2);"
+                                    title="Voltar ao Estúdio Principal">
+                                    <span>⬅ Voltar</span>
+                                </button>
+                                <div>
+                                    <h3 style="margin:0;font-size:0.86rem;color:#f8fafc;font-weight:700;">Auditoria DSS
+                                    </h3>
+                                    <span id="dss-drawer-target-title" style="font-size:0.67rem;color:#38bdf8;">Malha
+                                        Otimizada Final</span>
+                                </div>
+                            </div>
+                            <span id="dss-drawer-status" class="status-badge online"
+                                style="font-size:0.65rem;">Concluído</span>
+                        </div>
+
+                        <!-- Módulo A: Veredito & Mapas DSS no 3D -->
+                        <div class="panel-section unified-card dss-section">
+                            <div
+                                style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+                                <span
+                                    style="font-size:0.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;">Veredito
+                                    da Malha</span>
+                                <span id="qa-header-duration"
+                                    style="font-size:0.66rem;color:#94a3b8;font-family:'JetBrains Mono',monospace;">--</span>
+                            </div>
+                            <p id="dss-drawer-verdict" class="qa-verdict-text"
+                                style="margin:0 0 0.55rem 0;font-size:0.79rem;line-height:1.4;">--</p>
+
+                            <!-- Toggle de Visualização no 3D direto no Menu -->
+                            <div
+                                style="display:flex;flex-direction:column;gap:0.3rem;padding-top:0.45rem;border-top:1px solid rgba(255,255,255,0.08);">
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span style="font-size:0.68rem;font-weight:700;color:#38bdf8;">MAPAS DSS NO VIEWPORT
+                                        3D</span>
+                                    <span id="dss-drawer-map-badge" class="badge-mini" style="font-size:0.65rem;">Desativado</span>
+                                </div>
+                                <button type="button" id="dss-drawer-btn-toggle" class="btn btn-outline btn-sm"
+                                    style="width:100%;margin-bottom:0.3rem;font-size:0.74rem;padding:0.38rem;display:flex;align-items:center;justify-content:center;gap:0.35rem;border-radius:6px;transition:all 0.2s ease;">
+                                    <span>🎨 Ativar Mapa de Cores DSS</span>
+                                </button>
+                                <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.35rem;">
+                                    <button type="button" id="dss-drawer-btn-angle"
+                                        class="btn btn-outline btn-sm dss-map-btn"
+                                        style="font-size:0.72rem;padding:0.38rem 0.2rem;"
+                                        title="Heatmap de Ângulos Internos (Defeitos Min/Max)">
+                                        <span>🌡️ Ângulos</span>
+                                    </button>
+                                    <button type="button" id="dss-drawer-btn-valence"
+                                        class="btn btn-outline btn-sm dss-map-btn"
+                                        style="font-size:0.72rem;padding:0.38rem 0.2rem;"
+                                        title="Heatmap de Valência por Vértice e Pólos">
+                                        <span>🟣 Valência</span>
+                                    </button>
+                                    <button type="button" id="dss-drawer-btn-errors"
+                                        class="btn btn-outline btn-sm dss-map-btn"
+                                        style="font-size:0.72rem;padding:0.38rem 0.2rem;"
+                                        title="Conformidade Topológica (Quads, Tris, N-gons)">
+                                        <span>⚠️ Topologia</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Módulo C: Integridade & Estanquicidade -->
+                        <div class="panel-section unified-card">
+                            <span
+                                style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Integridade
+                                & Estanquicidade</span>
+                            <div class="qa-metric-cards-grid">
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">Hermética</span>
+                                    <div id="qa-topo-watertight" class="qa-mc-val">--</div>
+                                </div>
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">2-Manifold</span>
+                                    <div id="qa-topo-manifold" class="qa-mc-val">--</div>
+                                </div>
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">Euler (χ)</span>
+                                    <strong id="qa-topo-euler" class="qa-mc-num">--</strong>
+                                </div>
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">Open Edges</span>
+                                    <strong id="qa-topo-boundary-edges" class="qa-mc-num">--</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Módulo D: Distribuição de Faces (Quads, Tris, N-gons) -->
+                        <div class="panel-section unified-card">
+                            <div
+                                style="display:flex;justify-content:space-between;font-size:0.72rem;margin-bottom:0.25rem;">
+                                <span
+                                    style="font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;">Distribuição
+                                    de Polígonos</span>
+                                <span id="qa-faces-summary"
+                                    style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
+                            </div>
+                            <div class="qa-faces-bar">
+                                <div id="qa-bar-tris" class="qa-fb-segment tris" style="width: 0%;"></div>
+                                <div id="qa-bar-quads" class="qa-fb-segment quads" style="width: 0%;"></div>
+                                <div id="qa-bar-ngons" class="qa-fb-segment ngons" style="width: 0%;"></div>
+                            </div>
+                            <div class="qa-faces-legend">
+                                <div class="qa-fl-item"><span class="qa-fl-dot tris"></span> Tris: <strong
+                                        id="qa-count-tris">--</strong></div>
+                                <div class="qa-fl-item"><span class="qa-fl-dot quads"></span> Quads: <strong
+                                        id="qa-count-quads">--</strong></div>
+                                <div class="qa-fl-item"><span class="qa-fl-dot ngons"></span> N-gons: <strong
+                                        id="qa-count-ngons">--</strong></div>
+                            </div>
+                        </div>
+
+                        <!-- Módulo E: Checklist de Verificações Topológicas Dinâmicas -->
+                        <div class="panel-section unified-card">
+                            <div
+                                style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                                <span
+                                    style="font-size:0.74rem;font-weight:700;text-transform:uppercase;color:#38bdf8;letter-spacing:0.04em;">Verificações
+                                    Topológicas (Clica para focar no 3D)</span>
+                            </div>
+                            <div id="qa-checks-list" class="qa-checks-list"></div>
+                        </div>
+
+                        <!-- Módulo F: Qualidade Angular & Histograma de Valência -->
+                        <div class="panel-section unified-card">
+                            <span
+                                style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Qualidade
+                                Angular (Graus)</span>
+                            <div class="qa-angles-grid">
+                                <div class="qa-angle-item"><span class="qa-ai-label">Mín:</span><strong
+                                        id="qa-angle-min">--</strong></div>
+                                <div class="qa-angle-item"><span class="qa-ai-label">Méd:</span><strong
+                                        id="qa-angle-mean">--</strong></div>
+                                <div class="qa-angle-item"><span class="qa-ai-label">Máx:</span><strong
+                                        id="qa-angle-max">--</strong></div>
+                            </div>
+
+                            <div style="margin-top:0.6rem;">
+                                <span
+                                    style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Histograma
+                                    de Valência por Vértice</span>
+                                <div id="qa-valence-histogram" class="qa-histogram-container" style="height:65px;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Módulo G: Limitações & Avisos -->
+                        <div class="panel-section unified-card" style="margin-bottom:0;">
+                            <span
+                                style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.3rem;">⚠️
+                                Limitações & Avisos do Pipeline</span>
+                            <ul id="qa-limitations-list" class="qa-bullet-list"
+                                style="margin:0;padding-left:1.1rem;font-size:0.74rem;color:#94a3b8;line-height:1.45;">
+                            </ul>
+                            <ul id="qa-warnings-list" class="qa-bullet-list"
+                                style="margin:0.3rem 0 0 0;padding-left:1.1rem;font-size:0.74rem;color:#94a3b8;line-height:1.45;">
+                            </ul>
+                        </div>
+                    </div>
+
+                </aside>
+            </main>
+        </div>
+
+        <!-- ═══════════════ MODAL DO GNN EXPLAINER ═══════════════ -->
+        <div id="gnn-explainer-modal" class="modal-overlay hidden" style="z-index: 3000;">
+            <div class="upload-card glass" style="max-width: 520px; text-align: left;">
+                <div
+                    style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.8rem; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.4rem;">🧠</span>
+                        <h2 style="font-size: 1.05rem; margin: 0; color: #f8fafc;">Como Funciona o GNN Explainer?</h2>
+                    </div>
+                    <button type="button" id="btn-close-gnn-explainer" class="btn-icon-sidebar"
+                        style="font-size: 1.1rem; width: 30px; height: 30px;" title="Fechar">✕</button>
+                </div>
+
+                <p style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 1rem;">
+                    A rede neuronal de grafos (<strong>Equivariant Graph Neural Network - EGNN</strong>) avalia a
+                    geometria 3D da malha antes do Reinforcement Learning iniciar.
+                </p>
+
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.8rem;">
+                    <div
+                        style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); padding: 0.7rem; border-radius: 8px;">
+                        <strong style="color: #38bdf8; display: block; margin-bottom: 0.2rem;">1. Deteção de Vértices
+                            Críticos</strong>
+                        <span style="color: #94a3b8;">Identifica vértices em arestas vivas, contornos e áreas de alta
+                            curvatura que definem a silhueta visual do objeto.</span>
+                    </div>
+                    <div
+                        style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25); padding: 0.7rem; border-radius: 8px;">
+                        <strong style="color: #c084fc; display: block; margin-bottom: 0.2rem;">2. Mapa Térmico
+                            (Heatmap)</strong>
+                        <span style="color: #94a3b8;">Atribui um score contínuo de importância de 0 (área plana
+                            dispensável) a 1 (característica anatómica/mecânica indispensável).</span>
+                    </div>
+                    <div
+                        style="background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.25); padding: 0.7rem; border-radius: 8px;">
+                        <strong style="color: #4ade80; display: block; margin-bottom: 0.2rem;">3. Análise de
+                            Interpretabilidade</strong>
+                        <span style="color: #94a3b8;">Permite inspecionar a relevância estrutural predita para cada
+                            região da malha 3D antes ou em paralelo ao processo de decimação.</span>
                     </div>
                 </div>
 
-                <!-- Botão flutuante para reabrir o painel lateral quando escondido -->
-                <button id="btn-expand-sidebar" class="btn-expand-sidebar glass" title="Mostrar Painel Lateral" style="display:none;">
-                    <span>◀ Painel Lateral</span>
+                <button type="button" id="btn-ok-gnn-explainer" class="btn btn-primary"
+                    style="width: 100%; margin-top: 1.2rem; padding: 0.6rem; font-size: 0.85rem;">
+                    Entendido
                 </button>
+            </div>
+        </div>
 
-                <!-- Stats flutuantes (Dados Reais do Modelo Carregado) -->
-                <div class="mesh-stats glass">
-                    <div class="stat-item">
-                        <span class="stat-label">Triângulos</span>
-                        <span class="stat-value" id="val-tris">--</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Vértices</span>
-                        <span class="stat-value" id="val-verts">--</span>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Painel Lateral de Métricas & Controlo Reais -->
-            <aside class="sidebar glass" id="app-sidebar">
-                <div class="sidebar-header">
-                    <h2>Painel de Otimização</h2>
-                    <button id="btn-collapse-sidebar" class="btn-icon-sidebar" title="Esconder Painel Lateral">
-                        <span>→</span>
-                    </button>
-                </div>
-                
-                <!-- Secção 1: Análise GNN & XAI Feature Importance -->
-                <div class="panel-section">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                        <h3 style="margin:0;">GNN Feature Importance</h3>
-                    </div>
-                    <p class="small-text">Predição da rede neuronal sobre a saliência geométrica dos vértices.</p>
-
-                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.8rem;">
-                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
-                            <span style="color:#94a3b8;">Vértices Analisados:</span>
-                            <strong id="side-gnn-verts" style="color:#60a5fa;font-family:'JetBrains Mono',monospace;">--</strong>
-                        </div>
-                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
-                            <span style="color:#94a3b8;">Vértices Críticos:</span>
-                            <strong id="side-gnn-critical" style="color:#f87171;font-family:'JetBrains Mono',monospace;">--</strong>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Secção 2: Motor de Decimação RL -->
-                <div class="panel-section">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                        <h3 style="margin:0;">RL Decimation</h3>
-                    </div>
-                    <p class="small-text">Otimização de malha orientada por Reinforcement Learning.</p>
-
-                    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.9rem;">
-                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
-                            <span style="color:#94a3b8;">Redução Real:</span>
-                            <strong id="side-face-reduction" style="color:#34d399;font-family:'JetBrains Mono',monospace;">--</strong>
-                        </div>
-                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
-                            <span style="color:#94a3b8;">Dissolves Aceites:</span>
-                            <strong id="side-dissolves" style="color:#60a5fa;font-family:'JetBrains Mono',monospace;">--</strong>
-                        </div>
-                        <div class="stat-row" style="display:flex;justify-content:space-between;font-size:0.82rem;">
-                            <span style="color:#94a3b8;">Passos Realizados:</span>
-                            <strong id="side-steps" style="color:#e2e8f0;font-family:'JetBrains Mono',monospace;">--</strong>
-                        </div>
-                    </div>
-
-                    <button id="btn-side-report" class="btn btn-outline" style="width:100%;margin-top:1rem;font-size:0.8rem;padding:0.5rem;">
-                        📋 Ver Relatório de Ações
-                    </button>
-                </div>
-
-                <!-- Secção 3: Comparação de Geometria Real -->
-                <div class="panel-section">
-                    <h3>Comparação de Malha</h3>
-                    <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.6rem;font-size:0.8rem;">
-                        <div style="padding:0.5rem;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);">
-                            <span style="color:#64748b;font-size:0.72rem;display:block;">ORIGINAL (HIGH POLY)</span>
-                            <span id="side-high-info" style="font-family:'JetBrains Mono',monospace;color:#e2e8f0;">--</span>
-                        </div>
-                        <div style="padding:0.5rem;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);">
-                            <span style="color:#64748b;font-size:0.72rem;display:block;">OTIMIZADO (LOW POLY)</span>
-                            <span id="side-low-info" style="font-family:'JetBrains Mono',monospace;color:#34d399;">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Secção 4: Exportação Low Poly -->
-                <div class="panel-section" style="margin-top:auto;padding-top:1.2rem;border-top:1px solid rgba(255,255,255,0.08);margin-bottom:0;">
-                    <button id="btn-export" class="btn btn-primary" style="width:100%;padding:0.75rem;font-size:0.88rem;display:flex;align-items:center;justify-content:center;gap:0.5rem;">
-                        <span>💾 Exportar Low Poly (.obj)</span>
-                    </button>
-                </div>
-            </aside>
-        </main>
-    </div>
-    
+    <script src="error-modal.js"></script>
     <script src="config.js"></script>
     <script src="api.js"></script>
+    <script src="qa.js"></script>
     <script src="main.js"></script>
 </body>
+
 </html>
