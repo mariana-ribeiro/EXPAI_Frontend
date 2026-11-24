@@ -64,14 +64,27 @@ Base: [frontend-api.md](frontend-api.md) e o código atual de `C:\DEV\API_EXPAI`
   - `fixtures/status.json` com `snapshot` e `links`, como a API devolve hoje.
   - Não feito (opcional): `quad_tolerance` / `quad_method` nas opções avançadas; o frontend usa os valores por omissão da API.
 
+- **Fase 8 — feita** (24/11/2026, API local com `RL_MAX_STEPS=2000`, cubo de teste).
+  - Upload `.obj` pela interface → GNN → RL com progresso real → quad final automático: OK. Vista Low em quads (384 faces), cartão do RL 768 → 706 faces em 2000 passos.
+  - Malha limpa na vista High e no cartão "Geometria de Entrada" (386 v; o ficheiro tinha 387): OK.
+  - DSS da original (`snapshot=0`), do final e do snapshot 50: os três concluídos, vereditos na interface.
+  - Snapshot 50: "Gerar quads" (~4 s) → imagem do quad → "Carregar quads" no 3D → DSS do snapshot: OK.
+  - Erros: chave errada → "Chave de API Inválida"; upload acima do limite → "Upload Recusado"; quad pedido a meio do RL → 409 "Operação em Curso"; 404 da API → "Não Encontrado".
+  - RL repetido na mesma malha (via `RetopoAPI.startRL`, a interface não tem botão para isso): a API apaga os quads (final e snapshots) e todos os DSS, incluindo o `snapshot=0`; o quad final volta a ser criado no fim.
+  - Não testado: `.ply` e `.glb` — o frontend só aceita `.obj` (lê o texto e conta as faces antes do envio).
+  - Correção feita durante o teste: a API responde ao upload recusado por chave errada (401) ou por `X-Upload-Size` acima do limite (400) **sem cabeçalhos CORS**; o browser via só um erro de rede. O frontend agora diagnostica com `/health` e um pedido autenticado.
+
 ### Malhas de teste (`test-meshes/`, não versionadas)
 - `cubo_8_snapshots.obj` — cubo 1×1×1 subdividido (387 v / 768 f). Um RL completo deu 414 dissolves e 8 snapshots (50, 100, …, 400) em ~23 min.
 - `esfera_polos_duplicados.obj` — esfera UV (408 v / 768 f) com vértices duplicados nos polos; a malha limpa fica com 362 v / 720 f.
 - Com o `max_steps` ignorado pela API, cada upload corre sempre os 50 000 passos (~20–40 min) e a API só corre um RL de cada vez.
+- Para testes rápidos: `RL_MAX_STEPS=2000` no `.env.local` da API (só local, no `.gitignore`) e recriar o contentor (`docker compose -f compose.local.yaml up -d`). Com o cubo, 2000 passos dão 62 dissolves e 1 snapshot (o 50) em cerca de 1 minuto. Tirar a linha e recriar o contentor para voltar aos 50 000.
 
 ### Notas sobre a API (encontradas nos testes)
 - **`max_steps` deixou de ser usado** (alterações por commitar em `app/routes/rl.py` e `app/services/rl_jobs.py`): o RL corre sempre o horizon do modelo (50 000 passos) e o parâmetro é ignorado. O `frontend-api.md` ainda o lista. A fase 2 deve deixar de depender do input de passos.
 - **500 passageiro no `GET .../status`**: `read_status` verifica `is_file()` e depois lê; se o job reescrever o `status.json` entre os dois, dá `FileNotFoundError` → 500 sem cabeçalhos CORS (o browser vê "Failed to fetch"). Visto com o `./storage` montado do Windows. O frontend já tolera; vale a pena avisar quem mantém a API.
+- **Upload recusado sem CORS**: o 401 (chave errada) e o 400 (`X-Upload-Size` acima do limite) do `POST /v1/mesh/upload` saem sem `Access-Control-Allow-Origin` (o 415 já traz). Vale a pena corrigir na API; o frontend contorna (ver fase 8).
+- **Cada `--reload` mata o job em curso**: guardar ficheiros de `app/` com a API local a correr cancela o RL ("Job cancelled by service shutdown"). Aconteceu duas vezes a 24/11.
 - Logo a seguir a `POST /v1/quad/{id}?snapshot=N` (re-quad), o `GET .../image?snapshot=N` ainda devolveu a imagem antiga em vez de `409`.
 
 ## Pipeline
