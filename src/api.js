@@ -63,6 +63,78 @@ class ApiError extends Error {
 }
 window.ApiError = ApiError;
 
+/**
+ * Texto em português para um erro da API, por código HTTP.
+ * `detail` é sempre a `message` da API (em inglês), mostrada como pormenor.
+ * @returns {{title: string, message: string, hint: string, short: string, detail: string}}
+ */
+function describeApiError(err) {
+    const status = err?.status;
+    const code = err?.error;
+    const detail = err?.message || String(err ?? "");
+    const d = (title, message, hint, short) => ({ title, message, hint, short, detail });
+
+    if (code === "Config") {
+        return d("Configuração em Falta", detail, "Preencha API_URL e API_KEY em config.js.", "Configuração em falta");
+    }
+    if (code === "Network" || status === 0 && code !== "Timeout" && code !== "JobFailed") {
+        return d("Sem Ligação à API", "Não foi possível contactar o servidor.",
+            "Confirme que a API está a correr e que o endereço em config.js está certo.", "Sem ligação à API");
+    }
+    if (code === "Timeout") {
+        return d("Tempo Limite Excedido", "O servidor demorou demasiado a responder.",
+            "Tente de novo daqui a pouco.", "Tempo limite excedido");
+    }
+    if (code === "JobFailed") {
+        return d("A Operação Falhou no Servidor", "O servidor não conseguiu concluir esta operação.",
+            "Tente de novo; se voltar a falhar, experimente outra malha.", "Falhou no servidor");
+    }
+    switch (status) {
+        case 401: return d("Chave de API Inválida", "A API recusou a chave de acesso.",
+            "Verifique a API key em config.js.", "Chave de API inválida");
+        case 404: return d("Não Encontrado", "A malha ou o resultado já não existe no servidor.",
+            "Os resultados expiram ao fim de algum tempo; volte a carregar o modelo.", "Não encontrado no servidor");
+        case 409: return d("Operação em Curso", "Já há uma operação a correr para esta malha, ou falta um passo anterior.",
+            "Espere que termine e tente de novo.", "Malha ocupada");
+        case 413: return d("Ficheiro Demasiado Grande", "O ficheiro excede o tamanho máximo aceite pela API.",
+            "Reduza a malha antes de a enviar.", "Ficheiro demasiado grande");
+        case 415: return d("Formato Não Suportado", "A API não aceita este tipo de ficheiro.",
+            "Envie um ficheiro .obj.", "Formato não suportado");
+        case 422: return d("Parâmetro Inválido", "A API rejeitou um dos parâmetros do pedido.",
+            "O pormenor abaixo diz qual e porquê.", "Parâmetro inválido");
+        case 429: return d("Demasiadas Tentativas", "O servidor está a limitar os pedidos.",
+            "Espere um pouco e tente de novo.", "Demasiadas tentativas");
+        case 503: return d("Serviço Ocupado", "O servidor está ocupado neste momento.",
+            "Tente de novo daqui a pouco.", "Serviço ocupado");
+        case 507: return d("Sem Espaço no Servidor", "O servidor ficou sem espaço em disco.",
+            "Contacte quem gere a API.", "Sem espaço no servidor");
+    }
+    if (status >= 500) {
+        return d("Erro no Servidor", "O servidor encontrou um erro inesperado.",
+            "Tente de novo; se persistir, contacte quem gere a API.", "Erro no servidor");
+    }
+    return d("Erro", detail || "Ocorreu um erro inesperado.", "", detail || "Erro");
+}
+window.describeApiError = describeApiError;
+
+/**
+ * Mostra um erro da API no pop-up de erros. `overrides` pode trocar o título,
+ * a mensagem ou a dica (ex.: texto específico do contexto).
+ */
+function showApiError(err, overrides = {}) {
+    const info = describeApiError(err);
+    const title = overrides.title || info.title;
+    const message = overrides.message || info.message;
+    const hint = overrides.hint ?? info.hint;
+    const errors = info.detail && info.detail !== message ? [info.detail] : [];
+    if (window.ErrorModal?.show) {
+        window.ErrorModal.show({ title, message, errors, hint: hint || undefined, buttonText: "Entendido" });
+    } else {
+        alert(`${title}: ${message}${errors.length ? `\n\n${errors[0]}` : ""}`);
+    }
+}
+window.showApiError = showApiError;
+
 async function toApiError(response) {
     let error = response.statusText || "";
     let message = `Erro HTTP ${response.status}`;
@@ -559,13 +631,6 @@ window.RetopoAPI = {
      */
     getQuadImageBlobUrl: function (meshId, snapshot = null) {
         return enqueueMeshTask(meshId, () => apiImageUrl(`/v1/quad/${enc(meshId)}/image${qs({ snapshot })}`));
-    },
-
-    /**
-     * @deprecated O endpoint /snapshots/{n}/image foi removido da API; usa a imagem do quad do snapshot.
-     */
-    getSnapshotImageBlobUrl: function (meshId, acceptedDissolves) {
-        return this.getQuadImageBlobUrl(meshId, acceptedDissolves);
     }
 };
 

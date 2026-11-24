@@ -2048,7 +2048,9 @@
                     statusEl.textContent = "Falhou";
                 }
                 if (verdictEl) {
-                    verdictEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">❌ Aviso da API:</span> <span style="color:#fca5a5;">${err.message}</span>`;
+                    const info = window.describeApiError(err);
+                    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+                    verdictEl.innerHTML = `<span style="color:#ef4444;font-weight:600;">❌ ${esc(info.title)}:</span> <span style="color:#fca5a5;" title="${esc(info.detail)}">${esc(info.message)}</span>`;
                 }
             } finally {
                 dssInFlight.delete(cacheKey);

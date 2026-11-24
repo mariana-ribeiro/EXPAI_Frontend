@@ -130,7 +130,7 @@
                 errorsList.innerHTML = errors.map(err => `
                     <div style="display: flex; align-items: flex-start; gap: 0.4rem;">
                         <span style="color: #f87171;">•</span>
-                        <span>${err}</span>
+                        <span>${String(err).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>
                     </div>
                 `).join("");
                 errorsContainer.style.display = "flex";
