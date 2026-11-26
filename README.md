@@ -40,17 +40,32 @@ python -m http.server 5500 --bind 127.0.0.1
 
 Depois abrir http://localhost:5500/src/. Com o Live Server do VS Code, o endereço é o mesmo.
 
+Neste modo, o `env.json`/`.env` é servido ao browser e **a chave fica visível** para quem abrir o site. Serve para desenvolvimento; para publicar, usar o Docker.
+
 ## Docker
 
-`compose.yaml` cria uma imagem nginx com o conteúdo de `src/`, exposta em http://localhost:8080. A configuração do nginx fica em `nginx/` e não é versionada; o `Dockerfile` usa `nginx/local.conf` por omissão (`NGINX_CONFIG` muda o ficheiro).
+A imagem (nginx) serve o conteúdo de `src/` e faz de **proxy para a API** em `/api/`. É o nginx que acrescenta a `X-API-Key` a cada pedido, por isso a chave fica só no servidor e nunca chega ao browser. Como o browser só fala com o próprio site, também não é preciso configurar CORS na API.
+
+O `compose.yaml` lê do `.env` da raiz:
+
+| Variável | Uso |
+|---|---|
+| `API_KEY` | Chave da API (obrigatória) |
+| `API_UPSTREAM` | Endereço da API visto de dentro do contentor; por omissão `http://host.docker.internal:8001` (a API local) |
 
 ```powershell
 docker compose up -d --build
 ```
 
+O site fica em http://localhost:8080. No arranque, o contentor gera um `/env.json` com `API_URL=/api` e sem a chave verdadeira.
+
+Ficheiros: `Dockerfile`, `compose.yaml` e a pasta `docker/` (configuração do nginx e script que gera o `env.json`).
+
+Nota: o proxy esconde a chave, mas não restringe quem usa o site. Quem conseguir abrir o site consegue usar a API através dele; num site público convém pô-lo atrás de autenticação.
+
 ## Fluxo na aplicação
 
-1. **Upload** de um `.obj` (até 1500 faces). A API limpa a malha (funde vértices, remove faces duplicadas e degeneradas); a vista "Original (High)" passa a mostrar essa malha limpa.
+1. **Upload** de um `.obj`. A API limpa a malha (funde vértices, remove faces duplicadas e degeneradas); a vista "Original (High)" passa a mostrar essa malha limpa.
 2. **GNN**: corre primeiro e dá o heatmap de importância dos vértices.
 3. **RL**: corre a seguir, com o progresso real do job. A API só corre um RL de cada vez; se estiver ocupada, aparece "Em fila no servidor...".
 4. **Quad final**: a API converte o resultado do RL em quads automaticamente; a vista "Otimizado (Low)" mostra essa malha.
@@ -78,4 +93,4 @@ O RL demora 20–40 minutos (50 000 passos, fixados pelo modelo da API). Para te
 
 Todas as respostas de erro da API têm o formato `{ "error": ..., "message": ... }`. O frontend mostra um título e uma explicação em português por código HTTP (401, 404, 409, 413, 415, 422, 429, 503, 507, 5xx) e a `message` da API como pormenor.
 
-Limitação conhecida da API: o upload recusado por chave errada (401) ou por tamanho acima do limite chega sem cabeçalhos CORS, e o browser só vê um erro de rede. O frontend contorna isto com um pedido a `/health` e outro autenticado, para indicar a causa certa.
+Se o upload falhar sem resposta legível (rede, ligação cortada a meio), o frontend faz um pedido a `/health` e outro autenticado para dizer se a API está em baixo, se a chave é recusada ou se foi o upload que falhou.

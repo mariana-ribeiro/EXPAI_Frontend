@@ -200,24 +200,6 @@
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     }
 
-    const MAX_FACES_LIMIT = 1500;
-
-    function showFaceLimitError(facesCount) {
-        if (window.ErrorModal?.show) {
-            window.ErrorModal.show({
-                title: "Limite de Complexidade Excedido",
-                message: `A malha selecionada possui ${facesCount.toLocaleString()} faces.`,
-                errors: [
-                    `O modelo de Reinforcement Learning (RL) ainda não está preparado para malhas superiores a ${MAX_FACES_LIMIT.toLocaleString()} faces.`,
-                    "Por favor, utilize uma malha com até 1.500 faces ou pré-simplifique o modelo antes de carregar."
-                ],
-                buttonText: "Entendido"
-            });
-        } else {
-            alert(`A malha possui ${facesCount} faces. O agente RL atualmente só suporta malhas com até 1500 faces.`);
-        }
-    }
-
     async function setSelectedFile(file) {
         if (!file) return;
 
@@ -239,20 +221,6 @@
             if (fileInput) fileInput.value = "";
             return;
         }
-
-        // Pré-verificação se o ficheiro OBJ tiver mais de 1500 faces
-        try {
-            const text = await file.text();
-            const stats = computeObjStats(text);
-            if (stats.faces > MAX_FACES_LIMIT) {
-                showFaceLimitError(stats.faces);
-                selectedFile = null;
-                if (fileInput) fileInput.value = "";
-                if (selectedFileInfo) selectedFileInfo.style.display = "none";
-                if (dropZone) dropZone.style.display = "block";
-                return;
-            }
-        } catch (_) { }
 
         selectedFile = file;
 
@@ -299,21 +267,6 @@
             // 1. Ler o texto do ficheiro OBJ para extrair métricas 100% REAIS
             const fileText = await fileObj.text();
             const extracted = computeObjStats(fileText);
-
-            if (extracted.faces > MAX_FACES_LIMIT) {
-                showFaceLimitError(extracted.faces);
-                selectedFile = null;
-                if (fileInput) fileInput.value = "";
-                if (selectedFileInfo) selectedFileInfo.style.display = "none";
-                if (dropZone) dropZone.style.display = "block";
-                if (btnUploadNext) {
-                    btnUploadNext.innerHTML = `<span>Seguinte</span> <span>➔</span>`;
-                    btnUploadNext.disabled = true;
-                    btnUploadNext.style.opacity = "0.45";
-                }
-                URL.revokeObjectURL(fileUrl);
-                return;
-            }
 
             realStats.high.verts = extracted.verts;
             realStats.high.faces = extracted.faces;
@@ -605,19 +558,19 @@
             const positions = [];
             const vertexIndices = [];
             const triangleToFace = [];
+            // Faces que não são um polígono simples (auto-intersetadas, com área
+            // nula ou vértices em falta): desenham-se tal como estão no ficheiro,
+            // para o utilizador ver que estão estragadas.
+            const invalidFaces = [];
 
             for (let f = 0; f < polygonFaces.length; f++) {
                 const poly = polygonFaces[f];
-                const v0 = poly[0];
-                for (let j = 1; j < poly.length - 1; j++) {
-                    const v1 = poly[j];
-                    const v2 = poly[j + 1];
-
+                const { triangles, valid } = triangulateFace(poly, rawVerts);
+                if (!valid) invalidFaces.push(f);
+                for (const [v0, v1, v2] of triangles) {
                     const p0 = rawVerts[v0];
                     const p1 = rawVerts[v1];
                     const p2 = rawVerts[v2];
-
-                    if (!p0 || !p1 || !p2) continue;
 
                     positions.push(
                         (p0[0] - cx) * scale, (p0[1] - cy) * scale, (p0[2] - cz) * scale,
@@ -627,6 +580,9 @@
                     vertexIndices.push(v0, v1, v2);
                     triangleToFace.push(f);
                 }
+            }
+            if (invalidFaces.length > 0) {
+                console.warn(`[Mesh] ${invalidFaces.length} face(s) inválida(s) (auto-intersetadas ou degeneradas), desenhadas como estão no OBJ:`, invalidFaces.slice(0, 20));
             }
 
             const geo = new THREE.BufferGeometry();
@@ -645,8 +601,103 @@
             geo.userData.triangleToFace = triangleToFace;
             geo.userData.polygonFaces = polygonFaces;
             geo.userData.rawVerts = rawVerts;
+            geo.userData.invalidFaces = invalidFaces;
 
             return geo;
+        }
+
+        /**
+         * Triângulos de uma face do OBJ (índices de vértices), sem inventar geometria.
+         *
+         * Um leque a partir do primeiro vértice só está certo em faces convexas: numa
+         * face côncava (ex.: um L) cria triângulos fora da face. Aqui a face é
+         * projetada no seu plano (normal de Newell) e triangulada com o earcut do
+         * three.js, que respeita o contorno. Os triângulos ficam com a orientação
+         * da face (normais iguais às do ficheiro).
+         *
+         * Uma face que não é um polígono simples (contorno que se cruza, área nula,
+         * vértices repetidos ou em falta) não tem uma triangulação "certa": desenha-se
+         * em leque, como no ficheiro, e devolve valid=false.
+         */
+        function triangulateFace(poly, rawVerts) {
+            const n = poly.length;
+            const points = poly.map((v) => rawVerts[v]);
+            const fan = () => {
+                const out = [];
+                for (let j = 1; j < n - 1; j++) {
+                    if (points[0] && points[j] && points[j + 1]) out.push([poly[0], poly[j], poly[j + 1]]);
+                }
+                return out;
+            };
+            if (points.some((p) => !p) || new Set(poly).size !== n) {
+                return { triangles: fan(), valid: false };
+            }
+
+            // Normal de Newell: robusta para polígonos côncavos e ligeiramente não planos.
+            let nx = 0, ny = 0, nz = 0;
+            for (let i = 0; i < n; i++) {
+                const a = points[i], b = points[(i + 1) % n];
+                nx += (a[1] - b[1]) * (a[2] + b[2]);
+                ny += (a[2] - b[2]) * (a[0] + b[0]);
+                nz += (a[0] - b[0]) * (a[1] + b[1]);
+            }
+            const length = Math.hypot(nx, ny, nz);
+            if (!(length > 0)) return { triangles: fan(), valid: false };
+            if (n === 3) return { triangles: [[poly[0], poly[1], poly[2]]], valid: true };
+
+            // Base (u, w) do plano da face; projeção 2D com a mesma orientação da face.
+            const normal = new THREE.Vector3(nx / length, ny / length, nz / length);
+            const helper = Math.abs(normal.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+            const u = new THREE.Vector3().crossVectors(helper, normal).normalize();
+            const w = new THREE.Vector3().crossVectors(normal, u);
+            const contour = points.map((p) => new THREE.Vector2(
+                p[0] * u.x + p[1] * u.y + p[2] * u.z,
+                p[0] * w.x + p[1] * w.y + p[2] * w.z
+            ));
+            if (contourSelfIntersects(contour)) return { triangles: fan(), valid: false };
+
+            // O earcut ignora vértices colineares (triângulos de área nula), por
+            // isso confirma-se pela área: os triângulos cobrem a face toda.
+            const triangles = THREE.ShapeUtils.triangulateShape(contour.slice(), []);
+            const area = Math.abs(THREE.ShapeUtils.area(contour));
+            const covered = triangles.reduce((sum, [a, b, c]) =>
+                sum + Math.abs(THREE.ShapeUtils.area([contour[a], contour[b], contour[c]])), 0);
+            if (!(area > 0) || Math.abs(covered - area) > 1e-6 * area) {
+                return { triangles: fan(), valid: false };
+            }
+
+            // O contorno projetado é anti-horário (a normal aponta para nós); cada
+            // triângulo fica também anti-horário, como a face.
+            return {
+                triangles: triangles.map(([a, b, c]) => {
+                    const A = contour[a], B = contour[b], C = contour[c];
+                    const ccw = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x) > 0;
+                    return ccw ? [poly[a], poly[b], poly[c]] : [poly[a], poly[c], poly[b]];
+                }),
+                valid: true,
+            };
+        }
+
+        /** True se duas arestas não vizinhas do contorno se cruzam ou tocam. */
+        function contourSelfIntersects(contour) {
+            const n = contour.length;
+            const orient = (a, b, c) => Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+            const onSegment = (a, b, p) =>
+                Math.min(a.x, b.x) <= p.x && p.x <= Math.max(a.x, b.x) &&
+                Math.min(a.y, b.y) <= p.y && p.y <= Math.max(a.y, b.y);
+            for (let i = 0; i < n; i++) {
+                const a = contour[i], b = contour[(i + 1) % n];
+                for (let j = i + 2; j < n; j++) {
+                    if (i === 0 && j === n - 1) continue; // vizinhas pelo fecho
+                    const c = contour[j], d = contour[(j + 1) % n];
+                    const o1 = orient(a, b, c), o2 = orient(a, b, d);
+                    const o3 = orient(c, d, a), o4 = orient(c, d, b);
+                    if (o1 !== o2 && o3 !== o4 && o1 && o2 && o3 && o4) return true;
+                    if ((o1 === 0 && onSegment(a, b, c)) || (o2 === 0 && onSegment(a, b, d)) ||
+                        (o3 === 0 && onSegment(c, d, a)) || (o4 === 0 && onSegment(c, d, b))) return true;
+                }
+            }
+            return false;
         }
 
         function buildHighPolyGeo(objText) {
@@ -1072,37 +1123,53 @@
         window.fetchFinalMeshObj = fetchFinalMeshObj;
         window.getFinalMeshObjText = () => cachedSimplifiedObjText;
 
-        // ─── Quads dos snapshots (a pedido) ─────────────────────────────────
-        // O RL só converte em quads o resultado final. O quad de um snapshot
-        // pede-se com POST /v1/quad/{id}?snapshot=N (~1 min) e consulta-se até done.
-        const snapQuadJobs = new Map(); // `${modelId}_${dissolves}` → Promise do job em curso
+        // ─── Estado dos snapshots ────────────────────────────────────────────
+        // A API gera cada snapshot em segundo plano depois de o RL acabar, um de
+        // cada vez. GET /v1/rl/simplify/{id}/snapshots diz o estado de cada um
+        // (status: generating | ready | failed), por isso só se consulta essa
+        // lista, a cada SNAPSHOT_POLL_MS, enquanto algum estiver a ser gerado.
+        const SNAPSHOT_POLL_MS = 3000;
+        const snapshotCardUpdaters = new Map(); // accepted_dissolves → atualiza o cartão
+        let snapshotPollTimer = null;
+        let snapshotPollModel = null;
 
-        /** Estado do quad de um snapshot: "none" (nunca pedido), "queued", "running", "done" ou "failed". */
-        async function getSnapshotQuadState(dissolves) {
-            try {
-                const job = await RetopoAPI.getQuadStatus(currentModelId, dissolves);
-                return job?.status || "none";
-            } catch (err) {
-                if (err?.status === 404) return "none";
-                throw err;
-            }
+        function stopSnapshotPolling() {
+            clearTimeout(snapshotPollTimer);
+            snapshotPollTimer = null;
+            snapshotPollModel = null;
         }
 
-        /** Gera (se preciso) e espera pelo quad de um snapshot. Resolve com o estado final do job. */
-        function ensureSnapshotQuad(dissolves, onProgress) {
+        /** Aplica a lista aos cartões e continua a consultar enquanto houver snapshots a gerar. */
+        function applySnapshotStatuses(list) {
+            if (!Array.isArray(list)) return false;
+            cachedSnapshots = list;
+            let generating = false;
+            for (const item of list) {
+                if (!item) continue;
+                if (item.status === "generating") generating = true;
+                snapshotCardUpdaters.get(item.accepted_dissolves)?.(item);
+            }
+            return generating;
+        }
+
+        function startSnapshotPolling() {
             const modelId = currentModelId;
-            const key = `${modelId}_${dissolves}`;
-            if (snapQuadJobs.has(key)) return snapQuadJobs.get(key);
-            const job = (async () => {
-                const state = await getSnapshotQuadState(dissolves);
-                if (state === "done") return { status: "done" };
-                if (state !== "queued" && state !== "running") {
-                    await RetopoAPI.startQuad(modelId, dissolves);
+            if (!modelId || snapshotPollModel === modelId) return;
+            stopSnapshotPolling();
+            snapshotPollModel = modelId;
+            const tick = async () => {
+                if (snapshotPollModel !== modelId || currentModelId !== modelId) return;
+                let generating = true;
+                try {
+                    generating = applySnapshotStatuses(await RetopoAPI.getRLSnapshots(modelId));
+                } catch (err) {
+                    console.warn("[Snapshots] Erro ao consultar o estado:", err.message);
                 }
-                return RetopoAPI.waitForQuad(modelId, dissolves, onProgress);
-            })().finally(() => snapQuadJobs.delete(key));
-            snapQuadJobs.set(key, job);
-            return job;
+                if (snapshotPollModel !== modelId) return;
+                if (generating) snapshotPollTimer = setTimeout(tick, SNAPSHOT_POLL_MS);
+                else stopSnapshotPolling();
+            };
+            snapshotPollTimer = setTimeout(tick, SNAPSHOT_POLL_MS);
         }
 
         /** OBJ de um snapshot: os quads se já existirem, senão os triângulos do RL. */
@@ -1316,6 +1383,8 @@
             // Esvaziar arrays de dados e caches de Relatório
             actionLogEntries.length = 0;
             cachedSnapshots = [];
+            stopSnapshotPolling();
+            snapshotCardUpdaters.clear();
             cachedResults = null;
             cachedSimplifiedObjText = null;
             finalMeshIsQuad = false;
@@ -2160,7 +2229,7 @@
         // isRLRunning declarado no escopo de topo do initThreeJS
         window.isRLRunning = () => isRLRunning;
 
-        // O número de passos é o horizon do modelo RL (a API ignora max_steps).
+        // O número de passos é definido no servidor (modelo RL ou RL_MAX_STEPS).
         function runRLDecimation() {
             if (isRLRunning) return;
             isRLRunning = true;
@@ -2382,7 +2451,6 @@
                         btnLow.click();
                     }
                 },
-                undefined, // max_steps: a API usa o horizon do modelo
                 (err) => {
                     isRLRunning = false;
                     if (optimizingOverlay) optimizingOverlay.classList.add("hidden");
@@ -2564,13 +2632,13 @@
             if (!snapshotLightbox) return;
             if (lightboxImg) lightboxImg.src = info.imgUrl || "";
             if (lightboxTag) lightboxTag.textContent = info.tag || "SNAPSHOT";
-            if (lightboxTitle) lightboxTitle.textContent = info.title || "Análise Visual da Malha & Edges";
+            if (lightboxTitle) lightboxTitle.textContent = info.title || "Análise Visual da Malha";
 
             if (lightboxChips) {
                 lightboxChips.innerHTML = `
                     <span class="chip">🎯 Dissolves: ${info.dissolves}</span>
                     <span class="chip">🔺 Faces: ${info.faces ? info.faces.toLocaleString() : "--"}</span>
-                    <span class="chip" style="color:#34d399;">✂️ ${info.acceptedCount || 0} Arestas Dissolvidas</span>
+                    <span class="chip" style="color:#34d399;">✂️ ${info.acceptedCount || 0} Aceites</span>
                     <span class="chip" style="color:#f87171;">⚠️ ${info.rejectedCount || 0} Rejeitadas</span>
                 `;
             }
@@ -2580,15 +2648,15 @@
             if (lightboxSummary) {
                 lightboxSummary.innerHTML = `
                     <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:0.78rem;">
-                        <span>Arestas Avaliadas neste Marco:</span>
+                        <span>Passos avaliados:</span>
                         <strong style="color:#60a5fa;">${info.totalEvaluated || 0}</strong>
                     </div>
                     <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:0.78rem;">
                         <span>Redução de Faces:</span>
-                        <strong style="color:#34d399;">-${info.acceptedCount || 0} ${(info.acceptedCount === 1) ? 'face' : 'faces'}</strong>
+                        <strong style="color:#34d399;">${info.facesRemoved == null ? "--" : `-${info.facesRemoved.toLocaleString()} ${info.facesRemoved === 1 ? "face" : "faces"}`}</strong>
                     </div>
                     <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:0.78rem;">
-                        <span>Arestas Rejeitadas por Validação:</span>
+                        <span>Rejeitados pela validação:</span>
                         <strong style="color:#f87171;">${info.rejectedCount || 0}</strong>
                     </div>
                 `;
@@ -2694,6 +2762,9 @@
             // Renderizar Snapshots e Histórico de Edges integrados
             const renderedCount = renderSnapshotsView(snapshots, totalDissolves, actions, totalSteps);
             if (repSnapshots) repSnapshots.textContent = renderedCount;
+            if (Array.isArray(snapshots) && snapshots.some((s) => s && s.status === "generating")) {
+                startSnapshotPolling();
+            }
 
             renderHistoryView(actions);
         }
@@ -2701,6 +2772,7 @@
         function renderSnapshotsView(snapshots, totalDissolves, actions, totalSteps) {
             if (!snapshotsList) return 0;
             snapshotsList.innerHTML = "";
+            snapshotCardUpdaters.clear();
 
             let displaySnaps = Array.isArray(snapshots) ? [...snapshots] : [];
 
@@ -2728,7 +2800,7 @@
                 const stepNum = typeof snap === "number" ? snap : (snap.step || totalSteps || dissolves);
                 const facesCount = (typeof snap === "object" && snap.faces) ? snap.faces : (realStats.high.faces > 0 ? Math.max(1, realStats.high.faces - dissolves) : "--");
 
-                // Agrupar as ações de arestas associadas a este snapshot
+                // Ações do RL até este snapshot
                 const matchingActions = actions.filter((act) => {
                     const actDiss = act.raw?.accepted_dissolves ?? act.accepted_dissolves ?? 0;
                     return actDiss <= dissolves;
@@ -2753,7 +2825,11 @@
                     titleText = `Snapshot #${snapNum} • Progresso Intermédio (${dissolves} Dissolves)`;
                 }
 
-                const explanationText = `O agente avaliou as arestas do modelo, aceitando dissolver <strong>${acceptedCount} arestas</strong> em zonas coplanares de baixa curvatura (reduzindo <strong>${acceptedCount} faces</strong>). Ao mesmo tempo, rejeitou <strong>${rejectedCount} arestas</strong> na validação geométrica e topológica para preservar os contornos e a silhueta da geometria.`;
+                const initialFaces = cachedResults?.initial_faces ?? (realStats.high.faces || null);
+                const facesRemoved = (typeof facesCount === "number" && initialFaces) ? Math.max(0, initialFaces - facesCount) : null;
+                const explanationText = `Até aqui, o agente fez <strong>${acceptedCount} junções</strong> de faces coplanares`
+                    + (facesRemoved !== null ? `, que removeram <strong>${facesRemoved.toLocaleString()} faces</strong>` : "")
+                    + `. Rejeitou <strong>${rejectedCount} tentativas</strong> que não passavam na validação geométrica e topológica, para preservar os contornos e a silhueta da peça.`;
 
                 card.innerHTML = `
                     <div class="snap-img-wrapper" title="Clique para ampliar a fotografia e ver a análise detalhada">
@@ -2767,7 +2843,7 @@
                     <div class="snap-content">
                         <div class="snap-meta">
                             <h4>${titleText}</h4>
-                            <p class="snap-desc">Registo visual do impacto da simplificação de arestas sobre a geometria.</p>
+                            <p class="snap-desc">Registo visual da simplificação até este ponto.</p>
                             <div class="snap-chips">
                                 ${isFinalMesh ? `
                                     <span class="chip" style="font-weight:700;color:#34d399;background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.35);">⚡ Malha Final Otimizada</span>
@@ -2783,7 +2859,7 @@
 
                         <!-- Explicação da Decimação das Edges -->
                         <div class="snap-edge-explanation">
-                            <h5>💡 Análise de Decimação de Arestas</h5>
+                            <h5>💡 O que o agente fez até aqui</h5>
                             <p style="margin:0;">${explanationText}</p>
                         </div>
 
@@ -2797,7 +2873,7 @@
                                     <span>📥 Carregar Snapshot #${snapNum} no 3D</span>
                                 </button>
                                 <button type="button" class="btn-load-snap-mesh btn-gen-snap-quads" data-dissolves="${dissolves}" style="display:none;background:transparent;border:1px dashed rgba(192,132,252,0.5);color:#c084fc;box-shadow:none;">
-                                    <span>🔷 Gerar quads (≈1 min)</span>
+                                    <span>🔁 Tentar de novo</span>
                                 </button>
                             `}
                         </div>
@@ -2820,77 +2896,57 @@
                     placeholder.style.display = "none";
                 }
 
-                const btnGenQuads = card.querySelector(".btn-gen-snap-quads");
+                const btnRetry = card.querySelector(".btn-gen-snap-quads");
+                let shownStatus = null;
 
-                function setNoQuadImage() {
-                    placeholder.innerHTML = "<span>🔷 Sem quads ainda<br><small>Gere os quads para ver a imagem</small></span>";
-                }
-
-                /** Mostra o estado do quad deste snapshot: imagem se pronto, botão "Gerar quads" se não. */
-                async function refreshSnapshotQuadUI() {
-                    const blobUrl = await RetopoAPI.getQuadImageBlobUrl(currentModelId, dissolves);
-                    if (blobUrl) {
-                        applyImage(blobUrl);
-                        if (btnGenQuads) btnGenQuads.style.display = "none";
-                        btnLoad.innerHTML = `<span>📥 Carregar quads do Snapshot #${snapNum}</span>`;
-                        return "done";
-                    }
-                    let state = "none";
-                    try { state = await getSnapshotQuadState(dissolves); } catch (_) { }
-                    if (!resolvedImgUrl) setNoQuadImage();
-                    if (btnGenQuads) {
-                        btnGenQuads.style.display = "";
-                        if (state === "queued" || state === "running") {
-                            runQuadGeneration(); // já está a correr: acompanhar
-                        } else if (state === "failed") {
-                            btnGenQuads.innerHTML = "<span>🔁 Quads falharam — tentar de novo</span>";
+                /** Mostra o estado do snapshot (status da lista da API): a gerar, pronto ou falhou. */
+                function showSnapshotStatus(item) {
+                    const status = item?.status || "generating";
+                    if (status === shownStatus) return;
+                    const becameReady = status === "ready" && shownStatus !== null;
+                    shownStatus = status;
+                    if (btnRetry) btnRetry.style.display = status === "failed" ? "" : "none";
+                    if (status === "ready") {
+                        RetopoAPI.getQuadImageBlobUrl(currentModelId, dissolves).then((blobUrl) => {
+                            if (blobUrl) applyImage(blobUrl);
+                            else if (!resolvedImgUrl) placeholder.innerHTML = "<span>📷 Sem fotografia</span>";
+                        }).catch(() => {
+                            if (!resolvedImgUrl) placeholder.innerHTML = "<span>📷 Sem fotografia</span>";
+                        });
+                        // Se este snapshot já está aberto no 3D, trocar para a versão final dele
+                        if (becameReady && activeView === "snapshot" && currentSnapDissolves === dissolves) {
+                            fetchSnapshotObj(dissolves).then(({ text, isQuad }) => {
+                                if (text && isQuad) {
+                                    const effTxtNow = `${Math.min(100, Math.round((dissolves / (stepNum || 1)) * 100))}% aceites`;
+                                    loadMeshIntoViewport(text, `Snapshot #${snapNum} (${dissolves} Dissolves)`, dissolves, stepNum, effTxtNow, snapNum, true);
+                                }
+                            }).catch((err) => console.warn(`[Snapshot] ${dissolves}:`, err.message));
                         }
-                    }
-                    return state;
-                }
-
-                async function runQuadGeneration() {
-                    if (!btnGenQuads || btnGenQuads.disabled) return;
-                    btnGenQuads.disabled = true;
-                    const t0 = Date.now();
-                    const tick = (job) => {
-                        const secs = Math.round((Date.now() - t0) / 1000);
-                        const what = job?.status === "queued" ? "Em fila" : "A gerar quads";
-                        btnGenQuads.innerHTML = `<span>⏳ ${what}... ${secs}s</span>`;
-                    };
-                    tick({ status: "running" });
-                    const timer = setInterval(() => tick({ status: "running" }), 1000);
-                    try {
-                        const final = await ensureSnapshotQuad(dissolves, tick);
-                        if (final?.status === "failed") {
-                            throw new Error(final.error || "A conversão em quads falhou.");
+                    } else if (status === "failed") {
+                        if (!resolvedImgUrl) {
+                            placeholder.innerHTML = "<span>⚠️ Não foi possível gerar este snapshot</span>";
                         }
-                        await refreshSnapshotQuadUI();
-                        // Se este snapshot está aberto no 3D, trocar para os quads e correr o DSS
-                        if (activeView === "snapshot" && currentSnapDissolves === dissolves) {
-                            const { text, isQuad } = await fetchSnapshotObj(dissolves);
-                            if (text && isQuad) {
-                                const effTxtNow = `${Math.min(100, Math.round((dissolves / (stepNum || 1)) * 100))}% aceites`;
-                                loadMeshIntoViewport(text, `Snapshot #${snapNum} (${dissolves} Dissolves, quads)`, dissolves, stepNum, effTxtNow, snapNum, true);
-                            }
-                        }
-                    } catch (err) {
-                        console.warn(`[Snapshot] Quads do snapshot ${dissolves}:`, err.message);
-                        btnGenQuads.innerHTML = `<span>⚠️ ${escapeHtml(err?.error === "JobFailed" ? "Conversão em quads falhou" : window.describeApiError(err).short)}</span>`;
-                        btnGenQuads.title = err?.message || "";
-                        setTimeout(() => {
-                            btnGenQuads.innerHTML = "<span>🔁 Tentar gerar quads de novo</span>";
-                        }, 4000);
-                    } finally {
-                        clearInterval(timer);
-                        btnGenQuads.disabled = false;
+                        if (btnRetry) btnRetry.title = item?.error || "";
+                    } else if (!resolvedImgUrl) {
+                        placeholder.innerHTML = "<span>⏳ A gerar snapshot…</span>";
                     }
                 }
 
-                if (btnGenQuads) {
-                    btnGenQuads.addEventListener("click", (e) => {
+                if (btnRetry) {
+                    btnRetry.addEventListener("click", async (e) => {
                         e.stopPropagation();
-                        runQuadGeneration();
+                        btnRetry.disabled = true;
+                        try {
+                            await RetopoAPI.startQuad(currentModelId, dissolves);
+                            showSnapshotStatus({ status: "generating" });
+                            startSnapshotPolling();
+                        } catch (err) {
+                            console.warn(`[Snapshot] Tentar de novo ${dissolves}:`, err.message);
+                            btnRetry.innerHTML = `<span>⚠️ ${escapeHtml(window.describeApiError(err).short)}</span>`;
+                            setTimeout(() => { btnRetry.innerHTML = "<span>🔁 Tentar de novo</span>"; }, 4000);
+                        } finally {
+                            btnRetry.disabled = false;
+                        }
                     });
                 }
 
@@ -2906,19 +2962,8 @@
                         }
                     });
                 } else {
-                    // Snapshots: só pedir à API quando o cartão aparece no ecrã (pode haver muitos)
-                    const lazy = () => refreshSnapshotQuadUI().catch(() => setNoQuadImage());
-                    if ("IntersectionObserver" in window) {
-                        const io = new IntersectionObserver((entries) => {
-                            if (entries.some((en) => en.isIntersecting)) {
-                                io.disconnect();
-                                lazy();
-                            }
-                        }, { root: null, rootMargin: "200px" });
-                        io.observe(card);
-                    } else {
-                        lazy();
-                    }
+                    snapshotCardUpdaters.set(dissolves, showSnapshotStatus);
+                    showSnapshotStatus(snap);
                 }
 
                 // Abertura do Lightbox com análise ao clicar na imagem
@@ -2933,6 +2978,7 @@
                         acceptedCount: acceptedCount,
                         rejectedCount: rejectedCount,
                         totalEvaluated: matchingActions.length,
+                        facesRemoved: facesRemoved,
                         explanationHtml: explanationText,
                         isCurrent: isFinalMesh,
                         onLoadMesh: () => {
@@ -3023,40 +3069,70 @@
             return "";
         }
 
-        function getRejectionExplanation(reasonRaw) {
-            if (!reasonRaw) return "Ação rejeitada pela validação para preservar a integridade da malha.";
-            const r = String(reasonRaw).toLowerCase();
-            if (r.includes("nonplanar") || r.includes("non_planar")) {
-                return "Ação rejeitada: a dissolução criaria um polígono não-planar.";
-            }
-            if (r.includes("boundary") || r.includes("nonmanifold") || r.includes("non_manifold")) {
-                return "Ação rejeitada: aresta pertence à fronteira aberta ou topologia não-manifold.";
-            }
-            if (r.includes("overlapping") || r.includes("folded") || r.includes("fold")) {
-                return "Ação rejeitada: causaria sobreposição ou dobra de faces (folded faces).";
-            }
-            if (r.includes("self_intersect") || r.includes("intersect")) {
-                return "Ação rejeitada: criaria polígonos auto-intersetados.";
-            }
-            if (r.includes("normal") || r.includes("flip") || r.includes("inversion")) {
-                return "Ação rejeitada: o colapso causaria inversão de normais da face.";
-            }
-            if (r.includes("degenerated") || r.includes("zero_area") || r.includes("collinear")) {
-                return "Ação rejeitada: geraria faces degeneradas de área nula ou vértices colineares.";
-            }
-            if (r.includes("valence") || r.includes("degree")) {
-                return "Ação rejeitada: violação dos limites de valência topológica.";
-            }
-            if (r.includes("crease") || r.includes("feature_edge")) {
-                return "Ação rejeitada: aresta classificada como vinco geométrico protegido.";
-            }
-            if (r.includes("aspect") || r.includes("ratio")) {
-                return "Ação rejeitada: criaria polígonos excessivamente alongados (mau aspect ratio).";
-            }
-            if (r.includes("genus") || r.includes("hole") || r.includes("topology")) {
-                return "Ação rejeitada: violação estrutural que alteraria a integridade topológica.";
-            }
-            return `Ação rejeitada pela validação: ${escapeHtml(reasonRaw)}`;
+        // Textos em português do action log, pelo código que a API devolve
+        // (action_name_code, rejection_reason_code). A API manda também um texto
+        // em inglês (action_name, rejection_reason), usado se o código for novo.
+        // Registos antigos (antes destes campos) traziam o código no action_name
+        // e no rejection_reason, por isso procura-se também por esses.
+        const ACTION_LABELS_PT = {
+            PLANAR_PATCH: "Juntar faces coplanares",
+            INVALID_PATCH: "Junção rejeitada",
+            STOP: "Parar",
+        };
+        const REASON_BOUNDARY_PT = "As faces escolhidas não têm um contorno único e fechado.";
+        const REASON_CROSSING_PT = "O contorno da face resultante cruzava-se ou voltava para trás.";
+        const REASON_TOPOLOGY_PT = "Juntar estas faces mudaria a topologia da malha.";
+        const REASON_NONPLANAR_PT = "As faces escolhidas não estão no mesmo plano (fora da tolerância).";
+        const REASON_DEGENERATE_PT = "A face resultante seria degenerada (área ou aresta nula).";
+        const REASON_NUMERIC_PT = "As coordenadas estão fora do intervalo suportado.";
+        const REJECTION_REASONS_PT = {
+            STOP: "O agente decidiu parar.",
+            region_too_small: "A região escolhida tinha só uma face; não havia nada para juntar.",
+            holes_or_multiple_contours: "A região escolhida tem um buraco ou partes separadas, por isso não pode ser uma só face.",
+            non_simple_boundary: REASON_BOUNDARY_PT,
+            open_boundary: REASON_BOUNDARY_PT,
+            no_boundary: REASON_BOUNDARY_PT,
+            inconsistent_internal_boundary: REASON_BOUNDARY_PT,
+            contour_budget: "A face resultante teria vértices a mais.",
+            no_cost_reduction: "Juntar não removia nenhum vértice nem aresta.",
+            patch_not_disk: REASON_TOPOLOGY_PT,
+            nonmanifold_edge: REASON_TOPOLOGY_PT,
+            nonmanifold_vertex: REASON_TOPOLOGY_PT,
+            interior_vertex_shared_outside_patch: REASON_TOPOLOGY_PT,
+            self_intersecting_boundary: REASON_CROSSING_PT,
+            backtracking_boundary: REASON_CROSSING_PT,
+            repeated_vertex: REASON_CROSSING_PT,
+            nonplanar_patch_interior: REASON_NONPLANAR_PT,
+            nonplanar_face: REASON_NONPLANAR_PT,
+            flipped_patch: "A face resultante ficaria virada ao contrário.",
+            area_mismatch: "A face resultante não cobria a mesma área que as faces originais.",
+            zero_area: REASON_DEGENERATE_PT,
+            zero_length_edge: REASON_DEGENERATE_PT,
+            unsupported_numeric_range: REASON_NUMERIC_PT,
+            "Invalid polygon boundary": REASON_BOUNDARY_PT,
+            "Invalid polygon coordinates": REASON_NUMERIC_PT,
+            "Degenerate polygon": REASON_DEGENERATE_PT,
+            "Degenerate final triangle": REASON_DEGENERATE_PT,
+            "Nonplanar polygon": REASON_NONPLANAR_PT,
+            "Cannot triangulate polygon: invalid or degenerate boundary": REASON_CROSSING_PT,
+            INVALID_PATCH: "Não foi possível juntar as faces escolhidas.",
+        };
+
+        /** Nome da ação para mostrar (texto já escapado). */
+        function getActionLabel(entry) {
+            const code = entry?.action_name_code || entry?.raw?.action_name_code || entry?.action_name || entry?.raw?.action_name;
+            const text = ACTION_LABELS_PT[code] || entry?.action_name || entry?.raw?.action_name || "Ação";
+            return escapeHtml(text);
+        }
+
+        /** Porque é que um passo foi rejeitado (texto já escapado). */
+        function getRejectionExplanation(entry) {
+            const code = entry?.rejection_reason_code || entry?.raw?.rejection_reason_code
+                || entry?.rejection_reason || entry?.raw?.rejection_reason;
+            const apiText = entry?.rejection_reason || entry?.raw?.rejection_reason;
+            if (code && REJECTION_REASONS_PT[code]) return REJECTION_REASONS_PT[code];
+            if (apiText) return escapeHtml(apiText);
+            return "Ação rejeitada pela validação para preservar a integridade da malha.";
         }
 
         let historyCurrentPage = 1;
@@ -3124,17 +3200,20 @@
                 const isAcc = entry.accepted !== false && (entry.raw?.accepted !== false);
                 const actDissolves = entry.raw?.accepted_dissolves ?? entry.accepted_dissolves ?? 0;
                 const faces = entry.faces ?? entry.raw?.faces;
-                const reasonRaw = entry.rejection_reason || entry.raw?.rejection_reason || "";
+                const patchFaces = entry.patch_faces ?? entry.raw?.patch_faces;
+                const actionLabel = getActionLabel(entry);
 
                 // Imagem de contexto associada
                 const snapImg = snapshotImagesMap.get(actDissolves) || defaultThumbnail;
 
-                // Explicação clara e real da decisão sobre a aresta
+                // Explicação da decisão deste passo
                 let explanation = "";
                 if (isAcc) {
-                    explanation = "Aresta dissolvida com sucesso (-1 face). Passou nos testes de validação geométrica.";
+                    explanation = patchFaces > 1
+                        ? `Juntou ${patchFaces.toLocaleString()} faces coplanares numa só (-${(patchFaces - 1).toLocaleString()} faces).`
+                        : "Juntou faces coplanares numa só.";
                 } else {
-                    explanation = getRejectionExplanation(reasonRaw);
+                    explanation = getRejectionExplanation(entry);
                 }
 
                 const div = document.createElement("div");
@@ -3148,10 +3227,10 @@
                         <div class="al-header-row">
                             <span class="al-step-badge">#${step}</span>
                             <span class="al-status-badge ${isAcc ? 'accepted' : 'rejected'}">
-                                ${isAcc ? '✂️ DISSOLVIDA' : '⚠️ REJEITADA'}
+                                ${isAcc ? '✂️ ACEITE' : '⚠️ REJEITADA'}
                             </span>
                             <span style="font-size:0.75rem;font-weight:600;color:#f1f5f9;font-family:'JetBrains Mono',monospace;">
-                                ${escapeHtml(entry.action_name || (isAcc ? 'EDGE_DISSOLVE' : 'VALIDATION_REJECTED'))}
+                                ${actionLabel}
                             </span>
                         </div>
                         <p class="al-explanation">${explanation}</p>
@@ -3171,12 +3250,13 @@
                         openSnapshotLightbox({
                             imgUrl: snapImg,
                             tag: `PASSO #${step}`,
-                            title: `Decisão de Aresta: ${entry.action_name || (isAcc ? 'EDGE_DISSOLVE' : 'REJEITADA_VALIDAÇÃO')}`,
+                            title: `Passo #${step}: ${actionLabel}`,
                             dissolves: actDissolves,
                             faces: faces,
                             acceptedCount: isAcc ? 1 : 0,
                             rejectedCount: isAcc ? 0 : 1,
                             totalEvaluated: 1,
+                            facesRemoved: isAcc && patchFaces > 1 ? patchFaces - 1 : 0,
                             explanationHtml: `<p>${explanation}</p>`
                             // Sem onLoadMesh enganador para cada passo unitário
                         });

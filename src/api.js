@@ -240,9 +240,8 @@ async function pollJob(getStatus, { intervalMs = 2000, timeoutMs = 0, onProgress
             status = await getStatus();
             transientErrors = 0;
         } catch (err) {
-            // Falhas passageiras durante o polling (ex.: a API dá 500 se ler o
-            // status.json enquanto o job o reescreve; esse 500 chega sem CORS e
-            // aparece como erro de rede). Tenta de novo na consulta seguinte.
+            // Falhas passageiras durante o polling (rede instável, API a reiniciar,
+            // 5xx pontual). Tenta de novo na consulta seguinte.
             const transient = err instanceof ApiError && (err.error === "Network" || err.status >= 500);
             if (!transient || ++transientErrors > maxTransientErrors) throw err;
             await sleep(intervalMs);
@@ -369,9 +368,9 @@ window.RetopoAPI = {
                 }
             };
 
-            // A API recusa alguns uploads (chave errada, X-Upload-Size acima do limite) antes
-            // de acrescentar os cabeçalhos CORS: o browser esconde a resposta e o XHR só vê
-            // um erro de rede. Dois pedidos pequenos dizem qual foi a causa.
+            // Upload sem resposta legível (rede, proxy, ligação cortada a meio):
+            // dois pedidos pequenos dizem se a API está em baixo, se a chave é
+            // recusada ou se foi o upload em si que falhou.
             xhr.onerror = async () => {
                 reject(await diagnoseUploadFailure());
             };
@@ -445,21 +444,11 @@ window.RetopoAPI = {
     /**
      * Arranca a simplificação RL (o quad final corre automaticamente no fim).
      * POST /v1/rl/simplify/{mesh_id} → 202
-     * @param {object} [opts]
-     * @param {number} [opts.maxSteps]
-     * @param {number} [opts.quadTolerance]   0–10 (padrão da API: 1)
-     * @param {"automatic"|"safe"} [opts.quadMethod]
-     * @param {boolean} [opts.quadUseHighpoly]
+     * Sem parâmetros: o número de passos e os parâmetros do quad são definidos no servidor.
      * @returns {Promise<object>} estado inicial do job
      */
-    startRL: function (meshId, opts = {}) {
-        const query = qs({
-            max_steps: opts.maxSteps,
-            quad_tolerance: opts.quadTolerance,
-            quad_method: opts.quadMethod,
-            quad_use_highpoly: opts.quadUseHighpoly
-        });
-        return meshJson(meshId, `/v1/rl/simplify/${enc(meshId)}${query}`, { method: "POST" });
+    startRL: function (meshId) {
+        return meshJson(meshId, `/v1/rl/simplify/${enc(meshId)}`, { method: "POST" });
     },
 
     /**
@@ -467,11 +456,11 @@ window.RetopoAPI = {
      * ainda está a correr), espera e tenta de novo até `waitMs`.
      * Enquanto espera, chama onProgress({ status: "queued", waiting: message }).
      */
-    startRLWhenFree: async function (meshId, opts = {}, onProgress, { waitMs = 90000, intervalMs = 2000 } = {}) {
+    startRLWhenFree: async function (meshId, onProgress, { waitMs = 90000, intervalMs = 2000 } = {}) {
         const start = Date.now();
         for (;;) {
             try {
-                return await this.startRL(meshId, opts);
+                return await this.startRL(meshId);
             } catch (err) {
                 if (!(err instanceof ApiError) || err.status !== 409 || Date.now() - start >= waitMs) throw err;
                 if (typeof onProgress === "function") {
@@ -526,7 +515,9 @@ window.RetopoAPI = {
     },
 
     /**
-     * Lista de snapshots intermédios; cada item tem accepted_dissolves, quad_url e image_url.
+     * Lista de snapshots intermédios; cada item tem accepted_dissolves, faces, image_url e
+     * status ("generating" | "ready" | "failed", com error). Consultar de novo enquanto
+     * algum estiver "generating".
      * GET /v1/rl/simplify/{mesh_id}/snapshots
      * @returns {Promise<Array>}
      */
@@ -554,9 +545,9 @@ window.RetopoAPI = {
      * @param {(status: object) => void} [onProgress] estado do job a cada consulta (stage/percent)
      * @param {(job: object) => void} [onStarted] chamado quando a API aceita o RL (202)
      */
-    startRLDecimation: async function (modelId, onRLStep, onComplete, maxSteps = null, onError, onProgress, onStarted) {
+    startRLDecimation: async function (modelId, onRLStep, onComplete, onError, onProgress, onStarted) {
         try {
-            const startedJob = await this.startRLWhenFree(modelId, { maxSteps }, onProgress);
+            const startedJob = await this.startRLWhenFree(modelId, onProgress);
             if (typeof onStarted === "function") {
                 try { onStarted(startedJob); } catch (_) { }
             }
@@ -580,7 +571,7 @@ window.RetopoAPI = {
                 for (let i = 0; i < actions.length; i++) {
                     const act = actions[i];
                     const isAccepted = act.accepted !== false;
-                    const actionName = act.action_name || (isAccepted ? "EDGE_DISSOLVE" : "ATTEMPT_REJECTED");
+                    const actionName = act.action_name || (isAccepted ? "Accepted" : "Rejected");
                     const reason = act.rejection_reason ? ` (${act.rejection_reason})` : "";
                     const facesInfo = act.faces !== undefined ? ` [Faces: ${act.faces}]` : "";
 
@@ -597,7 +588,7 @@ window.RetopoAPI = {
                 }
             } else if (typeof onRLStep === "function") {
                 onRLStep({
-                    step: simplifyResult.steps || maxSteps || 0,
+                    step: simplifyResult.steps || 0,
                     progress: 100,
                     log_message: `[Concluído] ${simplifyResult.accepted_dissolves || 0} dissolves aceites`,
                     is_critical: false,
@@ -624,16 +615,10 @@ window.RetopoAPI = {
 
     /**
      * POST /v1/quad/{mesh_id}?snapshot=N → 202
-     * @param {object} [opts] { tolerance, method: "automatic"|"safe", useHighpoly }
+     * Os parâmetros do quad (tolerância, método) são definidos no servidor.
      */
-    startQuad: function (meshId, snapshot = null, opts = {}) {
-        const query = qs({
-            snapshot,
-            tolerance: opts.tolerance,
-            method: opts.method,
-            use_highpoly: opts.useHighpoly
-        });
-        return meshJson(meshId, `/v1/quad/${enc(meshId)}${query}`, { method: "POST" });
+    startQuad: function (meshId, snapshot = null) {
+        return meshJson(meshId, `/v1/quad/${enc(meshId)}${qs({ snapshot })}`, { method: "POST" });
     },
 
     /** GET /v1/quad/{mesh_id}?snapshot=N (404 se o quad nunca foi pedido) */

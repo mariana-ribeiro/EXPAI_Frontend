@@ -3,4 +3,12 @@ services:
     build: .
     ports:
       - "127.0.0.1:8080:80"
+    environment:
+      # Endereço da API visto de dentro do contentor (a API local no Windows
+      # está em host.docker.internal). Pode ser mudado no .env.
+      API_UPSTREAM: ${API_UPSTREAM:-http://host.docker.internal:8001}
+      # Lido do .env da raiz do projeto; fica só no servidor (proxy /api/)
+      API_KEY: ${API_KEY:?Defina API_KEY no .env}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped

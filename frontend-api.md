@@ -68,8 +68,9 @@ Quando `s.status === "done"`, `s.links` traz os caminhos prontos a usar:
 
 Se o quad final falhar, o RL fica `done` na mesma e o erro aparece em `s.summary.quad.error`.
 
-Parâmetros opcionais (query): `max_steps`, `quad_tolerance` (0–10, padrão 1),
-`quad_method` (`automatic` | `safe`), `quad_use_highpoly`.
+O número de passos do RL não é um parâmetro do pedido: é o do modelo (50 000) ou,
+em testes, o `RL_MAX_STEPS` do servidor. O progresso (`total`) mostra o valor em uso.
+O `POST` não leva parâmetros: os do quad (tolerância, método) também são definidos no servidor.
 
 ## 4. Snapshots (a pedido)
 

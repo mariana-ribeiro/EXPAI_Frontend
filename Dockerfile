@@ -1,8 +1,14 @@
-FROM nginx:alpine
+FROM nginx:1.27-alpine
 
-ARG NGINX_CONFIG=nginx/local.conf
-
+# Aplicação (só o conteúdo de src/; a configuração local .env/env.json não entra)
 COPY ./src/ /usr/share/nginx/html/
-COPY ${NGINX_CONFIG} /etc/nginx/conf.d/default.conf
+
+# Configuração do nginx com proxy para a API (variáveis substituídas no arranque)
+COPY ./docker/default.conf.template /etc/nginx/templates/default.conf.template
+
+# Gera /env.json no arranque a partir das variáveis de ambiente
+COPY ./docker/40-env-json.sh /docker-entrypoint.d/40-env-json.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-env-json.sh \
+    && chmod +x /docker-entrypoint.d/40-env-json.sh
 
 EXPOSE 80
