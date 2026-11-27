@@ -2153,7 +2153,8 @@ input:checked + .slider.round:before {
     transition: all 0.2s ease;
 }
 
-.qa-check-item.severity-critical {
+.qa-check-item.severity-critical,
+.qa-check-item.severity-error {
     border-left: 3px solid #ef4444;
     background: rgba(239, 68, 68, 0.04);
 }
@@ -2334,6 +2335,85 @@ input:checked + .slider.round:before {
     height: 10px;
     border-radius: 4px;
     background: linear-gradient(90deg, #3b82f6, #10b981, #eab308, #ef4444);
+}
+
+.qa-legend-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    max-width: 420px;
+}
+
+.qa-legend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    font-size: 0.7rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.qa-legend-chip:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+.qa-legend-chip.active {
+    border-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+}
+
+.qa-legend-chip.toggle {
+    border-style: dashed;
+    color: #94a3b8;
+}
+
+.qa-legend-chip.toggle.active {
+    border-style: solid;
+    color: #e2e8f0;
+}
+
+.qa-legend-extra-title {
+    flex-basis: 100%;
+    margin-top: 0.3rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.qa-legend-chip.clean {
+    cursor: default;
+    color: #94a3b8;
+}
+
+.qa-legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+/* Arestas (buracos, não-manifold): uma linha, porque as faces não são pintadas. */
+.qa-legend-swatch.line {
+    height: 3px;
+    width: 14px;
+    border-radius: 2px;
+}
+
+.qa-legend-swatch.dot {
+    border-radius: 50%;
+}
+
+.qa-legend-count {
+    font-family: 'JetBrains Mono', monospace;
+    color: #94a3b8;
 }
 
 .qa-legend-val {
@@ -3144,7 +3224,8 @@ body.light-mode .qa-check-item.severity-warning {
     border-left: 3px solid #f59e0b;
 }
 
-body.light-mode .qa-check-item.severity-critical {
+body.light-mode .qa-check-item.severity-critical,
+body.light-mode .qa-check-item.severity-error {
     border-left: 3px solid #ef4444;
 }
 
@@ -3322,6 +3403,12 @@ body.light-mode .qa-heatmap-legend {
 
 body.light-mode .qa-legend-title {
     color: #0284c7 !important;
+}
+
+body.light-mode .qa-legend-chip {
+    color: #0f172a;
+    border-color: rgba(15, 23, 42, 0.15);
+    background: rgba(15, 23, 42, 0.03);
 }
 
 body.light-mode .qa-legend-val {

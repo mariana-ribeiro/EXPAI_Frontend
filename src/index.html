@@ -19,6 +19,9 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegmentsGeometry.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineMaterial.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 </head>
 
 <body>
@@ -263,6 +266,7 @@
                     <!-- Legenda Flutuante do Heatmap (visível nos modos heatmap) -->
                     <div id="qa-heatmap-legend" class="qa-heatmap-legend glass" style="display:none;">
                         <span id="qa-legend-title" class="qa-legend-title"></span>
+                        <div id="qa-legend-chips" class="qa-legend-chips"></div>
                         <div class="qa-legend-bar-wrap">
                             <span id="qa-legend-min" class="qa-legend-val">20.0°</span>
                             <div id="qa-legend-gradient" class="qa-legend-gradient"></div>
@@ -584,10 +588,16 @@
                             <div
                                 style="margin-top:0.55rem;padding:0.55rem 0.75rem;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;gap:0.35rem;font-size:0.82rem;">
                                 <div style="display:flex;justify-content:space-between;">
-                                    <span style="color:#94a3b8;">Faces (Antes ➔ Depois):</span>
+                                    <span style="color:#94a3b8;" id="side-comp-faces-label">Faces do RL (Antes ➔ Depois):</span>
                                     <span style="font-family:'JetBrains Mono',monospace;"><strong
                                             id="side-comp-faces-before" style="color:#94a3b8;">--</strong> ➔ <strong
                                             id="side-comp-faces-after" style="color:#34d399;">--</strong></span>
+                                </div>
+                                <div id="side-final-faces-row" style="display:none;justify-content:space-between;"
+                                    title="A malha mostrada e analisada pelo DSS: o resultado do RL convertido em quads">
+                                    <span style="color:#94a3b8;">Malha final (quads, a do DSS):</span>
+                                    <strong id="side-final-faces"
+                                        style="color:#34d399;font-family:'JetBrains Mono',monospace;">--</strong>
                                 </div>
                                 <div style="display:flex;justify-content:space-between;">
                                     <span style="color:#94a3b8;">Eficiência de Aceitação:</span>
@@ -628,7 +638,7 @@
                                     <div
                                         style="display:flex;justify-content:space-between;font-size:0.74rem;color:#94a3b8;margin-bottom:0.3rem;">
                                         <span>Distribuição Topológica</span>
-                                        <span>Quad-Dominant</span>
+                                        <span id="side-dss-dominance">--</span>
                                     </div>
                                     <div
                                         style="height:7px;width:100%;border-radius:4px;display:flex;overflow:hidden;background:rgba(255,255,255,0.08);">
@@ -650,6 +660,16 @@
                                     </div>
                                 </div>
 
+                                <!-- Métricas gerais do DSS (general_metrics) e verificações com problemas -->
+                                <div
+                                    style="display:flex;justify-content:space-between;gap:0.5rem;font-size:0.76rem;color:#94a3b8;margin-bottom:0.45rem;">
+                                    <span>Estanque: <strong id="side-dss-watertight">--</strong></span>
+                                    <span>Forma: <strong id="side-dss-shape" style="color:#e2e8f0;">--</strong></span>
+                                </div>
+                                <div id="side-dss-found"
+                                    style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.2rem;font-size:0.72rem;">
+                                </div>
+
                                 <!-- Opções de Aplicação do Mapa DSS ao Vértice / Malha Otimizada -->
                                 <div
                                     style="margin-top:0.6rem;padding:0.6rem 0.75rem;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(56,189,248,0.25);">
@@ -657,31 +677,14 @@
                                         style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.45rem;">
                                         <span
                                             style="font-size:0.76rem;font-weight:700;color:#93c5fd;letter-spacing:0.04em;">APLICAR
-                                            MAPA DSS AO 3D</span>
+                                            MAPA DE TOPOLOGIA AO 3D</span>
                                         <span id="side-dss-map-badge" class="badge-mini"
                                             style="background:rgba(255,255,255,0.06);color:#94a3b8;border-color:rgba(255,255,255,0.1);font-size:0.72rem;">Desativado</span>
                                     </div>
                                     <button type="button" id="side-btn-dss-toggle" class="btn btn-outline btn-sm"
                                         style="width:100%;margin-bottom:0.45rem;font-size:0.84rem;padding:0.5rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;border-radius:8px;transition:all 0.2s ease;">
-                                        <span>🎨 Ativar Mapa de Cores DSS</span>
+                                        <span>🎨 Ativar Mapa de Topologia</span>
                                     </button>
-                                    <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.45rem;">
-                                        <button id="side-btn-dss-angle" class="btn btn-outline btn-sm dss-map-btn"
-                                            style="font-size:0.78rem;padding:0.48rem 0.3rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;border-radius:6px;"
-                                            title="Heatmap de Ângulos Internos (Defeitos Min/Max nos Vértices e Faces)">
-                                            <span>🌡️ Ângulos</span>
-                                        </button>
-                                        <button id="side-btn-dss-valence" class="btn btn-outline btn-sm dss-map-btn"
-                                            style="font-size:0.78rem;padding:0.48rem 0.3rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;border-radius:6px;"
-                                            title="Heatmap de Valência por Vértice e Singularidades/Pólos">
-                                            <span>🟣 Valência</span>
-                                        </button>
-                                        <button id="side-btn-dss-errors" class="btn btn-outline btn-sm dss-map-btn"
-                                            style="font-size:0.78rem;padding:0.48rem 0.3rem;display:flex;align-items:center;justify-content:center;gap:0.25rem;border-radius:6px;"
-                                            title="Mapa de Conformidade Topológica (Quads, Tris, N-gons, Aberturas)">
-                                            <span>⚠️ Topologia</span>
-                                        </button>
-                                    </div>
                                 </div>
 
                                 <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.6rem;">
@@ -759,34 +762,14 @@
                             <div
                                 style="display:flex;flex-direction:column;gap:0.3rem;padding-top:0.45rem;border-top:1px solid rgba(255,255,255,0.08);">
                                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                                    <span style="font-size:0.68rem;font-weight:700;color:#38bdf8;">MAPAS DSS NO VIEWPORT
+                                    <span style="font-size:0.68rem;font-weight:700;color:#38bdf8;">MAPA DE TOPOLOGIA NO VIEWPORT
                                         3D</span>
                                     <span id="dss-drawer-map-badge" class="badge-mini" style="font-size:0.65rem;">Desativado</span>
                                 </div>
                                 <button type="button" id="dss-drawer-btn-toggle" class="btn btn-outline btn-sm"
                                     style="width:100%;margin-bottom:0.3rem;font-size:0.74rem;padding:0.38rem;display:flex;align-items:center;justify-content:center;gap:0.35rem;border-radius:6px;transition:all 0.2s ease;">
-                                    <span>🎨 Ativar Mapa de Cores DSS</span>
+                                    <span>🎨 Ativar Mapa de Topologia</span>
                                 </button>
-                                <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.35rem;">
-                                    <button type="button" id="dss-drawer-btn-angle"
-                                        class="btn btn-outline btn-sm dss-map-btn"
-                                        style="font-size:0.72rem;padding:0.38rem 0.2rem;"
-                                        title="Heatmap de Ângulos Internos (Defeitos Min/Max)">
-                                        <span>🌡️ Ângulos</span>
-                                    </button>
-                                    <button type="button" id="dss-drawer-btn-valence"
-                                        class="btn btn-outline btn-sm dss-map-btn"
-                                        style="font-size:0.72rem;padding:0.38rem 0.2rem;"
-                                        title="Heatmap de Valência por Vértice e Pólos">
-                                        <span>🟣 Valência</span>
-                                    </button>
-                                    <button type="button" id="dss-drawer-btn-errors"
-                                        class="btn btn-outline btn-sm dss-map-btn"
-                                        style="font-size:0.72rem;padding:0.38rem 0.2rem;"
-                                        title="Conformidade Topológica (Quads, Tris, N-gons)">
-                                        <span>⚠️ Topologia</span>
-                                    </button>
-                                </div>
                             </div>
                         </div>
 
@@ -794,23 +777,39 @@
                         <div class="panel-section unified-card">
                             <span
                                 style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:0.04em;display:block;margin-bottom:0.35rem;">Integridade
-                                & Estanquicidade</span>
+                                & Forma</span>
                             <div class="qa-metric-cards-grid">
                                 <div class="qa-metric-card">
-                                    <span class="qa-mc-label">Hermética</span>
+                                    <span class="qa-mc-label">Estanque (watertight)</span>
                                     <div id="qa-topo-watertight" class="qa-mc-val">--</div>
+                                </div>
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">Forma</span>
+                                    <div id="qa-topo-shape" class="qa-mc-val">--</div>
                                 </div>
                                 <div class="qa-metric-card">
                                     <span class="qa-mc-label">2-Manifold</span>
                                     <div id="qa-topo-manifold" class="qa-mc-val">--</div>
                                 </div>
                                 <div class="qa-metric-card">
-                                    <span class="qa-mc-label">Euler (χ)</span>
-                                    <strong id="qa-topo-euler" class="qa-mc-num">--</strong>
+                                    <span class="qa-mc-label">Arestas Abertas</span>
+                                    <strong id="qa-topo-boundary-edges" class="qa-mc-num">--</strong>
                                 </div>
                                 <div class="qa-metric-card">
-                                    <span class="qa-mc-label">Open Edges</span>
-                                    <strong id="qa-topo-boundary-edges" class="qa-mc-num">--</strong>
+                                    <span class="qa-mc-label">Buracos</span>
+                                    <strong id="qa-topo-holes" class="qa-mc-num">--</strong>
+                                </div>
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">Partes</span>
+                                    <strong id="qa-topo-parts" class="qa-mc-num">--</strong>
+                                </div>
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">Área</span>
+                                    <strong id="qa-topo-area" class="qa-mc-num">--</strong>
+                                </div>
+                                <div class="qa-metric-card">
+                                    <span class="qa-mc-label">Volume</span>
+                                    <strong id="qa-topo-volume" class="qa-mc-num">--</strong>
                                 </div>
                             </div>
                         </div>
@@ -846,7 +845,7 @@
                                 style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
                                 <span
                                     style="font-size:0.74rem;font-weight:700;text-transform:uppercase;color:#38bdf8;letter-spacing:0.04em;">Verificações
-                                    Topológicas (Clica para focar no 3D)</span>
+                                    (clica numa para a ver sozinha no 3D)</span>
                             </div>
                             <div id="qa-checks-list" class="qa-checks-list"></div>
                         </div>
@@ -871,6 +870,11 @@
                                     de Valência por Vértice</span>
                                 <div id="qa-valence-histogram" class="qa-histogram-container" style="height:65px;">
                                 </div>
+                            </div>
+
+                            <div style="margin-top:0.6rem;font-size:0.72rem;color:#cbd5e1;display:grid;gap:0.25rem;">
+                                <div><span style="color:#94a3b8;">Polos:</span> <strong id="qa-poles-summary">--</strong></div>
+                                <div><span style="color:#94a3b8;">Proporção dos quads:</span> <strong id="qa-aspect-summary">--</strong></div>
                             </div>
                         </div>
 

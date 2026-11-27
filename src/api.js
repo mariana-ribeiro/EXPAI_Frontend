@@ -658,7 +658,7 @@ window.RetopoAPI = {
 window.MeshQAAPI = {
     /**
      * Inicia uma análise DSS (job).
-     * POST /v1/analyses/{mesh_id}?snapshot={snapshot} → 202
+     * POST /v1/dss/{mesh_id}?snapshot={snapshot} → 202
      * 409 se o quad ainda não existir / estiver a correr (a message diz o que falta).
      */
     createAnalysis: function (meshId, options = {}, snapshot = null) {
@@ -668,7 +668,7 @@ window.MeshQAAPI = {
             min_angle: options.min_angle !== undefined ? parseFloat(options.min_angle) : 20.0,
             max_angle: options.max_angle !== undefined ? parseFloat(options.max_angle) : 160.0
         };
-        return meshJson(meshId, `/v1/analyses/${enc(meshId)}${qs({ snapshot })}`, {
+        return meshJson(meshId, `/v1/dss/${enc(meshId)}${qs({ snapshot })}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -677,19 +677,36 @@ window.MeshQAAPI = {
 
     /**
      * Estado de uma análise.
-     * GET /v1/analyses/{mesh_id}?snapshot={snapshot}
+     * GET /v1/dss/{mesh_id}?snapshot={snapshot}
      */
     getAnalysisStatus: function (meshId, snapshot = null) {
-        return meshJson(meshId, `/v1/analyses/${enc(meshId)}${qs({ snapshot })}`);
+        return meshJson(meshId, `/v1/dss/${enc(meshId)}${qs({ snapshot })}`);
     },
 
     /**
-     * Resultado detalhado (result.json).
-     * GET /v1/analyses/{mesh_id}/download?snapshot={snapshot}&geometry={boolean}
+     * Resultado detalhado (schema 5: general_metrics, verifications com errors).
+     * GET /v1/dss/{mesh_id}/download?snapshot={snapshot}
+     * Sem geometria: a malha é o OBJ do quad.
      */
-    downloadAnalysisResult: function (meshId, includeGeometry = false, snapshot = null) {
-        const query = qs({ snapshot, geometry: includeGeometry ? "true" : null });
-        return meshJson(meshId, `/v1/analyses/${enc(meshId)}/download${query}`);
+    downloadAnalysisResult: function (meshId, snapshot = null) {
+        return meshJson(meshId, `/v1/dss/${enc(meshId)}/download${qs({ snapshot })}`);
+    },
+
+    /**
+     * O que o visualizador 3D precisa (não é a análise): faces a pintar por
+     * verificação, per_face, per_vertex e edge_flow.
+     * GET /v1/dss/{mesh_id}/viewer?snapshot={snapshot}
+     */
+    getAnalysisViewer: function (meshId, snapshot = null) {
+        return meshJson(meshId, `/v1/dss/${enc(meshId)}/viewer${qs({ snapshot })}`);
+    },
+
+    /**
+     * O que quer dizer cada campo e como corrigir cada erro (igual para todas as malhas).
+     * GET /v1/dss/dictionary
+     */
+    getDSSDictionary: function () {
+        return apiJson("/v1/dss/dictionary");
     },
 
     /**

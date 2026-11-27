@@ -13,161 +13,207 @@
     //  1. DICIONÁRIO DE EXPLICAÇÕES EM PORTUGUÊS (RIGOROSO E DIDÁTICO)
     // ═══════════════════════════════════════════════════════════════════
     const QA_EXPLANATIONS = {
+        // ── Erros: a malha não serve como está ──────────────────────────
+        holes: {
+            title: "Buracos",
+            category: "Estanquicidade",
+            severity: "error",
+            color: "#eab308", // Amarelo
+            what: "Sítios onde a superfície não está fechada: arestas com uma só face. Inclui as fendas: um vértice pousado numa aresta sem estar ligado a ela. Numa fenda as duas arestas ficam uma sobre a outra e a malha parece fechada.",
+            why: () => "Uma malha aberta não tem interior: falha em booleanas, impressão 3D e cálculo de volume, e vê-se através dela.",
+            how: "Fechar o buraco (Fill / Grid Fill); numa fenda, fundir os vértices (Merge by Distance)."
+        },
+        flipped_normals: {
+            title: "Normais Invertidas",
+            category: "Orientação",
+            severity: "error",
+            color: "#ec4899", // Rosa
+            what: "Faces viradas ao contrário: contra as faces vizinhas, ou uma parte fechada inteira virada para dentro (do avesso).",
+            why: () => "A face aparece escura ou invisível (backface culling), o sombreamento suave estraga-se e o volume e as booleanas ficam errados.",
+            how: "Recalcular as normais para fora (Recalculate Outside) ou inverter as faces assinaladas (Flip)."
+        },
+        overlaps: {
+            title: "Sobreposições",
+            category: "Geometria",
+            severity: "error",
+            color: "#8b5cf6", // Púrpura
+            what: "Faces que atravessam outra face, que se dobram até tocar na mesma parte, ou que repetem outra face (os mesmos vértices).",
+            why: () => "A superfície fura-se a si própria ou tem duas faces no mesmo sítio: interior ambíguo, cintilação no render (z-fighting), booleanas e impressão 3D falham.",
+            how: "Apagar as faces repetidas; afastar as que se cruzam (Slide / Grab) ou refazer a zona dobrada."
+        },
+        nonmanifold: {
+            title: "Não-Manifold",
+            category: "Integridade",
+            severity: "error",
+            color: "#f97316", // Laranja
+            what: "Arestas com 3 ou mais faces, ou vértices onde duas peças se tocam num só ponto. O defeito é a aresta ou o vértice, não as faces à volta.",
+            why: () => "A superfície deixa de ter um lado de dentro e um de fora: quebra booleanas, subdivisão e impressão 3D.",
+            how: "Separar as peças (Rip / Split) ou apagar as faces a mais (muitas vezes faces internas)."
+        },
+        broken_faces: {
+            title: "Faces Inválidas",
+            category: "Geometria",
+            severity: "error",
+            color: "#ef4444", // Vermelho
+            what: "Faces sem área ou com um vértice repetido (degeneradas), ou com o contorno cruzado, como um quad em laço (torcidas). Muitas vezes tapam uma T-junction: um vértice pousado na aresta da face ao lado, que conta em N-gons.",
+            why: () => "Normais indefinidas: artefactos de sombreamento, subdivisão imprevisível e instabilidade em simulações.",
+            how: "Degeneradas: apagar ou fundir os vértices (Merge by Distance). Numa T-junction, apagar a face sem área e ligar o vértice pousado à face do lado (Knife / Connect). Torcidas: trocar a ordem dos vértices ou refazer a face."
+        },
+        // ── Avisos: funciona, mas um modelador corrigia ────────────────
         ngons: {
-            title: "N-gons (Faces 5+ Vértices)",
+            title: "N-gons",
             category: "Topologia",
             severity: "warning",
             color: "#3b82f6", // Azul
-            priority: 9,
-            what: "Faces compostas por 5 ou mais vértices.",
-            why: function (faceData, hasCollinear) {
-                let msg = "Importam em pipelines que exigem quads/tris (subdivisão, UVs e game engines), podendo causar deformações e artefactos de sombreamento.";
-                if (hasCollinear || (faceData && faceData.max_angle && faceData.max_angle >= 170)) {
-                    msg += " NOTA: O count é por vértices; um quad com vértices colineares (ângulo ~180°) conta como n-gon.";
-                }
-                return msg;
-            },
-            how: "Subdividir a face em quads ou triângulos usando a ferramenta Knife/Split ou dissolver os vértices colineares redundantes."
+            what: "Faces com 5 ou mais vértices, e faces com um vértice de uma T-junction pousado num lado, escondido por uma face sem área (essa conta em Faces Inválidas): num modelador são n-gons. Um vértice a meio de um lado reto também conta: o painel da face diz quantos cantos ela tem de facto.",
+            why: () => "Subdivisão, UVs e game engines esperam quads ou triângulos; um n-gon é triangulado à sorte e pode sombrear mal.",
+            how: "Dividir a face em quads (Knife / Connect); um vértice a meio de um lado reto sai com Dissolve Vertices."
         },
-        nonmanifold: {
-            title: "Arestas Não-Manifold",
-            category: "Integridade",
-            severity: "critical",
-            color: "#f97316", // Laranja vivo
-            priority: 2,
-            what: "Aresta partilhada por 3 ou mais faces, ou vértices com ligações não contíguas.",
-            why: function () {
-                return "Quebra operações booleanas, modificadores de subdivisão e impede a impressão 3D (a malha deixa de ser um sólido volumétrico 2-manifold válido).";
-            },
-            how: "Separar as faces adjacentes excedentes ou remover faces internas que partilham a mesma aresta."
-        },
-        open_edges: {
-            title: "Arestas Abertas (Fronteira)",
-            category: "Estanquicidade",
-            severity: "warning",
-            color: "#eab308", // Amarelo
-            priority: 6,
-            what: "Arestas de fronteira que pertencem a apenas uma face (aberturas na malha).",
-            why: function (faceData, hasTJunction) {
-                if (hasTJunction) {
-                    return "Fenda decorrente de uma T-junction (onde um vértice vizinho está sobre a aresta mas não foi soldado à face contígua).";
-                }
-                return "Pode ser um buraco real na geometria OU uma fenda decorrente de uma T-junction (vértice sobre uma aresta que a face vizinha não tem).";
-            },
-            how: "Fechar o orifício (Fill / Cap Hole) ou fundir os vértices coincidentes por proximidade (Merge by Distance)."
-        },
-        degenerate: {
-            title: "Faces Degeneradas",
-            category: "Geometria",
-            severity: "critical",
-            color: "#ef4444", // Vermelho
-            priority: 1,
-            what: "Face com área aproximadamente nula ou com vértices repetidos/colapsados.",
-            why: function () {
-                return "Provoca artefactos graves de sombreamento, divisão por zero no cálculo de normais e instabilidade em simulações físicas.";
-            },
-            how: "Eliminar as faces degeneradas ou colapsar os vértices redundantes."
-        },
-        dup_faces: {
-            title: "Faces Duplicadas",
-            category: "Geometria",
-            severity: "warning",
-            color: "#d946ef", // Fúcsia
-            priority: 7,
-            what: "Faces duplicadas sobrepostas exatamente no mesmo espaço 3D.",
-            why: function () {
-                return "Provoca cintilação severa de renderização (Z-fighting) e aumenta desnecessariamente o peso do modelo.";
-            },
-            how: "Remover as faces duplicadas através da limpeza de geometria (Delete Duplicate Faces)."
-        },
-        bad_quads: {
-            title: "Quads Deformados",
+        distorted_faces: {
+            title: "Faces Deformadas",
             category: "Qualidade",
             severity: "warning",
             color: "#06b6d4", // Ciano
-            priority: 8,
-            what: "Quads com ângulos internos extremos (< mín_ângulo ou > máx_ângulo configurados).",
-            why: function () {
-                return "Quads com grande distorção provocam estiramento de texturas UV e artefactos de iluminação durante a animação.";
-            },
-            how: "Suavizar a distribuição dos vértices (Relax / Smooth) ou ajustar o fluxo das arestas."
-        },
-        flipped: {
-            title: "Normais Invertidas",
-            category: "Orientação",
-            severity: "critical",
-            color: "#ec4899", // Rosa choque
-            priority: 3,
-            what: "Faces com normais invertidas (ordem de enrolamento dos vértices contrária à vizinhança).",
-            why: function () {
-                return "Faz com que a face pareça invisível ou receba iluminação do lado oposto devido ao backface culling.";
-            },
-            how: "Recalcular a orientação de todas as normais para o exterior (Recalculate Normals Outside)."
-        },
-        overlap: {
-            title: "Sobreposição de Shells",
-            category: "Topologia",
-            severity: "warning",
-            color: "#8b5cf6", // Púrpura
-            priority: 4,
-            what: "Uma casca geométrica (shell) contida dentro de outra.",
-            why: function () {
-                return "Geometria oculta desnecessária que consome memória e pode conflituar em booleanos. NOTA: Não deteta auto-interseção no mesmo shell (ver limitações).";
-            },
-            how: "Eliminar cascas internas redundantes ou unificar via união booleana limpa."
-        },
-        poles: {
-            title: "Poles (Vértices Não-Regulares)",
-            category: "Topologia",
-            severity: "info",
-            color: "#a855f7", // Lilás
-            priority: 10,
-            what: "Vértices interiores com valência diferente da regular (4 em quads, 6 em tris).",
-            why: function () {
-                return "Em malhas low-poly com cantos vivos ou extremidades, valência 3 é natural; em superfícies lisas com subdivisão, polos com valência 3 ou 5+ criam pontos de tensão (pinching).";
-            },
-            how: "Redirecionar os loopings de aresta (Edge Spin/Slide) para deslocar o polo para zonas planas ou de menor deformação."
-        },
-        collinear_vertices: {
-            title: "Vértices Colineares",
-            category: "Otimização",
-            severity: "info",
-            color: "#14b8a6", // Teal
-            priority: 11,
-            what: "Vértices de valência 2 com ângulo ~180° entre as arestas adjacentes.",
-            why: function () {
-                return "São vértices redundantes que aumentam a contagem sem contribuir para a curvatura ou silhueta da peça.";
-            },
-            how: "Dissolver os vértices colineares (Dissolve Vertices) sem alterar a forma do polígono."
-        },
-        t_junction: {
-            title: "T-Junctions",
-            category: "Estanquicidade",
-            severity: "critical",
-            color: "#f43f5e", // Rosa avermelhado
-            priority: 5,
-            what: "Vértice pousado sobre a aresta de uma face vizinha sem pertencer à topologia dessa face.",
-            why: function () {
-                return "Quebra a continuidade da superfície criando micro-fendas visíveis na renderização; a malha deixa de ser hermética (watertight).";
-            },
-            how: "Inserir um vértice na aresta vizinha e soldar os dois vértices (Snap & Merge), ou triangular a face adjacente para absorver a junção."
+            what: "Quads com ângulos fora dos limites, quads muito mais compridos do que largos (5:1 por defeito), e faces cujos vértices não estão no mesmo plano.",
+            why: () => "Esticam texturas, dão sombreamento em faixas ou vincos e deformam mal em animação.",
+            how: "Relaxar os vértices (Relax / Smooth), acrescentar loops na direção comprida ou planificar a face (Flatten)."
         }
     };
 
-    function getCheckInfo(key) {
+    /** O tipo de cada defeito, nas verificações que juntam vários. */
+    const BREAKDOWN_LABELS = {
+        holes: { open_edges: "arestas abertas", cracks: "fendas" },
+        ngons: { ngons: "com 5+ vértices", t_junctions: "T-junction tapada" },
+        flipped_normals: { against_neighbours: "contra as vizinhas", inside_out: "do avesso", inside_out_parts: null },
+        overlaps: { crossing: "a cruzar", duplicates: "repetidas" },
+        nonmanifold: { edges: "arestas", vertices: "vértices" },
+        broken_faces: { degenerate: "sem área", twisted: "torcidas" },
+        distorted_faces: { bad_angles: "ângulos maus", thin: "esguias", nonplanar: "não planas" },
+    };
+    /** Porque é que esta face conta numa verificação que junta vários tipos, com o valor medido. */
+    function faceKindText(key, apiCheck, faceIdx, res) {
+        if (key === "ngons") {
+            // A face do outro lado de uma T-junction tapada por uma face sem área.
+            const covers = Object.entries(res?.checks?.broken_faces?.hosts || {})
+                .filter(([, hostFaces]) => hostFaces.includes(faceIdx))
+                .map(([cover]) => `#${cover}`);
+            const size = qaPolygonFaces?.[faceIdx]?.length;
+            const parts = [];
+            if (size > 4) parts.push(`${size} vértices`);
+            if (covers.length) parts.push(`tem uma T-junction num lado, tapada pela face sem área ${covers.join(", ")}`);
+            return parts.join(", ");
+        }
+        const byKind = apiCheck?.by_kind;
+        if (!byKind) return "";
+        const labels = BREAKDOWN_LABELS[key] || {};
+        const perFace = res?.per_face || {};
+        const fmt = (v, digits = 1) => (v === null || v === undefined) ? "--" : Number(v).toFixed(digits);
+        const parts = [];
+        for (const [kind, items] of Object.entries(byKind)) {
+            if (!Array.isArray(items) || !items.includes(faceIdx)) continue;
+            if (key === "distorted_faces" && kind === "bad_angles") {
+                parts.push(`ângulos ${fmt(perFace.min_angle?.[faceIdx], 0)}°–${fmt(perFace.max_angle?.[faceIdx], 0)}°`);
+            } else if (key === "distorted_faces" && kind === "thin") {
+                const ar = perFace.aspect_ratio?.[faceIdx];
+                parts.push(`esguia (${ar > 999 ? ">999" : fmt(ar)}:1)`);
+            } else if (key === "distorted_faces" && kind === "nonplanar") {
+                const dev = perFace.plane_deviation?.[faceIdx];
+                parts.push(`não plana (${dev === null || dev === undefined ? "--" : (dev * 100).toFixed(1)}% fora do plano)`);
+            } else if (key === "broken_faces" && kind === "degenerate") {
+                const host = degenerateHost.get(faceIdx);
+                parts.push(host === undefined
+                    ? "sem área (é uma linha)"
+                    : `sem área (é uma linha: mostrada como faixa sobre a face #${host})`);
+            } else {
+                parts.push(labels[kind] || kind.replace(/_/g, " "));
+            }
+        }
+        const hosts = key === "broken_faces" ? apiCheck?.hosts?.[String(faceIdx)] : null;
+        if (hosts?.length) {
+            parts.push(`tapa uma T-junction com a face ${hosts.map(h => `#${h}`).join(", ")}`);
+        }
+        return parts.join(", ");
+    }
+
+    // Verificações cujo defeito é uma aresta ou um vértice: desenham-se linhas e
+    // pontos, e as faces à volta não são pintadas (não são elas o problema).
+    const ELEMENT_CHECKS = new Set(["holes", "nonmanifold"]);
+    const isElementCheck = (key) => ELEMENT_CHECKS.has(key);
+
+    /** Numa face, os defeitos que estão nas arestas ou nos vértices dela. */
+    function faceElementText(key, apiCheck, faceVerts) {
+        if (!faceVerts?.length) return "";
+        const inFace = (a, b) => {
+            for (let i = 0; i < faceVerts.length; i++) {
+                const u = faceVerts[i], v = faceVerts[(i + 1) % faceVerts.length];
+                if ((u === a && v === b) || (u === b && v === a)) return true;
+            }
+            return false;
+        };
+        const edges = (apiCheck?.edges || []).filter(([a, b]) => inFace(a, b)).length;
+        const verts = (apiCheck?.vertices || []).filter(v => faceVerts.includes(v));
+        const parts = [];
+        if (key === "holes") {
+            if (edges) parts.push(`${edges} aresta(s) aberta(s)`);
+            if (verts.length) parts.push(`fenda em ${verts.map(v => `V#${v}`).join(", ")}`);
+        } else if (key === "nonmanifold") {
+            if (edges) parts.push(`${edges} aresta(s) com 3+ faces`);
+            if (verts.length) parts.push(`peças tocam-se em ${verts.map(v => `V#${v}`).join(", ")}`);
+        }
+        return parts.join(", ");
+    }
+
+    /** Fluxo de arestas (informação da API, não conta para o veredicto). */
+    function edgeFlowKinds(res, vIdx) {
+        const flow = res?.edge_flow || {};
+        const kinds = [];
+        if (flow.smooth_poles?.includes(vIdx)) kinds.push("polo numa zona lisa");
+        if (flow.high_valence?.includes(vIdx)) kinds.push("valência alta");
+        return kinds;
+    }
+
+    function edgeFlowVertices(res) {
+        const flow = res?.edge_flow || {};
+        return [...new Set([...(flow.smooth_poles || []), ...(flow.high_valence || [])])];
+    }
+
+    function breakdownText(key, apiCheck) {
+        const breakdown = apiCheck?.breakdown;
+        if (!breakdown) return "";
+        const labels = BREAKDOWN_LABELS[key] || {};
+        return Object.entries(breakdown)
+            .filter(([kind, n]) => n > 0 && labels[kind] !== null)
+            .map(([kind, n]) => `${n} ${labels[kind] || kind.replace(/_/g, " ")}`)
+            .join(" • ");
+    }
+
+    /** Como cada verificação aparece no 3D (para a caixa "No 3D" da lista). */
+    function mapHowText(key) {
+        if (key === "broken_faces") return "uma face sem área é só uma linha, por isso aparece como uma faixa desta cor, alargada de propósito, deitada sobre a face do lado, com o número da face (clica na faixa ou no número para a ver); as torcidas são pintadas desta cor.";
+        if (key === "holes") return "as arestas abertas aparecem como linhas grossas desta cor; as faces não são pintadas. Numa fenda as duas arestas ficam uma sobre a outra e parecem fechadas: o vértice pousado leva um ponto com a etiqueta «fenda».";
+        if (key === "nonmanifold") return "as arestas com 3 ou mais faces aparecem como linhas grossas desta cor e os vértices onde as peças se tocam como pontos; as faces não são pintadas.";
+        return "as faces são pintadas desta cor.";
+    }
+
+    /** Textos de um check: os nossos (PT) pelo código; um check novo usa os da API. */
+    function getCheckInfo(key, apiCheck) {
         if (QA_EXPLANATIONS[key]) {
             return QA_EXPLANATIONS[key];
         }
         return {
-            title: key.replace(/_/g, " ").toUpperCase(),
+            title: apiCheck?.title || key.replace(/_/g, " ").toUpperCase(),
             category: "Verificação",
-            severity: "warning",
+            severity: apiCheck?.severity || "warning",
             color: "#64748b",
-            priority: 99,
-            what: `Verificação automatizada: ${key}.`,
+            what: apiCheck?.description || `Verificação automatizada: ${key}.`,
             why: () => "Potencial anomalia geométrica ou topológica reportada pelo algoritmo.",
             how: "Inspecionar a malha e verificar a integridade dos polígonos afetados."
         };
+    }
+
+    /** A gravidade vem da API (igual para todos os frontends); a nossa é o recurso. */
+    function getCheckSeverity(key, apiCheck) {
+        return apiCheck?.severity || getCheckInfo(key, apiCheck).severity;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -184,12 +230,15 @@
         params: {
             min_angle: 20.0,
             max_angle: 160.0,
+            planarity_tolerance: 0.01,
             regular_valence: 0,
             skip: []
         },
 
-        enabledChecks: {},
-        activeViewMode: "none", // 'errors' | 'min_angle' | 'max_angle' | 'valence' | 'none'
+        focusCheck: null, // verificação aberta na lista: o mapa mostra só essa
+        showWarnings: true, // o mapa mostra tudo: erros (cor cheia) e avisos (cor suave)
+        showEdgeFlow: false, // pontos dos polos e valências altas (informação)
+        activeViewMode: "none", // 'errors' (mapa de topologia) | 'none'
         showEdges: true,
         showPoles: true,
         showSurface: true,
@@ -204,6 +253,9 @@
     let dssMesh = null;
     let dssEdgesMesh = null;
     let dssPolesPoints = null;
+    let dssEdgeLines = null; // arestas com defeito e faces sem área, como linhas grossas
+    // Face sem área -> face vizinha onde a faixa dela foi desenhada (para o painel).
+    const degenerateHost = new Map();
     let dssSelectionLine = null;
     let dssVertexMarker = null;
     let qaCenter = new THREE.Vector3(0, 0, 0);
@@ -227,153 +279,23 @@
 
     // Atualização global e síncrona da UI dos Botões de Mapas DSS (Sidebar & Drawer)
     function updateDSSMapUI() {
-        const mode = QAState.activeViewMode;
+        const isMapActive = QAState.activeViewMode === "errors";
 
-        const sideBtnToggle = document.getElementById("side-btn-dss-toggle");
-        const sideBtnAngle = document.getElementById("side-btn-dss-angle");
-        const sideBtnValence = document.getElementById("side-btn-dss-valence");
-        const sideBtnErrors = document.getElementById("side-btn-dss-errors");
-        const sideMapBadge = document.getElementById("side-dss-map-badge");
-
-        const drawerBtnToggle = document.getElementById("dss-drawer-btn-toggle");
-        const drawerBtnAngle = document.getElementById("dss-drawer-btn-angle");
-        const drawerBtnValence = document.getElementById("dss-drawer-btn-valence");
-        const drawerBtnErrors = document.getElementById("dss-drawer-btn-errors");
-        const drawerMapBadge = document.getElementById("dss-drawer-map-badge");
-
-        [sideBtnAngle, sideBtnValence, sideBtnErrors, drawerBtnAngle, drawerBtnValence, drawerBtnErrors].forEach(b => b?.classList.remove("active"));
-
-        const isMapActive = (mode && mode !== "none");
-
-        let mapName = "Desativado";
-        if (mode === "min_angle" || mode === "angles") {
-            mapName = "Ângulos";
-        } else if (mode === "max_angle") {
-            mapName = "Ângulos Máx.";
-        } else if (mode === "valence") {
-            mapName = "Valência";
-        } else if (mode === "errors") {
-            mapName = "Topologia";
-        }
-
-        // Atualização dos botões gerais de Ativar / Desativar Mapa de Cores DSS
-        [sideBtnToggle, drawerBtnToggle].forEach(btn => {
+        [document.getElementById("side-btn-dss-toggle"), document.getElementById("dss-drawer-btn-toggle")].forEach(btn => {
             if (!btn) return;
-            if (isMapActive) {
-                btn.classList.add("active");
-                btn.classList.remove("btn-outline");
-                btn.classList.add("btn-primary");
-                btn.innerHTML = `<span>🎨 Desativar Mapa: ${mapName}</span>`;
-                btn.style.background = "";
-                btn.style.borderColor = "";
-                btn.style.boxShadow = "";
-                btn.style.color = "";
-            } else {
-                btn.classList.remove("active");
-                btn.classList.remove("btn-primary");
-                btn.classList.add("btn-outline");
-                btn.innerHTML = `<span>🎨 Ativar Mapa de Cores DSS</span>`;
-                btn.style.background = "";
-                btn.style.borderColor = "";
-                btn.style.boxShadow = "";
-                btn.style.color = "";
-            }
+            btn.classList.toggle("active", isMapActive);
+            btn.classList.toggle("btn-primary", isMapActive);
+            btn.classList.toggle("btn-outline", !isMapActive);
+            btn.innerHTML = isMapActive
+                ? "<span>🎨 Desativar Mapa de Topologia</span>"
+                : "<span>🎨 Ativar Mapa de Topologia</span>";
         });
 
-        if (mode === "min_angle" || mode === "angles") {
-            if (sideBtnAngle) sideBtnAngle.classList.add("active");
-            if (drawerBtnAngle) drawerBtnAngle.classList.add("active");
-        } else if (mode === "valence") {
-            if (sideBtnValence) sideBtnValence.classList.add("active");
-            if (drawerBtnValence) drawerBtnValence.classList.add("active");
-        } else if (mode === "errors") {
-            if (sideBtnErrors) sideBtnErrors.classList.add("active");
-            if (drawerBtnErrors) drawerBtnErrors.classList.add("active");
-        }
-
-        [sideMapBadge, drawerMapBadge].forEach(badge => {
+        [document.getElementById("side-dss-map-badge"), document.getElementById("dss-drawer-map-badge")].forEach(badge => {
             if (!badge) return;
-            badge.style.background = "";
-            badge.style.borderColor = "";
-            badge.style.color = "";
-            if (isMapActive) {
-                badge.textContent = `Ativo: ${mapName}`;
-                badge.classList.add("active");
-            } else {
-                badge.textContent = "Desativado";
-                badge.classList.remove("active");
-            }
+            badge.textContent = isMapActive ? "Ativo" : "Desativado";
+            badge.classList.toggle("active", isMapActive);
         });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    //  4. ESCALAS DE COR (HEATMAPS CONTÍNUOS)
-    // ═══════════════════════════════════════════════════════════════════
-    function interpolateColor(c1, c2, factor) {
-        return [
-            c1[0] + (c2[0] - c1[0]) * factor,
-            c1[1] + (c2[1] - c1[1]) * factor,
-            c1[2] + (c2[2] - c1[2]) * factor
-        ];
-    }
-
-    function getHeatmapColor(value, minVal, maxVal) {
-        if (value === null || value === undefined || isNaN(value)) {
-            return [0.25, 0.28, 0.35]; // Cinzento escuro
-        }
-        const range = maxVal - minVal;
-        const t = range > 0 ? Math.max(0, Math.min(1, (value - minVal) / range)) : 0.5;
-
-        // Gradiente: Azul (frio) -> Verde -> Amarelo -> Vermelho (quente)
-        if (t < 0.33) {
-            return interpolateColor([0.23, 0.51, 0.96], [0.06, 0.72, 0.50], t / 0.33);
-        } else if (t < 0.66) {
-            return interpolateColor([0.06, 0.72, 0.50], [0.95, 0.70, 0.03], (t - 0.33) / 0.33);
-        } else {
-            return interpolateColor([0.95, 0.70, 0.03], [0.93, 0.26, 0.26], (t - 0.66) / 0.34);
-        }
-    }
-
-    // Escala fixa e cores corretas para Ângulo Mínimo: ≤20° (Crítico = Vermelho), 90° (Ortogonal/Ideal = Verde)
-    function getMinAngleColor(angle) {
-        if (angle === null || angle === undefined || isNaN(angle)) return [0.25, 0.28, 0.35];
-        if (angle <= 20) return [0.93, 0.26, 0.26]; // Vermelho
-        if (angle >= 90) return [0.06, 0.72, 0.50]; // Verde
-        const t = (angle - 20) / 70; // 0 = 20°, 1 = 90°
-        if (t < 0.5) {
-            return interpolateColor([0.93, 0.26, 0.26], [0.95, 0.70, 0.03], t / 0.5); // Vermelho -> Amarelo
-        } else {
-            return interpolateColor([0.95, 0.70, 0.03], [0.06, 0.72, 0.50], (t - 0.5) / 0.5); // Amarelo -> Verde
-        }
-    }
-
-    // Escala fixa e cores para Ângulo Máximo: 90° (Ideal = Verde), ≥160° (Crítico = Vermelho), ~180° colinear (Cinzento)
-    function getMaxAngleColor(angle) {
-        if (angle === null || angle === undefined || isNaN(angle)) return [0.25, 0.28, 0.35];
-        if (angle >= 178) return [0.55, 0.58, 0.64]; // Colinear -> cinzento neutro, não inflaciona como erro de canto
-        if (angle <= 90) return [0.06, 0.72, 0.50];  // Verde
-        if (angle >= 160) return [0.93, 0.26, 0.26]; // Vermelho
-        const t = (angle - 90) / 70; // 0 = 90°, 1 = 160°
-        if (t < 0.5) {
-            return interpolateColor([0.06, 0.72, 0.50], [0.95, 0.70, 0.03], t / 0.5); // Verde -> Amarelo
-        } else {
-            return interpolateColor([0.95, 0.70, 0.03], [0.93, 0.26, 0.26], (t - 0.5) / 0.5); // Amarelo -> Vermelho
-        }
-    }
-
-    // Mapa de valência centrado no regular_valence da API e tipo de vértice (Polo vs Fronteira/Colinear)
-    function getValenceColorByType(val, regular = 4, isPole = false, isCollinear = false) {
-        if (isCollinear) return [0.55, 0.58, 0.64]; // Vértice colinear -> cinzento neutro
-        if (val === regular) return [0.06, 0.72, 0.50]; // Regular -> Verde (#10b981)
-        if (!isPole) return [0.55, 0.58, 0.64]; // Vértice não-polo (ex: fronteira com valência 2 ou 3) -> cinzento neutro
-        // Polos genuínos da API:
-        if (val < regular) return [0.23, 0.51, 0.96]; // Polo com valência inferior à regular -> Azul (#3b82f6)
-        if (val === regular + 1) return [0.95, 0.70, 0.03]; // Polo regular + 1 -> Amarelo (#f59e0b)
-        if (val >= regular + 2) return [0.93, 0.26, 0.26]; // Polo de alta valência -> Vermelho (#ef4444)
-        return [0.55, 0.58, 0.64];
-    }
-    function getValenceColor(val, regular = 4) {
-        return getValenceColorByType(val, regular, val !== regular, false);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -492,6 +414,7 @@
         if (dssMesh) { scene.remove(dssMesh); dssMesh.geometry.dispose(); dssMesh = null; }
         if (dssEdgesMesh) { scene.remove(dssEdgesMesh); dssEdgesMesh.geometry.dispose(); dssEdgesMesh = null; }
         if (dssPolesPoints) { scene.remove(dssPolesPoints); dssPolesPoints.geometry.dispose(); dssPolesPoints = null; }
+        removeDSSEdgeLines(scene);
         if (dssSelectionLine) { scene.remove(dssSelectionLine); dssSelectionLine.geometry.dispose(); dssSelectionLine = null; }
         if (dssVertexMarker) { scene.remove(dssVertexMarker); dssVertexMarker.geometry.dispose(); dssVertexMarker = null; }
 
@@ -501,101 +424,539 @@
         return true;
     }
 
+    // Verificações com vértices a marcar (fendas em holes, vértices onde as
+    // peças se tocam em nonmanifold): desenhados como pontos por cima da malha.
+    function vertexMarkerChecks(res) {
+        const checks = res?.checks || {};
+        return Object.keys(checks).filter(key => Array.isArray(checks[key]?.vertices) && checks[key].vertices.length);
+    }
+
+    // Sem nenhuma verificação aberta, o mapa mostra os erros e, se o botão
+    // estiver ligado, os avisos (cor suave); com uma aberta, mostra só essa.
+    function isCheckShown(checkKey, checkData) {
+        if (QAState.focusCheck) return checkKey === QAState.focusCheck;
+        return checkData?.severity === "error" || (QAState.showWarnings && checkData?.severity === "warning");
+    }
+
+    // Os pontos (vértices e faces pequenas) só para os erros ou a verificação
+    // aberta: centenas de pontos de avisos tapavam a malha.
+    function isMarkerShown(checkKey, checkData) {
+        if (QAState.focusCheck) return checkKey === QAState.focusCheck;
+        return checkData?.severity === "error";
+    }
+
+    // Ao pintar, os defeitos locais ficam por cima dos largos: uma face
+    // degenerada dentro de uma zona dobrada vê-se como degenerada.
+    const LOCAL_FIRST = ["broken_faces", "nonmanifold", "flipped_normals"];
+    function paintOrder(checks) {
+        const keys = Object.keys(checks || {});
+        return [...LOCAL_FIRST.filter(k => keys.includes(k)), ...keys.filter(k => !LOCAL_FIRST.includes(k))];
+    }
+
+    // Uma face assinalada com menos do que esta fração do tamanho da malha não
+    // se vê pintada: leva também um ponto.
+    const SMALL_FACE_FRACTION = 0.02;
+
+    function markerVertices(checkKey, res) {
+        const list = res?.checks?.[checkKey]?.vertices;
+        return Array.isArray(list) ? list : [];
+    }
+
+    function disposeObject3D(object) {
+        object.traverse(child => {
+            child.geometry?.dispose?.();
+            const material = child.material;
+            if (material) {
+                material.map?.dispose?.();
+                material.dispose?.();
+            }
+        });
+    }
+
+    function removeDSSEdgeLines(scene) {
+        if (!dssEdgeLines) return;
+        scene.remove(dssEdgeLines);
+        disposeObject3D(dssEdgeLines);
+        dssEdgeLines = null;
+    }
+
+    const HAS_FAT_LINES = () => Boolean(THREE.LineSegments2 && THREE.LineSegmentsGeometry && THREE.LineMaterial);
+
+    /** Linhas com largura em píxeis (LineSegments2); sem o CDN, linhas finas. */
+    function makeFatLines(viewer, positions, colors, width, opacity) {
+        if (HAS_FAT_LINES()) {
+            const geometry = new THREE.LineSegmentsGeometry();
+            geometry.setPositions(positions);
+            geometry.setColors(colors);
+            const size = new THREE.Vector2();
+            if (viewer.renderer) viewer.renderer.getSize(size);
+            const material = new THREE.LineMaterial({
+                linewidth: width,
+                vertexColors: true,
+                transparent: opacity < 1,
+                opacity,
+                depthTest: true,
+                depthWrite: false,
+            });
+            material.resolution.set(size.x || window.innerWidth, size.y || window.innerHeight);
+            return new THREE.LineSegments2(geometry, material);
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+        return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true, transparent: opacity < 1, opacity }));
+    }
+
+    /** Etiqueta "#5" sempre virada para a câmara, do tamanho certo em qualquer zoom. */
+    function makeLabelSprite(text, hex) {
+        const canvas = document.createElement("canvas");
+        const ratio = 2;
+        const ctx = canvas.getContext("2d");
+        ctx.font = `700 ${13 * ratio}px "JetBrains Mono", monospace`;
+        const width = Math.ceil(ctx.measureText(text).width) + 14 * ratio;
+        const height = 22 * ratio;
+        canvas.width = width;
+        canvas.height = height;
+        ctx.font = `700 ${13 * ratio}px "JetBrains Mono", monospace`;
+        ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+        ctx.strokeStyle = hex;
+        ctx.lineWidth = 2 * ratio;
+        const r = 6 * ratio;
+        ctx.beginPath();
+        ctx.moveTo(r, 1); ctx.lineTo(width - r, 1); ctx.quadraticCurveTo(width - 1, 1, width - 1, r);
+        ctx.lineTo(width - 1, height - r); ctx.quadraticCurveTo(width - 1, height - 1, width - r, height - 1);
+        ctx.lineTo(r, height - 1); ctx.quadraticCurveTo(1, height - 1, 1, height - r);
+        ctx.lineTo(1, r); ctx.quadraticCurveTo(1, 1, r, 1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#f8fafc";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, 7 * ratio, height / 2 + ratio);
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true, sizeAttenuation: false });
+        const sprite = new THREE.Sprite(material);
+        // Com sizeAttenuation a false, a escala é uma fração da altura do ecrã.
+        const screenHeight = 0.035;
+        sprite.scale.set(screenHeight * width / height, screenHeight, 1);
+        sprite.center.set(0.5, -0.35); // um pouco acima do ponto
+        sprite.renderOrder = 1001;
+        return sprite;
+    }
+
+    /**
+     * Defeitos que são arestas, desenhados como linhas grossas da cor da
+     * verificação: arestas abertas (buracos) e não-manifold. As faces sem área
+     * (uma face degenerada é uma linha) levam também uma faixa pintada sobre a
+     * face vizinha; clicar na faixa abre a face. As faces não levam número no
+     * 3D: um número atrás da malha ficava esbatido e outro não, e a mesma face
+     * tem de se ver igual em qualquer ângulo.
+     */
+    function updateDSSEdgeLines(viewer, res, polygonFaces, positionOfVertex, meshId) {
+        const segments = []; // [a, b, "#cor"]
+        const flatList = []; // [faceIdx, "#cor"]: faces sem área
+        const seen = new Set();
+        const add = (list, a, b, color) => {
+            const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+            if (a === b || seen.has(key)) return;
+            seen.add(key);
+            list.push([a, b, color]);
+        };
+        for (const checkKey of paintOrder(res.checks)) {
+            const data = res.checks[checkKey];
+            if (!data || !data.count || !isMarkerShown(checkKey, data)) continue;
+            const color = getCheckInfo(checkKey, data).color || "#ef4444";
+            if (Array.isArray(data.edges)) {
+                for (const [a, b] of data.edges) add(segments, a, b, color);
+            }
+            const flatFaces = checkKey === "broken_faces" ? (data.by_kind?.degenerate || []) : [];
+            for (const fIdx of flatFaces) {
+                const poly = polygonFaces?.[fIdx] || [];
+                for (let i = 0; i < poly.length; i++) {
+                    add(segments, poly[i], poly[(i + 1) % poly.length], color);
+                }
+                flatList.push([fIdx, color]);
+            }
+        }
+        // Fendas: as duas arestas ficam uma sobre a outra e parecem fechadas; o
+        // vértice pousado leva uma etiqueta.
+        const cracks = isMarkerShown("holes", res.checks.holes) ? (res.checks.holes?.vertices || []) : [];
+        const cacheKey = `${meshId}|${segments.length}|${flatList.length}|${cracks.length}|${QAState.focusCheck || "all"}`;
+        if (dssEdgeLines && dssEdgeLines.userData?.cacheKey === cacheKey) {
+            dssEdgeLines.visible = segments.length > 0;
+            return;
+        }
+        removeDSSEdgeLines(viewer.scene);
+        if (!segments.length) return;
+
+        const toArrays = (list) => {
+            const positions = [];
+            const colors = [];
+            for (const [a, b, hex] of list) {
+                const pa = positionOfVertex(a);
+                const pb = positionOfVertex(b);
+                if (!pa || !pb) continue;
+                const c = new THREE.Color(hex);
+                positions.push(...pa, ...pb);
+                colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+            }
+            return [positions, colors];
+        };
+
+        const group = new THREE.Group();
+        const labels = []; // [faceIdx, "#cor", [x, y, z]]
+        const strips = flatFaceStrips(polygonFaces, positionOfVertex, flatList, res.checks.broken_faces?.hosts);
+        for (const strip of strips) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute("position", new THREE.Float32BufferAttribute(strip.corners.flat(), 3));
+            geometry.setIndex([0, 1, 2, 0, 2, 3]);
+            const material = new THREE.MeshBasicMaterial({
+                color: new THREE.Color(strip.color),
+                transparent: true,
+                opacity: 0.85,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                polygonOffset: true,
+                polygonOffsetFactor: -2,
+                polygonOffsetUnits: -2,
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.renderOrder = 996;
+            mesh.userData.faceIdx = strip.faceIdx; // clicável: abre a face sem área
+            group.add(mesh);
+            labels.push([`#${strip.faceIdx}`, strip.color, strip.center, { faceIdx: strip.faceIdx }]);
+        }
+        for (const [fIdx, hex] of flatList) {
+            if (strips.some(strip => strip.faceIdx === fIdx)) continue;
+            const pts = (polygonFaces?.[fIdx] || []).map(positionOfVertex).filter(Boolean);
+            if (!pts.length) continue;
+            labels.push([`#${fIdx}`, hex, [0, 1, 2].map(axis => pts.reduce((sum, p) => sum + p[axis], 0) / pts.length), { faceIdx: fIdx }]);
+        }
+        const crackColor = getCheckInfo("holes", res.checks.holes).color || "#eab308";
+        for (const vIdx of cracks) {
+            const pos = positionOfVertex(vIdx);
+            if (pos) labels.push(["fenda", crackColor, pos, { vertexIdx: vIdx }]);
+        }
+        const [positions, colors] = toArrays(segments);
+        if (positions.length) {
+            const core = makeFatLines(viewer, positions, colors, 4, 0.95);
+            core.renderOrder = 997;
+            group.add(core);
+        }
+        for (const [text, hex, center, data] of labels) {
+            if (data.faceIdx !== undefined) continue; // sem números de face no 3D
+            {
+                const sprite = makeLabelSprite(text, hex);
+                sprite.position.set(...center);
+                Object.assign(sprite.userData, data); // clicável: abre a face ou o vértice
+                // Uma etiqueta atrás da malha fica quase transparente: senão
+                // parecia estar na face da frente.
+                const anchor = sprite.position.clone();
+                const ray = new THREE.Raycaster();
+                const toAnchor = new THREE.Vector3();
+                sprite.onBeforeRender = (renderer, scene, camera) => {
+                    const mesh = viewer.mesh;
+                    if (!mesh) return;
+                    toAnchor.subVectors(anchor, camera.position);
+                    const distance = toAnchor.length();
+                    ray.set(camera.position, toAnchor.normalize());
+                    ray.far = distance;
+                    const hit = ray.intersectObject(mesh, false)[0];
+                    const hidden = hit && hit.distance < distance * 0.995;
+                    sprite.material.opacity = hidden ? 0.18 : 1;
+                };
+                group.add(sprite);
+            }
+        }
+        group.userData = { cacheKey };
+        dssEdgeLines = group;
+        viewer.scene.add(group);
+    }
+
+    /**
+     * Uma face sem área é uma linha. Para se ver qual é, desenha-se uma faixa
+     * dessa linha para dentro da face vizinha que tem as duas pontas da linha
+     * (senão, a que partilha mais vértices), com uma largura que se vê.
+     */
+    function flatFaceStrips(polygonFaces, positionOfVertex, flatList, apiHosts) {
+        degenerateHost.clear();
+        if (!flatList.length || !polygonFaces) return [];
+        const V = THREE.Vector3;
+        const flatSet = new Set(flatList.map(([fIdx]) => fIdx));
+        const box = new THREE.Box3();
+        const byVertex = new Map();
+        polygonFaces.forEach((poly, fIdx) => {
+            for (const v of poly || []) {
+                const pos = positionOfVertex(v);
+                if (pos) box.expandByPoint(new V(...pos));
+                if (flatSet.has(fIdx)) continue;
+                if (!byVertex.has(v)) byVertex.set(v, []);
+                byVertex.get(v).push(fIdx);
+            }
+        });
+        const diagonal = box.isEmpty() ? 1 : box.getSize(new V()).length();
+        const strips = [];
+        for (const [fIdx, color] of flatList) {
+            const poly = polygonFaces[fIdx] || [];
+            const pts = poly.map(v => [v, positionOfVertex(v)]).filter(([, pos]) => pos).map(([v, pos]) => [v, new V(...pos)]);
+            if (pts.length < 2) continue;
+            // As duas pontas da linha: o par de vértices mais afastado.
+            let ends = [pts[0], pts[1]];
+            let longest = -1;
+            for (let i = 0; i < pts.length; i++) {
+                for (let j = i + 1; j < pts.length; j++) {
+                    const d = pts[i][1].distanceTo(pts[j][1]);
+                    if (d > longest) { longest = d; ends = [pts[i], pts[j]]; }
+                }
+            }
+            if (longest <= 0) continue;
+            const [[va, p0], [vb, p1]] = ends;
+            // A face vizinha.
+            const shared = new Map();
+            for (const v of new Set(poly)) {
+                for (const g of byVertex.get(v) || []) shared.set(g, (shared.get(g) || 0) + 1);
+            }
+            // A API diz qual é a face do outro lado da T-junction; senão, adivinha-se.
+            const apiHost = apiHosts?.[String(fIdx)]?.find(g => polygonFaces[g]);
+            let host = apiHost ?? null;
+            let best = apiHost !== undefined ? Infinity : -1;
+            for (const [g, n] of shared) {
+                const both = polygonFaces[g].includes(va) && polygonFaces[g].includes(vb);
+                const score = (both ? 1000 : 0) + n;
+                if (n >= 2 && score > best) { best = score; host = g; }
+            }
+            if (host === null) continue;
+            const hostPts = polygonFaces[host].map(positionOfVertex).filter(Boolean).map(pos => new V(...pos));
+            const hostCenter = hostPts.reduce((sum, q) => sum.add(q), new V()).divideScalar(hostPts.length);
+            const dir = new V().subVectors(p1, p0).normalize();
+            // Normal da face vizinha (Newell).
+            const normal = new V();
+            for (let i = 0; i < hostPts.length; i++) {
+                const a = hostPts[i];
+                const b = hostPts[(i + 1) % hostPts.length];
+                normal.x += (a.y - b.y) * (a.z + b.z);
+                normal.y += (a.z - b.z) * (a.x + b.x);
+                normal.z += (a.x - b.x) * (a.y + b.y);
+            }
+            if (normal.lengthSq() === 0) continue;
+            normal.normalize();
+            const across = new V().crossVectors(normal, dir).normalize();
+            if (across.dot(new V().subVectors(hostCenter, p0)) < 0) across.negate();
+            const room = Math.max(...hostPts.map(q => new V().subVectors(q, p0).dot(across)));
+            const width = Math.min(diagonal * 0.03, Math.max(room, 0) * 0.25 || diagonal * 0.03);
+            const lift = normal.clone().multiplyScalar(diagonal * 1e-4);
+            const offset = across.clone().multiplyScalar(width);
+            const corners = [p0.clone(), p1.clone(), p1.clone().add(offset), p0.clone().add(offset)].map(c => c.add(lift));
+            const center = corners.reduce((sum, c) => sum.add(c), new V()).divideScalar(4);
+            degenerateHost.set(fIdx, host);
+            strips.push({ faceIdx: fIdx, color, corners: corners.map(c => [c.x, c.y, c.z]), center: [center.x, center.y, center.z] });
+        }
+        return strips;
+    }
+
+    /** Pontos dos checks de vértices ligados (o nome fica: é chamado noutros sítios). */
     function updateDSSPoles(forceVisible) {
         const viewer = getViewer();
         if (!viewer || !viewer.scene) return;
 
-        const shouldShow = (forceVisible !== undefined) ? forceVisible : (QAState.enabledChecks["poles"] !== false && QAState.activeViewMode !== "none");
-
-        if (!shouldShow) {
-            if (dssPolesPoints) dssPolesPoints.visible = false;
-            return;
-        }
-
+        const shouldShow = (forceVisible !== undefined) ? forceVisible : QAState.activeViewMode !== "none";
         const res = QAState.resultData;
-        const polesList = res?.poles?.vertices;
-        if (!polesList || !Array.isArray(polesList) || polesList.length === 0) {
-            if (dssPolesPoints) dssPolesPoints.visible = false;
-            return;
-        }
-
         const activeMesh = viewer.mesh || dssMesh;
-        if (!activeMesh || !activeMesh.geometry) return;
-        const geo = activeMesh.geometry;
-        const posAttr = geo.attributes.position;
-        if (!posAttr) return;
-
-        if (dssPolesPoints && dssPolesPoints.userData?.meshUuid === activeMesh.uuid && dssPolesPoints.userData?.polesCount === polesList.length) {
-            dssPolesPoints.visible = true;
+        const geo = activeMesh?.geometry;
+        const posAttr = geo?.attributes?.position;
+        if (!shouldShow || !res || !posAttr) {
+            if (dssPolesPoints) dssPolesPoints.visible = false;
+            if (dssEdgeLines) dssEdgeLines.visible = false;
             return;
         }
 
-        if (dssPolesPoints) {
-            viewer.scene.remove(dssPolesPoints);
-            dssPolesPoints.geometry.dispose();
-            dssPolesPoints = null;
-        }
-
-        const vertexIndices = geo.userData?.vertexIndices || qaTriangleVertexIndices;
+        // Posição de cada vértice na cena (a malha do viewer está centrada e escalada).
         const rawVerts = geo.userData?.rawVerts || qaParsedVertices;
         const center = geo.userData?.center || qaCenter;
         const scale = geo.userData?.scale || qaScale;
-
-        const vCoordMap = new Map();
-        if (rawVerts && center && scale) {
-            for (const vIdx of polesList) {
-                const rv = rawVerts[vIdx];
-                if (rv) {
-                    vCoordMap.set(vIdx, [
-                        (rv[0] - center.x) * scale,
-                        (rv[1] - center.y) * scale,
-                        (rv[2] - center.z) * scale
-                    ]);
-                }
-            }
-        }
-
+        const vertexIndices = geo.userData?.vertexIndices || qaTriangleVertexIndices;
+        const scenePosition = new Map();
         if (vertexIndices) {
             for (let i = 0; i < vertexIndices.length; i++) {
-                const vIdx = vertexIndices[i];
-                if (!vCoordMap.has(vIdx)) {
-                    vCoordMap.set(vIdx, [posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)]);
+                if (!scenePosition.has(vertexIndices[i])) {
+                    scenePosition.set(vertexIndices[i], [posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)]);
+                }
+            }
+        }
+        const positionOfVertex = (vIdx) => {
+            const rv = rawVerts?.[vIdx];
+            if (rv && center && scale) {
+                return [(rv[0] - center.x) * scale, (rv[1] - center.y) * scale, (rv[2] - center.z) * scale];
+            }
+            return scenePosition.get(vIdx);
+        };
+
+        const markerChecks = vertexMarkerChecks(res);
+        const markers = []; // ["vertex" | "face", índice, cor]
+        for (const checkKey of markerChecks) {
+            if (!isMarkerShown(checkKey, res.checks[checkKey])) continue;
+            const color = getCheckInfo(checkKey, res.checks[checkKey]).color || "#c084fc";
+            for (const vIdx of markerVertices(checkKey, res)) {
+                markers.push(["vertex", vIdx, color]);
+            }
+        }
+        // Fluxo de arestas (polos, valências altas): só com o botão ligado.
+        if (QAState.showEdgeFlow) {
+            for (const vIdx of edgeFlowVertices(res)) markers.push(["vertex", vIdx, EDGE_FLOW_HEX]);
+        }
+
+        // Faces assinaladas pequenas demais para se verem pintadas (uma face
+        // degenerada não tem área nenhuma): também levam um ponto no centro,
+        // com a cor com que a face foi pintada.
+        const polygonFaces = geo.userData?.polygonFaces || qaPolygonFaces;
+        if (!geo.boundingSphere) geo.computeBoundingSphere();
+        const minExtent = (geo.boundingSphere?.radius || 1) * 2 * SMALL_FACE_FRACTION;
+        const faceExtent = (poly) => {
+            const pts = poly.map(positionOfVertex).filter(Boolean);
+            if (!pts.length) return Infinity;
+            let ext = 0;
+            for (let axis = 0; axis < 3; axis++) {
+                const values = pts.map(p => p[axis]);
+                ext = Math.max(ext, Math.max(...values) - Math.min(...values));
+            }
+            return ext;
+        };
+        const markedFaces = new Set();
+        for (const checkKey of paintOrder(res.checks)) {
+            const checkData = res.checks[checkKey];
+            if (!checkData || isElementCheck(checkKey) || !Array.isArray(checkData.faces)) continue;
+            if (!isMarkerShown(checkKey, checkData)) continue;
+            const color = getCheckInfo(checkKey, checkData).color || "#ef4444";
+            for (const fIdx of checkData.faces) {
+                if (markedFaces.has(fIdx) || !polygonFaces?.[fIdx]) continue;
+                markedFaces.add(fIdx);
+                if (faceExtent(polygonFaces[fIdx]) < minExtent) {
+                    markers.push(["face", fIdx, color]);
                 }
             }
         }
 
-        const ptsPositions = [];
-        for (const vIdx of polesList) {
-            const pt = vCoordMap.get(vIdx);
-            if (pt) {
-                ptsPositions.push(pt[0], pt[1], pt[2]);
-            }
+        updateDSSEdgeLines(viewer, res, polygonFaces, positionOfVertex, activeMesh.uuid);
+
+        const cacheKey = `${activeMesh.uuid}|${markers.length}|${QAState.focusCheck || "errors"}|${QAState.showEdgeFlow}|${markerChecks.join()}`;
+        if (dssPolesPoints && dssPolesPoints.userData?.cacheKey === cacheKey) {
+            dssPolesPoints.visible = markers.length > 0;
+            return;
         }
-
-        if (ptsPositions.length > 0) {
-            const ptsGeo = new THREE.BufferGeometry();
-            ptsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(ptsPositions), 3));
-
-            const ptsMat = new THREE.PointsMaterial({
-                color: 0xc084fc, // Lilás vibrante (#c084fc)
-                size: 9,
-                sizeAttenuation: false,
-                transparent: true,
-                opacity: 0.95,
-                depthTest: false
-            });
-
-            dssPolesPoints = new THREE.Points(ptsGeo, ptsMat);
-            dssPolesPoints.renderOrder = 998;
-            dssPolesPoints.userData = { meshUuid: activeMesh.uuid, polesCount: polesList.length };
-            dssPolesPoints.visible = true;
-            viewer.scene.add(dssPolesPoints);
+        if (dssPolesPoints) {
+            viewer.scene.remove(dssPolesPoints);
+            dssPolesPoints.geometry.dispose();
+            dssPolesPoints.material.dispose();
+            dssPolesPoints = null;
         }
+        if (markers.length === 0) return;
+
+        const positionOf = (kind, idx) => {
+            if (kind === "vertex") return positionOfVertex(idx);
+            const pts = (polygonFaces?.[idx] || []).map(positionOfVertex).filter(Boolean);
+            if (!pts.length) return null;
+            return [0, 1, 2].map(axis => pts.reduce((sum, p) => sum + p[axis], 0) / pts.length);
+        };
+
+        const positions = [];
+        const colors = [];
+        const pointItems = []; // o que cada ponto é, para o clique
+        for (const [kind, idx, hex] of markers) {
+            const pt = positionOf(kind, idx);
+            if (!pt) continue;
+            const c = new THREE.Color(hex);
+            positions.push(pt[0], pt[1], pt[2]);
+            colors.push(c.r, c.g, c.b);
+            pointItems.push([kind, idx]);
+        }
+        if (positions.length === 0) return;
+
+        const ptsGeo = new THREE.BufferGeometry();
+        ptsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+        ptsGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(colors), 3));
+        const ptsMat = new THREE.PointsMaterial({
+            vertexColors: true,
+            size: 9,
+            sizeAttenuation: false,
+            transparent: true,
+            opacity: 0.95,
+            // Os pontos atrás da malha ficam escondidos, como os vértices num modelador.
+            depthTest: true,
+            depthWrite: false
+        });
+        dssPolesPoints = new THREE.Points(ptsGeo, ptsMat);
+        dssPolesPoints.renderOrder = 998;
+        dssPolesPoints.userData = { cacheKey, items: pointItems };
+        viewer.scene.add(dssPolesPoints);
     }
 
     // ═══════════════════════════════════════════════════════════════════
     //  6. COLORIZAÇÃO E MODOS VISUAIS (OVERLAYS & HEATMAPS)
     // ═══════════════════════════════════════════════════════════════════
+    const CLEAN_FACE_HEX = "#4b6b63"; // verde-acinzentado: faces sem problemas no mapa
+    const CLEAN_FACE_RGB = (() => { const c = new THREE.Color(CLEAN_FACE_HEX); return [c.r, c.g, c.b]; })();
+    const WARNING_SOFTEN = 0.45; // quanto um aviso se aproxima do cinzento (0 = cor cheia)
+    const EDGE_FLOW_HEX = "#84cc16"; // pontos do fluxo de arestas (informação)
+
+    /** Cor de uma verificação no mapa: os avisos são mais suaves do que os erros. */
+    function mapColorRGB(checkKey, checkData) {
+        const c = new THREE.Color(getCheckInfo(checkKey, checkData).color || "#ef4444");
+        if (!QAState.focusCheck && checkData?.severity === "warning") {
+            c.lerp(new THREE.Color(0x64748b), WARNING_SOFTEN);
+        }
+        return [c.r, c.g, c.b];
+    }
+
+    /** Legenda do mapa: uma etiqueta por verificação mostrada, clicável, e os
+     *  botões dos avisos e do fluxo de arestas. */
+    function renderMapLegend(res) {
+        const chips = document.getElementById("qa-legend-chips");
+        const bar = document.querySelector("#qa-heatmap-legend .qa-legend-bar-wrap");
+        if (bar) bar.style.display = "none";
+        if (!chips) return;
+        const checks = res?.checks || {};
+        const shown = Object.entries(checks).filter(([key, data]) => data?.count > 0 && isCheckShown(key, data));
+        const chip = (key, data) => {
+            const info = getCheckInfo(key, data);
+            const rgb = mapColorRGB(key, data).map(v => Math.round(v * 255));
+            const severity = data.severity === "error" ? "erro" : "aviso";
+            const active = QAState.focusCheck === key;
+            // Arestas e vértices: a amostra é uma linha (as faces não são pintadas).
+            const swatch = isElementCheck(key) ? " line" : "";
+            return `<button type="button" class="qa-legend-chip${active ? " active" : ""}" data-check="${key}" title="${active ? "Voltar a ver tudo" : "Ver só esta"} (${severity})">
+                <span class="qa-legend-swatch${swatch}" style="background:rgb(${rgb.join(",")});"></span>${info.title}<span class="qa-legend-count">${data.count}</span></button>`;
+        };
+        const warnings = Object.values(checks).filter(d => d?.severity === "warning" && d?.count > 0).length;
+        const flow = edgeFlowVertices(res).length;
+        const toggles = [];
+        if (!QAState.focusCheck && warnings) {
+            toggles.push(`<button type="button" class="qa-legend-chip toggle${QAState.showWarnings ? " active" : ""}" data-toggle="warnings" title="Os avisos não partem a malha: só aparecem se os ligares">${QAState.showWarnings ? "Esconder avisos" : "Mostrar avisos"}<span class="qa-legend-count">${warnings}</span></button>`);
+        }
+        if (flow) {
+            toggles.push(`<button type="button" class="qa-legend-chip toggle${QAState.showEdgeFlow ? " active" : ""}" data-toggle="edge-flow" title="Polos numa zona lisa e valências altas: informação, não conta para o veredicto"><span class="qa-legend-swatch dot" style="background:${EDGE_FLOW_HEX};"></span>Polos<span class="qa-legend-count">${flow}</span></button>`);
+        }
+        chips.innerHTML = shown.map(([key, data]) => chip(key, data)).join("")
+            + `<span class="qa-legend-chip clean"><span class="qa-legend-swatch" style="background:${CLEAN_FACE_HEX};"></span>Sem problemas</span>`
+            // Avisos e polos não são erros: ficam numa linha à parte.
+            + (toggles.length ? `<span class="qa-legend-extra-title">Mostrar também (não são erros)</span>${toggles.join("")}` : "");
+        chips.querySelectorAll("button.qa-legend-chip").forEach(button => {
+            button.addEventListener("click", () => {
+                const toggle = button.dataset.toggle;
+                if (toggle === "warnings") {
+                    QAState.showWarnings = !QAState.showWarnings;
+                } else if (toggle === "edge-flow") {
+                    QAState.showEdgeFlow = !QAState.showEdgeFlow;
+                } else {
+                    const key = button.dataset.check;
+                    QAState.focusCheck = QAState.focusCheck === key ? null : key;
+                    const summaryChecks = QAState.statusData?.summary?.checks;
+                    if (summaryChecks) renderChecksList(summaryChecks, QAState.resultData?.checks);
+                }
+                updateDSSColors();
+            });
+        });
+    }
+
     function updateDSSColors() {
         const viewer = getViewer();
         if (!viewer || !viewer.mesh || !viewer.mesh.geometry) return;
@@ -664,23 +1025,24 @@
         if (mode === "errors") {
             if (legendTitle) {
                 legendTitle.style.display = "block";
-                legendTitle.textContent = "Conformidade Topológica (Faces)";
+                legendTitle.textContent = QAState.focusCheck
+                    ? "Só esta verificação (clica para ver tudo)"
+                    : (QAState.showWarnings ? "Erros (cor cheia) e avisos (cor suave)" : "Erros");
             }
-            if (legendMin) legendMin.textContent = "Quads (Verde) / Tris (Azul)";
-            if (legendMax) legendMax.textContent = "Defeitos (Cores do Checklist)";
-            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #10b981 0%, #60a5fa 33%, #f97316 66%, #ef4444 100%)";
+            renderMapLegend(res);
 
             const faceErrorMap = new Array(numFaces).fill(null);
-            const priorityOrder = ["degenerate", "nonmanifold", "flipped", "overlap", "t_junction", "open_edges", "bad_quads", "dup_faces", "ngons"];
-
+            // A API manda os checks do mais grave para o menos grave: uma face em
+            // vários fica com a cor do primeiro. Os checks de vértices são pontos.
             if (res && res.checks) {
-                for (const checkKey of priorityOrder) {
-                    if (QAState.enabledChecks[checkKey] === false) continue;
+                for (const checkKey of paintOrder(res.checks)) {
                     const checkData = res.checks[checkKey];
-                    if (checkData && Array.isArray(checkData.faces)) {
-                        const checkColorHex = QA_EXPLANATIONS[checkKey]?.color || "#ef4444";
-                        const c = new THREE.Color(checkColorHex);
-                        const rgb = [c.r, c.g, c.b];
+                    // Buracos e não-manifold: o defeito é a aresta ou o vértice
+                    // (linhas e pontos); as faces à volta não são pintadas.
+                    if (!checkData || isElementCheck(checkKey)) continue;
+                    if (!isCheckShown(checkKey, checkData)) continue;
+                    if (Array.isArray(checkData.faces)) {
+                        const rgb = mapColorRGB(checkKey, checkData);
                         for (const fIdx of checkData.faces) {
                             if (fIdx < numFaces && faceErrorMap[fIdx] === null) {
                                 faceErrorMap[fIdx] = rgb;
@@ -690,29 +1052,13 @@
                 }
             }
 
-            const effectiveCorners = res?.per_face?.effective_corners;
-
             for (let triIdx = 0; triIdx < maxTris; triIdx++) {
                 const f = (triangleToFace && triangleToFace[triIdx] !== undefined)
                     ? triangleToFace[triIdx]
                     : ((qaTriangleToFaceMap && qaTriangleToFaceMap[triIdx] !== undefined) ? qaTriangleToFaceMap[triIdx] : 0);
-                const poly = polygonFaces ? polygonFaces[f] : (qaPolygonFaces ? qaPolygonFaces[f] : null);
-
-                let col = (f < faceErrorMap.length) ? faceErrorMap[f] : null;
-                if (!col) {
-                    const corners = (effectiveCorners && f < effectiveCorners.length)
-                        ? effectiveCorners[f]
-                        : (poly ? poly.length : 4);
-
-                    if (corners === 4) {
-                        col = [0.06, 0.72, 0.50]; // Quads ideais: Verde esmeralda (#10b981)
-                    } else if (corners === 3) {
-                        col = [0.38, 0.65, 0.98]; // Triângulos: Azul suave (#60a5fa)
-                    } else {
-                        // N-gons sem anomalias críticas ou polígonos neutros: Azul ardósia neutro (NUNCA vermelho!)
-                        col = [0.45, 0.55, 0.72];
-                    }
-                }
+                // Só as faces assinaladas têm cor; as outras ficam num cinzento
+                // neutro e as arestas à vista, como um wireframe.
+                const col = ((f < faceErrorMap.length) ? faceErrorMap[f] : null) || CLEAN_FACE_RGB;
 
                 const offset = triIdx * 9;
                 for (let v = 0; v < 3; v++) {
@@ -723,88 +1069,7 @@
             }
         }
 
-        // MODO 2: HEATMAP DE ÂNGULO MÍNIMO
-        else if (mode === "min_angle" || mode === "angles") {
-            const angles = res?.per_face?.min_angle || [];
-            if (legendTitle) {
-                legendTitle.style.display = "block";
-                legendTitle.textContent = "Mapa Térmico: Ângulo Mínimo";
-            }
-            if (legendMin) legendMin.textContent = "≤ 20° (Crítico)";
-            if (legendMax) legendMax.textContent = "90° (Ortogonal / Ideal)";
-            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #ef4444 0%, #eab308 50%, #10b981 100%)";
-
-            for (let triIdx = 0; triIdx < maxTris; triIdx++) {
-                const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
-                const val = (f < angles.length) ? angles[f] : 90;
-                const col = getMinAngleColor(val);
-                const offset = triIdx * 9;
-                for (let v = 0; v < 3; v++) {
-                    colors[offset + v * 3] = col[0];
-                    colors[offset + v * 3 + 1] = col[1];
-                    colors[offset + v * 3 + 2] = col[2];
-                }
-            }
-        }
-
-        // MODO 3: HEATMAP DE ÂNGULO MÁXIMO
-        else if (mode === "max_angle") {
-            const angles = res?.per_face?.max_angle || [];
-            if (legendTitle) {
-                legendTitle.style.display = "block";
-                legendTitle.textContent = "Mapa Térmico: Ângulo Máximo";
-            }
-            if (legendMin) legendMin.textContent = "90° (Ortogonal)";
-            if (legendMax) legendMax.textContent = "≥ 160° (Obtuso Crítico)";
-            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #10b981 0%, #eab308 50%, #ef4444 100%)";
-
-            for (let triIdx = 0; triIdx < maxTris; triIdx++) {
-                const f = triangleToFace ? triangleToFace[triIdx] : (qaTriangleToFaceMap[triIdx] ?? 0);
-                const val = (f < angles.length) ? angles[f] : 90;
-                const col = getMaxAngleColor(val);
-                const offset = triIdx * 9;
-                for (let v = 0; v < 3; v++) {
-                    colors[offset + v * 3] = col[0];
-                    colors[offset + v * 3 + 1] = col[1];
-                    colors[offset + v * 3 + 2] = col[2];
-                }
-            }
-        }
-
-        // MODO 4: HEATMAP DE VALÊNCIA POR VÉRTICE (COM PÓLOS E COLINEARES DA API)
-        else if (mode === "valence") {
-            const valences = res?.per_vertex?.valence || [];
-            const regular = QAState.statusData?.summary?.regular_valence || QAState.statusData?.regular_valence || 4;
-            const polesSet = new Set(Array.isArray(res?.poles?.vertices) ? res.poles.vertices : []);
-            const collinearData = res?.per_vertex?.collinear;
-            const collinearSet = new Set(Array.isArray(res?.collinear_vertices?.vertices) ? res.collinear_vertices.vertices : []);
-
-            if (legendTitle) {
-                legendTitle.style.display = "block";
-                legendTitle.textContent = `Valência dos Vértices (Regular = ${regular})`;
-            }
-            if (legendMin) legendMin.textContent = `Val < ${regular} (Azul) / Val ${regular} (Verde)`;
-            if (legendMax) legendMax.textContent = `Val ${regular + 1} (Amarelo) / ≥${regular + 2} (Vermelho)`;
-            if (legendGradient) legendGradient.style.background = "linear-gradient(90deg, #3b82f6 0%, #10b981 33%, #eab308 66%, #ef4444 100%)";
-
-            for (let triIdx = 0; triIdx < maxTris; triIdx++) {
-                for (let v = 0; v < 3; v++) {
-                    const vertIdx = (triIdx * 3) + v;
-                    const origV = vertexIndices ? vertexIndices[vertIdx] : (qaTriangleVertexIndices[vertIdx] ?? vertIdx);
-                    const val = (origV < valences.length) ? valences[origV] : regular;
-
-                    const isCollinear = (Array.isArray(collinearData) && collinearData[origV] === true) || collinearSet.has(origV);
-                    const isPole = polesSet.has(origV);
-
-                    const c = getValenceColorByType(val, regular, isPole, isCollinear);
-                    colors[vertIdx * 3 + 0] = c[0];
-                    colors[vertIdx * 3 + 1] = c[1];
-                    colors[vertIdx * 3 + 2] = c[2];
-                }
-            }
-        }
-
-        colorAttr.needsUpdate = true;
+                colorAttr.needsUpdate = true;
         updateDSSPoles();
     }
 
@@ -845,6 +1110,16 @@
             qaRaycaster.setFromCamera(qaMouse, viewer.camera);
             const intersects = qaRaycaster.intersectObject(viewer.mesh, false);
 
+            // Primeiro o que está desenhado por cima da malha: etiquetas, faixas
+            // das faces sem área e pontos. Uma face sem área não se consegue
+            // clicar na malha (não tem área); a faixa e o número dela sim.
+            const overlayHit = pickOverlay(viewer, intersects?.[0]?.distance);
+            if (overlayHit) {
+                if (overlayHit.vertexIdx !== undefined) selectVertexInQA(overlayHit.vertexIdx);
+                else selectFaceInQA(overlayHit.faceIdx);
+                return;
+            }
+
             if (intersects && intersects.length > 0) {
                 const hit = intersects[0];
                 const triIdx = hit.faceIndex;
@@ -856,6 +1131,40 @@
                 }
             }
         });
+    }
+
+    /** O que foi clicado entre as etiquetas, faixas e pontos do DSS (ou null). */
+    function pickOverlay(viewer, meshDistance) {
+        const visibleBefore = (distance) => meshDistance === undefined || distance <= meshDistance * 1.01;
+        if (dssEdgeLines?.visible) {
+            const targets = dssEdgeLines.children.filter(child =>
+                (child.isSprite || child.isMesh) && (child.userData.faceIdx !== undefined || child.userData.vertexIdx !== undefined));
+            const hits = qaRaycaster.intersectObjects(targets, false);
+            // As etiquetas veem-se sempre (por cima de tudo); as faixas só se não estiverem tapadas.
+            const label = hits.find(hit => hit.object.isSprite && hit.object.material.opacity > 0.5);
+            const strip = hits.find(hit => hit.object.isMesh && visibleBefore(hit.distance));
+            const chosen = label || strip;
+            if (chosen) return chosen.object.userData;
+        }
+        if (dssPolesPoints?.visible && dssPolesPoints.userData?.items) {
+            const geo = viewer.mesh.geometry;
+            if (!geo.boundingSphere) geo.computeBoundingSphere();
+            qaRaycaster.params.Points.threshold = (geo.boundingSphere?.radius || 1) * 0.012;
+            const hit = qaRaycaster.intersectObject(dssPolesPoints, false).find(h => visibleBefore(h.distance));
+            const item = hit ? dssPolesPoints.userData.items[hit.index] : null;
+            if (item) return item[0] === "vertex" ? { vertexIdx: item[1] } : { faceIdx: item[1] };
+        }
+        return null;
+    }
+
+    /** Posição de um vértice na cena (a malha do viewer está centrada e escalada). */
+    function scenePositionOfVertex(geo, vIdx) {
+        const rawVerts = geo.userData?.rawVerts || qaParsedVertices;
+        const center = geo.userData?.center || qaCenter;
+        const scale = geo.userData?.scale || qaScale;
+        const rv = rawVerts?.[vIdx];
+        if (!rv || !center || !scale) return null;
+        return [(rv[0] - center.x) * scale, (rv[1] - center.y) * scale, (rv[2] - center.z) * scale];
     }
 
     function selectFaceInQA(faceIdx) {
@@ -889,7 +1198,17 @@
         if (!posAttr) return;
         const linePositions = [];
 
-        // Construir linha sobre os triângulos da face
+        // O contorno da face pelos vértices dela (também numa face sem área,
+        // que não tem triângulos na malha do viewer).
+        const outline = fVerts.map(v => scenePositionOfVertex(geo, v));
+        if (outline.length >= 2 && outline.every(Boolean)) {
+            for (let i = 0; i < outline.length; i++) {
+                linePositions.push(...outline[i], ...outline[(i + 1) % outline.length]);
+            }
+            triIndices = [];
+        }
+
+        // Sem as posições dos vértices: linha sobre os triângulos da face
         for (const tIdx of triIndices) {
             const off = tIdx * 9;
             if (off + 8 < posAttr.array.length) {
@@ -903,10 +1222,11 @@
         }
 
         if (linePositions.length > 0) {
-            const lineGeo = new THREE.BufferGeometry();
-            lineGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(linePositions), 3));
-            const lineMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, linewidth: 3, depthTest: false });
-            dssSelectionLine = new THREE.LineSegments(lineGeo, lineMat);
+            const cyan = new THREE.Color(0x00f0ff);
+            const lineColors = [];
+            for (let i = 0; i < linePositions.length / 3; i++) lineColors.push(cyan.r, cyan.g, cyan.b);
+            dssSelectionLine = makeFatLines(viewer, linePositions, lineColors, 3, 1);
+            dssSelectionLine.material.depthTest = false;
             dssSelectionLine.renderOrder = 999;
             viewer.scene.add(dssSelectionLine);
         }
@@ -924,11 +1244,11 @@
         if (typeEl) {
             const eff = res?.per_face?.effective_corners?.[faceIdx];
             const k = fVerts.length || 3;
-            if (eff && eff !== k) {
-                typeEl.textContent = eff === 4 ? `Quad (${k} vértices, 4 cantos)` : (eff === 3 ? `Triângulo (${k} vértices, 3 cantos)` : `N-gon (${eff} cantos, ${k} vértices)`);
-            } else {
-                typeEl.textContent = k === 3 ? "Triângulo (3 vértices)" : (k === 4 ? "Quad (4 vértices)" : `N-gon (${k} vértices)`);
-            }
+            const type = k === 3 ? "Triângulo" : (k === 4 ? "Quad" : "N-gon");
+            // Um vértice a meio de uma aresta reta não é um canto.
+            typeEl.textContent = (eff && eff !== k)
+                ? `${type} (${k} vértices, ${eff} cantos)`
+                : `${type} (${k} vértices)`;
         }
 
         const minAngle = res?.per_face?.min_angle?.[faceIdx];
@@ -936,42 +1256,55 @@
         if (minAEl) minAEl.textContent = (minAngle !== null && minAngle !== undefined) ? `${minAngle.toFixed(1)}°` : "--";
         if (maxAEl) maxAEl.textContent = (maxAngle !== null && maxAngle !== undefined) ? `${maxAngle.toFixed(1)}°` : "--";
 
-        // Erros detetados nesta face
+        // Problemas desta face, e à parte os que estão nas arestas ou nos
+        // vértices dela (buracos, não-manifold): esses não são da face.
         if (errorsBox) {
             errorsBox.innerHTML = "";
-            const issues = [];
+            const badge = (key, why) => {
+                const exp = getCheckInfo(key, res.checks[key]);
+                const color = exp.color || "#ef4444";
+                const tag = document.createElement("span");
+                tag.className = "qa-badge";
+                tag.style.cssText = `border:1px solid ${color};color:${color};background:${color}18;font-weight:600;font-size:0.72rem;padding:0.2rem 0.5rem;border-radius:4px;display:inline-flex;align-items:center;gap:0.3rem;`;
+                tag.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};"></span> ${exp.title}${why ? `: ${why}` : ""}`;
+                return tag;
+            };
+            const heading = (text) => {
+                const el = document.createElement("div");
+                el.style.cssText = "width:100%;font-size:0.68rem;color:#94a3b8;margin-top:0.25rem;";
+                el.textContent = text;
+                return el;
+            };
+            const own = [];
+            const around = [];
+            const covers = [];
             if (res && res.checks) {
                 for (const [key, check] of Object.entries(res.checks)) {
-                    if (Array.isArray(check.faces) && check.faces.includes(faceIdx)) {
-                        issues.push(key);
+                    if (isElementCheck(key)) {
+                        const why = Array.isArray(check.faces) && check.faces.includes(faceIdx)
+                            ? faceElementText(key, check, fVerts) : "";
+                        if (why) around.push(badge(key, why));
+                    } else if (Array.isArray(check.faces) && check.faces.includes(faceIdx)) {
+                        own.push(badge(key, faceKindText(key, check, faceIdx, res)));
                     }
                 }
+                // Esta face é o outro lado de uma T-junction tapada por uma face sem área.
+                const hosts = res.checks.broken_faces?.hosts || {};
+                for (const [cover, hostFaces] of Object.entries(hosts)) {
+                    if (hostFaces.includes(faceIdx)) covers.push(Number(cover));
+                }
             }
-            if (issues.length > 0) {
-                issues.forEach(iss => {
-                    const tag = document.createElement("span");
-                    const exp = QA_EXPLANATIONS[iss];
-                    const color = exp?.color || "#ef4444";
-                    tag.className = "qa-badge";
-                    tag.style.border = `1px solid ${color}`;
-                    tag.style.color = color;
-                    tag.style.background = `${color}18`;
-                    tag.style.fontWeight = "600";
-                    tag.style.fontSize = "0.72rem";
-                    tag.style.padding = "0.2rem 0.5rem";
-                    tag.style.borderRadius = "4px";
-                    tag.style.display = "inline-flex";
-                    tag.style.alignItems = "center";
-                    tag.style.gap = "0.3rem";
-                    tag.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};"></span> ${exp?.title || iss}`;
-                    errorsBox.appendChild(tag);
-                });
-            } else {
+            if (own.length) own.forEach(tag => errorsBox.appendChild(tag));
+            if (around.length) {
+                errorsBox.appendChild(heading("Nas arestas ou vértices desta face:"));
+                around.forEach(tag => errorsBox.appendChild(tag));
+            }
+            if (!own.length && !around.length && !covers.length) {
                 errorsBox.innerHTML = `<span class="qa-badge ok" style="color:#10b981;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.35);padding:0.2rem 0.5rem;border-radius:4px;font-size:0.72rem;font-weight:600;">✓ Sem problemas detetados</span>`;
             }
         }
 
-        // Valência dos vértices
+        // Valência dos vértices (os polos do fluxo de arestas a verde)
         if (vertsBox) {
             vertsBox.innerHTML = "";
             const valences = res?.per_vertex?.valence || [];
@@ -980,7 +1313,12 @@
                     const val = valences[vIdx] ?? "--";
                     const chip = document.createElement("span");
                     chip.className = "qa-vert-chip";
-                    chip.textContent = `V#${vIdx}: Val ${val}`;
+                    const flow = edgeFlowKinds(res, vIdx);
+                    chip.textContent = `V#${vIdx}: Val ${val}${flow.length ? ` (${flow.join(", ")})` : ""}`;
+                    if (flow.length) {
+                        chip.style.borderColor = EDGE_FLOW_HEX;
+                        chip.style.color = EDGE_FLOW_HEX;
+                    }
                     vertsBox.appendChild(chip);
                 });
             }
@@ -1010,32 +1348,18 @@
     // ═══════════════════════════════════════════════════════════════════
     //  8. RENDERIZAÇÃO DA BARRA LATERAL (MÉTRICAS & CHECKS)
     // ═══════════════════════════════════════════════════════════════════
+    const VERDICT_LABELS = {
+        invalid: "❌ Inválida",
+        review: "⚠️ A rever",
+        ok: "✅ Sem erros nem avisos"
+    };
+
     function deriveQAVerdict(summary) {
-        if (!summary) return "Estado desconhecido";
-        const checks = summary.checks || {};
-        let critCount = 0;
-        let warnCount = 0;
-
-        const criticalTypes = ["degenerate", "nonmanifold", "flipped", "t_junction"];
-
-        for (const [key, check] of Object.entries(checks)) {
-            if (check.count === null || check.count === undefined || check.evaluated === false) continue;
-            const c = check.count;
-            if (c > 0) {
-                if (criticalTypes.includes(key)) critCount += c;
-                else if (key !== "poles" && key !== "collinear_vertices") warnCount += c;
-            }
-        }
-
-        const watertight = summary.topology?.is_watertight;
-        const issueFaces = summary.issue_faces || 0;
-        const parts = [];
-        if (critCount > 0) parts.push(`❌ ${critCount} erro(s) crítico(s)`);
-        if (issueFaces > 0) parts.push(`⚠️ ${issueFaces} anomalia(s) topológica(s)`);
-        else if (warnCount > 0) parts.push(`⚠️ ${warnCount} aviso(s) topológico(s)`);
-        if (watertight === false) parts.push("Não estanque");
-
-        if (parts.length === 0) return "✅ Conformidade topológica verificada";
+        const verdict = summary?.verdict;
+        if (!verdict) return "Estado desconhecido (análise antiga: volte a analisar)";
+        const parts = [VERDICT_LABELS[verdict.status] || verdict.status];
+        if (verdict.error_faces > 0) parts.push(`${verdict.error_faces} face(s) com erros`);
+        if (verdict.warning_faces > 0) parts.push(`${verdict.warning_faces} face(s) com avisos`);
         return parts.join(" • ");
     }
 
@@ -1090,16 +1414,21 @@
         // Atualizar Crachá de Erros na Aba
         const badge = document.getElementById("side-dss-badge");
         if (badge) {
-            const issues = summary.issue_faces || 0;
+            const status = summary.verdict?.status;
+            const issues = (summary.verdict?.error_faces || 0) + (summary.verdict?.warning_faces || 0);
+            const palette = status === "invalid"
+                ? ["rgba(239,68,68,0.25)", "#f87171", "rgba(239,68,68,0.4)"]
+                : status === "review"
+                    ? ["rgba(234,179,8,0.25)", "#facc15", "rgba(234,179,8,0.4)"]
+                    : ["rgba(16,185,129,0.25)", "#34d399", "rgba(16,185,129,0.4)"];
             badge.style.display = "inline-flex";
-            badge.textContent = issues > 0 ? issues : "OK";
-            badge.style.background = issues > 0 ? "rgba(239,68,68,0.25)" : "rgba(16,185,129,0.25)";
-            badge.style.color = issues > 0 ? "#f87171" : "#34d399";
-            badge.style.borderColor = issues > 0 ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.4)";
+            badge.textContent = status === "ok" ? "OK" : (issues || "!");
+            [badge.style.background, badge.style.color, badge.style.borderColor] = palette;
         }
 
         // Métricas e Topologia
-        renderTopologyInfo(summary.topology, summary.angles_deg, summary.valence_histogram);
+        renderTopologyInfo(summary.metrics, summary.checks);
+        renderSideDSSFacts(summary.metrics, summary.checks);
 
         // Checklist Dinâmica
         renderChecksList(summary.checks, res?.checks);
@@ -1108,12 +1437,59 @@
         renderLimitations(summary.limitations, summary.warnings);
     }
 
-    function renderTopologyInfo(topo, angles, valenceHist) {
+    const SHAPE_LABELS = { flat: "Plana (hard-surface)", curved: "Curva (orgânica)", mixed: "Mista" };
+
+    function shapeText(shape) {
+        if (!shape?.type) return "--";
+        return SHAPE_LABELS[shape.type] || shape.type;
+    }
+
+    function shapeTitle(shape) {
+        if (!shape?.type) return "";
+        const pct = (v) => `${Math.round((v || 0) * 100)}%`;
+        return `Arestas planas ${pct(shape.flat_edges)} • curvas ${pct(shape.curved_edges)} • vivas ${pct(shape.sharp_edges)} (pelo comprimento)`;
+    }
+
+    /** O cartão lateral do DSS: estanque, forma e as verificações que encontraram algo. */
+    function renderSideDSSFacts(topo, checks) {
+        const wtEl = document.getElementById("side-dss-watertight");
+        if (wtEl) {
+            wtEl.textContent = topo?.is_closed === undefined ? "--" : (topo.is_closed ? "Sim" : "Não");
+            wtEl.style.color = topo?.is_closed === undefined ? "" : (topo.is_closed ? "#34d399" : "#f87171");
+        }
+        const shapeEl = document.getElementById("side-dss-shape");
+        if (shapeEl) {
+            shapeEl.textContent = shapeText(topo?.shape);
+            shapeEl.title = shapeTitle(topo?.shape);
+        }
+        const foundEl = document.getElementById("side-dss-found");
+        if (!foundEl) return;
+        foundEl.innerHTML = "";
+        for (const [key, check] of Object.entries(checks || {})) {
+            if (!check?.evaluated || !check.count) continue;
+            const info = getCheckInfo(key, check);
+            const isError = check.severity === "error";
+            const chip = document.createElement("span");
+            chip.textContent = `${isError ? "✖" : "⚠"} ${info.title}: ${check.count}`;
+            chip.title = breakdownText(key, check);
+            chip.style.cssText = `padding:0.12rem 0.45rem;border-radius:6px;border:1px solid ${isError ? "rgba(239,68,68,0.4)" : "rgba(234,179,8,0.4)"};color:${isError ? "#f87171" : "#facc15"};background:${isError ? "rgba(239,68,68,0.1)" : "rgba(234,179,8,0.1)"};`;
+            foundEl.appendChild(chip);
+        }
+    }
+
+    function renderTopologyInfo(topo, checks) {
         if (!topo) return;
+        const angles = topo.angles_deg;
+        const valenceHist = topo.valence_histogram;
+        const setText = (id, text) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        };
+        const fmt = (value, digits = 2) => (typeof value === "number" ? value.toFixed(digits) : "--");
 
         const wtEl = document.getElementById("qa-topo-watertight");
         if (wtEl) {
-            wtEl.innerHTML = topo.is_watertight
+            wtEl.innerHTML = topo.is_closed
                 ? `<span class="qa-badge ok">Sim</span>`
                 : `<span class="qa-badge critical">Não</span>`;
         }
@@ -1128,8 +1504,14 @@
         const eulerEl = document.getElementById("qa-topo-euler");
         if (eulerEl) eulerEl.textContent = topo.euler_characteristic ?? "--";
 
-        const shellsEl = document.getElementById("qa-topo-shells");
-        if (shellsEl) shellsEl.textContent = topo.shells ?? "--";
+        setText("qa-topo-parts", topo.parts ?? "--");
+        setText("qa-topo-holes", topo.holes ?? "--");
+        setText("qa-topo-area", fmt(topo.surface_area, 3));
+        setText("qa-topo-volume", topo.volume === null || topo.volume === undefined ? "—" : fmt(topo.volume, 3));
+        // Fluxo de arestas: informação, não conta para o veredicto.
+        setText("qa-poles-summary", `${topo.corner_poles ?? 0} em cantos • ${topo.smooth_poles ?? 0} em zona lisa • ${topo.high_valence_vertices ?? 0} valência alta (informação, não são erros)`);
+        const aspect = topo.quad_aspect_ratio || {};
+        setText("qa-aspect-summary", `média ${fmt(aspect.mean, 1)} • máx ${fmt(aspect.max, 1)}`);
 
         const boundEl = document.getElementById("qa-topo-boundary-edges");
         if (boundEl) boundEl.textContent = (topo.boundary_edges || 0).toLocaleString();
@@ -1138,10 +1520,21 @@
         if (nonManEl) nonManEl.textContent = (topo.nonmanifold_edges || 0).toLocaleString();
 
         // Distribuição de Faces
+        // Como o DSS: uma face com uma T-junction tapada num lado é, num modelador,
+        // um n-gon (no ficheiro é um quad ou um triângulo). Assim a barra bate com
+        // a verificação ngons.
         const totalFaces = topo.faces || 1;
-        const tris = topo.tris || 0;
-        const quads = topo.quads || 0;
-        const ngons = topo.raw_ngons !== undefined ? topo.raw_ngons : (topo.ngons || 0);
+        const tJunctions = checks?.ngons?.evaluated ? (checks.ngons.breakdown?.t_junctions || 0) : 0;
+        const fromQuads = Math.min(tJunctions, topo.quads || 0);
+        const quads = (topo.quads || 0) - fromQuads;
+        const tris = Math.max(0, (topo.tris || 0) - (tJunctions - fromQuads));
+        const ngons = (topo.ngons || 0) + tJunctions; // tris + quads + ngons = faces
+
+        const shapeEl = document.getElementById("qa-topo-shape");
+        if (shapeEl) {
+            shapeEl.textContent = shapeText(topo.shape);
+            shapeEl.title = shapeTitle(topo.shape);
+        }
 
         const trisPct = ((tris / totalFaces) * 100).toFixed(1);
         const quadsPct = ((quads / totalFaces) * 100).toFixed(1);
@@ -1182,13 +1575,19 @@
         if (sideBarQuads) sideBarQuads.style.width = `${quadsPct}%`;
         if (sideBarTris) sideBarTris.style.width = `${trisPct}%`;
         if (sideBarNgons) sideBarNgons.style.width = `${ngonsPct}%`;
+        const dominanceEl = document.getElementById("side-dss-dominance");
+        if (dominanceEl) {
+            dominanceEl.textContent = quads === totalFaces ? "Só quads"
+                : quads / totalFaces >= 0.5 ? "Quad-Dominant"
+                    : tris / totalFaces >= 0.5 ? "Tri-Dominant" : "Mista";
+        }
 
         const isOriginalMesh = (QAState.activeSnapshot === 0 || QAState.activeMeshName?.includes("Original"));
         if (isOriginalMesh) {
             const origWtEl = document.getElementById("orig-watertight-val");
             const origMfEl = document.getElementById("orig-manifold-val");
             const origBdEl = document.getElementById("orig-boundary-val");
-            if (origWtEl) origWtEl.innerHTML = topo.is_watertight ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
+            if (origWtEl) origWtEl.innerHTML = topo.is_closed ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
             if (origMfEl) origMfEl.innerHTML = topo.is_manifold ? `<span style="color:#34d399;">Sim</span>` : `<span style="color:#f87171;">Não</span>`;
             if (origBdEl) origBdEl.textContent = (topo.boundary_edges || 0).toLocaleString();
         }
@@ -1233,33 +1632,43 @@
         if (!container || !summaryChecks) return;
         container.innerHTML = "";
 
-        const hasCollinear = summaryChecks.collinear_vertices && summaryChecks.collinear_vertices.count > 0;
-        const hasTJunction = summaryChecks.t_junction && summaryChecks.t_junction.count > 0;
+        const UNIT_LABELS = { faces: "faces", vertices: "vértices", holes: "buracos" };
+        const SEVERITY_LABELS = { error: "Erro", warning: "Aviso", info: "Info" };
 
-        for (const [checkKey, checkData] of Object.entries(summaryChecks)) {
-            const info = getCheckInfo(checkKey);
+        // A verificação aberta deixou de existir (outra análise): volta aos erros.
+        if (QAState.focusCheck && !(summaryChecks[QAState.focusCheck]?.count > 0)) QAState.focusCheck = null;
+
+        // Primeiro as que encontraram algo (ou não correram); depois de uma
+        // barra, as que estão OK.
+        const entries = Object.entries(summaryChecks);
+        const isClean = ([, data]) => data && data.evaluated !== false && data.count === 0;
+        const clean = entries.filter(isClean);
+        const ordered = [...entries.filter(entry => !isClean(entry)), null, ...clean];
+
+        for (const entry of ordered) {
+            if (entry === null) {
+                if (clean.length) {
+                    const divider = document.createElement("div");
+                    divider.className = "qa-checks-divider";
+                    divider.style.cssText = "display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0 0.35rem;font-size:0.7rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#10b981;";
+                    divider.innerHTML = `<span style="flex:1;height:1px;background:rgba(16,185,129,0.35);"></span>✓ Sem problemas (${clean.length})<span style="flex:1;height:1px;background:rgba(16,185,129,0.35);"></span>`;
+                    container.appendChild(divider);
+                }
+                continue;
+            }
+            const [checkKey, checkData] = entry;
+            const info = getCheckInfo(checkKey, checkData);
             const isEvaluated = checkData && checkData.count !== null && checkData.count !== undefined && checkData.evaluated !== false;
             const count = isEvaluated ? checkData.count : null;
             const ratio = (isEvaluated && checkData.ratio !== undefined && checkData.ratio !== null) ? (checkData.ratio * 100).toFixed(1) : null;
-            const basis = checkData.ratio_basis || "faces";
+            const unit = checkData.unit || "faces";
+            const basis = UNIT_LABELS[unit] || unit;
+            const kinds = count > 0 ? breakdownText(checkKey, checkData) : "";
+            const notes = kinds
+                ? `<span style="font-size:0.69rem;color:#cbd5e1;display:block;margin-top:2px;">${kinds}</span>`
+                : "";
 
-            // Comparação com baseline de referência da malha original (snapshot 0)
-            let originComparisonNote = "";
-            if (QAState.originalBaseline && QAState.activeSnapshot !== 0 && isEvaluated && count !== null) {
-                const baseCheck = QAState.originalBaseline.statusData?.summary?.checks?.[checkKey];
-                const baseCount = (baseCheck && typeof baseCheck.count === "number") ? baseCheck.count : null;
-                if (baseCount !== null) {
-                    if (baseCount > 0 && count > 0) {
-                        originComparisonNote = `<span style="font-size:0.69rem;color:#94a3b8;display:block;margin-top:2px;">(Já existia no original: ${baseCount} ${basis})</span>`;
-                    } else if (baseCount === 0 && count > 0) {
-                        originComparisonNote = `<span style="font-size:0.69rem;color:#f87171;display:block;margin-top:2px;">(Introduzido no processo RL: +${count} ${basis})</span>`;
-                    } else if (baseCount > 0 && count === 0) {
-                        originComparisonNote = `<span style="font-size:0.69rem;color:#34d399;display:block;margin-top:2px;">(Corrigido face ao original)</span>`;
-                    }
-                }
-            }
-
-            let severity = !isEvaluated ? "neutral" : (count === 0 ? "ok" : info.severity);
+            let severity = !isEvaluated ? "neutral" : (count === 0 ? "ok" : getCheckSeverity(checkKey, checkData));
             const checkColor = info.color || "#64748b";
 
             const item = document.createElement("div");
@@ -1273,35 +1682,40 @@
                 item.style.boxShadow = `0 0 8px ${checkColor}22`;
             }
 
-            const isChecked = QAState.enabledChecks[checkKey] !== false;
 
             const resData = resultChecks?.[checkKey];
-            let affectedIndices = [];
-            let isVertexAnomaly = false;
-
-            if (checkKey === "poles") {
-                isVertexAnomaly = true;
-                affectedIndices = Array.isArray(QAState.resultData?.poles?.vertices) ? QAState.resultData.poles.vertices : [];
-            } else if (checkKey === "collinear_vertices") {
-                isVertexAnomaly = true;
-                affectedIndices = Array.isArray(QAState.resultData?.collinear_vertices?.vertices) ? QAState.resultData.collinear_vertices.vertices : [];
-            } else {
-                affectedIndices = resData && Array.isArray(resData.faces) ? resData.faces : [];
-            }
+            // Faces da verificação; nos buracos e não-manifold, primeiro os
+            // vértices (fendas, peças que se tocam) e as faces só como vizinhas.
+            const affectedIndices = resData && Array.isArray(resData.faces) ? resData.faces : [];
+            const affectedVertices = isElementCheck(checkKey) ? markerVertices(checkKey, QAState.resultData) : [];
+            const isVertexAnomaly = affectedVertices.length > 0;
+            const pills = (list, type) => `${list.slice(0, 16).map(idx => `<button type="button" class="qa-target-pill" data-index="${idx}" data-type="${type}" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#7dd3fc; border-radius:4px; padding:0.18rem 0.45rem; font-size:0.7rem; cursor:pointer; font-family:'JetBrains Mono',monospace; transition:all 0.15s ease;">${type === "vertex" ? 'V#' : '#'}${idx}</button>`).join('')}
+                                ${list.length > 16 ? `<span style="font-size:0.68rem; color:#94a3b8; align-self:center;">+${list.length - 16} mais</span>` : ''}`;
+            const pillGroup = (label, list, type) => list.length ? `
+                        <div style="margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.12);">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size: 0.72rem; color: #38bdf8; font-weight: 600;">${label} (${list.length}):</span>
+                                <span style="font-size: 0.68rem; color: #94a3b8;">Clica para focar no 3D</span>
+                            </div>
+                            <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
+                                ${pills(list, type)}
+                            </div>
+                        </div>` : "";
+            const vertexLabel = checkKey === "holes" ? "Fendas (vértice pousado)" : "Vértices onde as peças se tocam";
+            const faceLabel = isElementCheck(checkKey) ? "Faces junto ao defeito" : "Faces Afetadas";
 
             item.innerHTML = `
                 <div class="qa-check-header">
                     <div class="qa-check-title-group" style="display:flex;align-items:center;gap:0.55rem;">
-                        <input type="checkbox" class="qa-check-toggle" data-check="${checkKey}" ${isChecked ? "checked" : ""}>
                         <div>
                             <span class="qa-check-name">${info.title}</span>
-                            <span class="qa-check-counts">${isEvaluated ? `${count} ${basis} ${ratio !== null ? `(${ratio}%)` : ""}` : "Não avaliado"}</span>
-                            ${originComparisonNote}
+                            <span class="qa-check-counts">${isEvaluated ? `${count} ${basis} ${ratio !== null && count > 0 && unit === "faces" ? `(${ratio}%)` : ""}` : "Não avaliado"}</span>
+                            ${notes}
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.4rem;">
                         <span class="qa-badge" style="${count > 0 ? `border: 1px solid ${checkColor}; color: ${checkColor}; background: ${checkColor}18; font-weight:700;` : (count === 0 ? 'border: 1px solid rgba(16,185,129,0.4); color: #10b981; background: rgba(16,185,129,0.1);' : '')}">
-                            ${!isEvaluated ? "Não avaliado" : (count === 0 ? "0 erros" : `${count} prob.`)}
+                            ${!isEvaluated ? "Não avaliado" : (count === 0 ? "OK" : (SEVERITY_LABELS[checkData.severity] || "Prob."))}
                         </span>
                         <span class="qa-chevron" style="color:#64748b;font-size:0.7rem;">▼</span>
                     </div>
@@ -1309,26 +1723,16 @@
                 <div class="qa-check-exp" style="display: none;">
                     <div style="display:flex;align-items:center;gap:0.45rem;margin-bottom:0.6rem;padding:0.4rem 0.6rem;background:${checkColor}15;border:1px solid ${checkColor}35;border-radius:6px;font-size:0.73rem;color:${checkColor};font-weight:600;">
                         <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${checkColor};box-shadow:0 0 4px ${checkColor};"></span>
-                        Cor no 3D: ${isVertexAnomaly ? 'Os vértices com esta anomalia são destacados com esta cor.' : 'As faces com esta anomalia são pintadas a esta cor.'}
+                        No 3D: ${mapHowText(checkKey)}
                     </div>
                     <h6>O que é?</h6>
                     <p>${info.what}</p>
                     <h6>Porque importa?</h6>
-                    <p>${typeof info.why === 'function' ? info.why(null, checkKey === 'ngons' ? hasCollinear : hasTJunction) : info.why}</p>
+                    <p>${typeof info.why === 'function' ? info.why(checkData) : info.why}</p>
                     <h6>Como corrigir?</h6>
                     <p>${info.how}</p>
-                    ${affectedIndices.length > 0 ? `
-                        <div style="margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.12);">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-size: 0.72rem; color: #38bdf8; font-weight: 600;">${isVertexAnomaly ? 'Vértices Afetados' : 'Faces Afetadas'} (${affectedIndices.length}):</span>
-                                <span style="font-size: 0.68rem; color: #94a3b8;">Clica para focar no 3D</span>
-                            </div>
-                            <div style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.4rem;">
-                                ${affectedIndices.slice(0, 16).map(idx => `<button type="button" class="qa-target-pill" data-index="${idx}" data-type="${isVertexAnomaly ? 'vertex' : 'face'}" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#7dd3fc; border-radius:4px; padding:0.18rem 0.45rem; font-size:0.7rem; cursor:pointer; font-family:'JetBrains Mono',monospace; transition:all 0.15s ease;">${isVertexAnomaly ? 'V#' : '#'}${idx}</button>`).join('')}
-                                ${affectedIndices.length > 16 ? `<span style="font-size:0.68rem; color:#94a3b8; align-self:center;">+${affectedIndices.length - 16} mais</span>` : ''}
-                            </div>
-                        </div>
-                    ` : ''}
+                    ${pillGroup(vertexLabel, affectedVertices, "vertex")}
+                    ${pillGroup(faceLabel, affectedIndices, "face")}
                 </div>
             `;
 
@@ -1337,16 +1741,34 @@
             const exp = item.querySelector(".qa-check-exp");
             const chevron = item.querySelector(".qa-chevron");
 
-            header.addEventListener("click", (e) => {
-                if (e.target.classList.contains("qa-check-toggle")) return;
+            if (QAState.focusCheck === checkKey) {
+                exp.style.display = "block";
+                chevron.textContent = "▲";
+                item.classList.add("qa-check-focused");
+                item.style.outline = `2px solid ${checkColor}`;
+            }
+
+            header.addEventListener("click", () => {
                 const isShown = exp.style.display === "block";
-                exp.style.display = isShown ? "none" : "block";
-                chevron.textContent = isShown ? "▼" : "▲";
+                // Abrir uma verificação mostra só essa no 3D; fechá-la volta aos erros.
+                if (!(count > 0)) {
+                    // Sem nada para mostrar no 3D: só abre a explicação.
+                    exp.style.display = isShown ? "none" : "block";
+                    chevron.textContent = isShown ? "▼" : "▲";
+                    return;
+                }
+                QAState.focusCheck = isShown ? null : checkKey;
+                renderChecksList(summaryChecks, resultChecks);
+                if (QAState.activeViewMode === "none" && typeof setViewMode === "function") {
+                    setViewMode("errors");
+                } else {
+                    updateDSSColors();
+                }
 
                 // Focar elemento afetado no 3D
-                if (affectedIndices.length > 0) {
+                if (!isShown && (affectedIndices.length > 0 || isVertexAnomaly)) {
                     if (isVertexAnomaly) {
-                        focusVertex(affectedIndices[0]);
+                        focusVertex(affectedVertices[0]);
                     } else {
                         focusFaces(affectedIndices);
                     }
@@ -1370,18 +1792,9 @@
                 });
             });
 
-            // Toggle de visibilidade do check nos overlays
-            const toggle = item.querySelector(".qa-check-toggle");
-            toggle.addEventListener("change", (e) => {
-                QAState.enabledChecks[checkKey] = e.target.checked;
-                if (checkKey === "poles") {
-                    updateDSSPoles(e.target.checked);
-                }
-                updateDSSColors();
-            });
-
             container.appendChild(item);
         }
+
     }
 
     function renderLimitations(limitations, warnings) {
@@ -1406,7 +1819,10 @@
             if (warnings && warnings.length > 0) {
                 warnings.forEach(w => {
                     const li = document.createElement("li");
-                    li.textContent = w;
+                    // A API manda {verification, message}.
+                    li.textContent = (w && typeof w === "object")
+                        ? `${getCheckInfo(w.verification || w.check).title}: ${w.message}`
+                        : String(w);
                     warnListEl.appendChild(li);
                 });
             } else {
@@ -1593,18 +2009,37 @@
         const res = QAState.resultData;
         const valences = res?.per_vertex?.valence || [];
         const val = (valences && vIdx < valences.length) ? valences[vIdx] : "--";
-        const regular = QAState.statusData?.summary?.regular_valence || QAState.statusData?.regular_valence || 4;
+        const regular = QAState.statusData?.summary?.metrics?.regular_valence || 4;
+
+        // Checks de vértices em que este vértice aparece.
+        const vertexIssues = vertexMarkerChecks(res).filter(key => markerVertices(key, res).includes(vIdx));
 
         if (titleEl) titleEl.textContent = `Vértice #${vIdx}`;
         if (typeEl) {
-            typeEl.textContent = (val !== "--" && val !== regular) ? `Polo Não-Regular (Valência ${val})` : `Vértice Topológico (Valência ${val})`;
+            typeEl.textContent = vertexIssues.length
+                ? `${getCheckInfo(vertexIssues[0], res?.checks?.[vertexIssues[0]]).title} (Valência ${val})`
+                : `Vértice (Valência ${val})`;
             typeEl.style.color = "#c084fc";
             typeEl.style.background = "rgba(192, 132, 252, 0.15)";
         }
         if (minAEl) minAEl.textContent = `Valência: ${val}`;
         if (maxAEl) maxAEl.textContent = `Regular: ${regular}`;
         if (errorsBox) {
-            errorsBox.innerHTML = `<span class="qa-badge" style="border: 1px solid #c084fc; color: #c084fc; background: rgba(192, 132, 252, 0.15); font-weight:600; font-size:0.72rem; padding:0.2rem 0.5rem; border-radius:4px;">Polo (Valência ${val} ≠ ${regular})</span>`;
+            const VERTEX_TEXT = {
+                holes: "fenda: está pousado numa aresta aberta sem estar ligado a ela (as duas arestas ficam uma sobre a outra e parecem fechadas)",
+                nonmanifold: "as peças da superfície tocam-se só neste vértice",
+            };
+            const tag = (color, text) => `<span class="qa-badge" style="border: 1px solid ${color}; color: ${color}; background: ${color}18; font-weight:600; font-size:0.72rem; padding:0.2rem 0.5rem; border-radius:4px;">${text}</span>`;
+            const issues = vertexIssues.map(key => {
+                const info = getCheckInfo(key, res?.checks?.[key]);
+                return tag(info.color || "#c084fc", `${info.title}${VERTEX_TEXT[key] ? `: ${VERTEX_TEXT[key]}` : ""}`);
+            });
+            // Fluxo de arestas: informação, não é um erro.
+            const flow = edgeFlowKinds(res, vIdx);
+            if (flow.length) issues.push(tag(EDGE_FLOW_HEX, `Fluxo de arestas (informação): ${flow.join(", ")}, valência ${val} (normal ${regular})`));
+            errorsBox.innerHTML = issues.length
+                ? issues.join(" ")
+                : `<span class="qa-badge ok" style="color:#10b981;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.35);padding:0.2rem 0.5rem;border-radius:4px;font-size:0.72rem;font-weight:600;">✓ Sem problemas detetados</span>`;
         }
         if (vertsBox) {
             vertsBox.innerHTML = `<span class="qa-vert-chip" style="border-color:#c084fc; color:#c084fc;">X: ${vInfo.position.x.toFixed(2)} Y: ${vInfo.position.y.toFixed(2)} Z: ${vInfo.position.z.toFixed(2)}</span>`;
@@ -1672,7 +2107,8 @@
             const currentTarget = new THREE.Vector3().lerpVectors(startTarget, endTarget, ease);
             viewer.controls.target.copy(currentTarget);
 
-            const currentQ = new THREE.Quaternion().slerpQuaternions(qIdentity, qRot, ease);
+            // three r128: slerpQuaternions não devolve o quaternião; slerp sim.
+            const currentQ = qIdentity.clone().slerp(qRot, ease);
             const currentDir = startRelDir.clone().applyQuaternion(currentQ).normalize();
             const currentDist = THREE.MathUtils.lerp(startDist, endDist, ease);
 
@@ -1727,7 +2163,79 @@
     // ═══════════════════════════════════════════════════════════════════
     //  9. EXECUÇÃO DA ANÁLISE (LIVE API & FIXTURES FALLBACK)
     // ═══════════════════════════════════════════════════════════════════
-    async function loadDSSData(statusJson, resultJson, rawObjText) {
+    // Verificações que já tinham by_kind (faces de cada tipo) no formato interno.
+    const BY_KIND_CHECKS = new Set(["broken_faces", "distorted_faces", "flipped_normals", "overlaps"]);
+
+    /**
+     * A API (schema 5) dá general_metrics e uma lista verifications com errors;
+     * o que só serve para desenhar (faces a pintar, per_face, per_vertex,
+     * edge_flow) vem à parte, de GET /v1/dss/{id}/viewer. O viewer trabalha com
+     * metrics e checks por código (faces, by_kind, hosts). Aceita o estado do job
+     * (com summary) ou o download (com os dados do 3D em `viewer`); o que já está
+     * convertido passa igual.
+     */
+    function adaptDSS(json, viewer = null) {
+        if (!json) return json;
+        const toViewer = (report) => {
+            if (!report || report.checks || !Array.isArray(report.verifications)) return report;
+            const general = report.general_metrics || {};
+            const checks = {};
+            for (const item of report.verifications) {
+                const check = {
+                    title: item.verification_name,
+                    severity: item.severity,
+                    unit: item.unit,
+                    count: item.count,
+                    ratio: item.ratio,
+                    evaluated: item.result !== "not_evaluated",
+                };
+                if (item.values) check.breakdown = item.values;
+                if (item.warnings) check.warnings = item.warnings;
+                if (item.errors) check.errors = item.errors;
+                // Faces a pintar: as do /viewer; sem elas, as faces dos erros.
+                const paint = viewer?.faces?.[item.code] || item.faces;
+                if (paint) check.faces = paint;
+                else if (Array.isArray(item.errors)) {
+                    check.faces = [...new Set(item.errors.filter(e => e.face !== undefined).map(e => e.face))];
+                }
+                if (Array.isArray(item.errors)) {
+                    // As arestas e os vértices vêm nos errors (edge / vertex): o
+                    // viewer desenha-os como linhas e pontos.
+                    if (item.code === "holes" || item.code === "nonmanifold") {
+                        check.edges = item.errors.filter(e => e.edge && (item.code !== "holes" || e.kind === "open_edges")).map(e => e.edge);
+                        check.vertices = [...new Set(item.errors.filter(e => e.vertex !== undefined).map(e => e.vertex))];
+                    }
+                    if (BY_KIND_CHECKS.has(item.code)) {
+                        const byKind = {};
+                        for (const kind of Object.keys(item.values || {})) {
+                            if (kind !== "inside_out_parts") byKind[kind] = [];
+                        }
+                        for (const error of item.errors) {
+                            if (error.face !== undefined) (byKind[error.kind] ||= []).push(error.face);
+                        }
+                        check.by_kind = byKind;
+                    }
+                    const hosts = {};
+                    for (const error of item.errors) {
+                        if (error.covers?.length) hosts[String(error.face)] = error.covers;
+                    }
+                    if (Object.keys(hosts).length) check.hosts = hosts;
+                }
+                checks[item.code] = check;
+            }
+            const drawing = {};
+            for (const key of ["per_face", "per_vertex", "edge_flow"]) {
+                const value = viewer?.[key] || report[key];
+                if (value) drawing[key] = value;
+            }
+            return { ...report, ...drawing, metrics: { ...general, is_closed: general.is_watertight }, checks };
+        };
+        return json.summary ? { ...json, summary: toViewer(json.summary) } : toViewer(json);
+    }
+
+    async function loadDSSData(statusJson, resultJson, rawObjText, viewerJson = null) {
+        statusJson = adaptDSS(statusJson);
+        resultJson = adaptDSS(resultJson, viewerJson);
         QAState.statusData = statusJson;
         QAState.resultData = resultJson;
         QAState.rawObjText = rawObjText;
@@ -1746,6 +2254,7 @@
             if (dssMesh) { viewer.scene.remove(dssMesh); dssMesh.geometry.dispose(); dssMesh = null; }
             if (dssEdgesMesh) { viewer.scene.remove(dssEdgesMesh); dssEdgesMesh.geometry.dispose(); dssEdgesMesh = null; }
             if (dssPolesPoints) { viewer.scene.remove(dssPolesPoints); dssPolesPoints.geometry.dispose(); dssPolesPoints = null; }
+            removeDSSEdgeLines(viewer.scene);
             if (dssSelectionLine) { viewer.scene.remove(dssSelectionLine); dssSelectionLine.geometry.dispose(); dssSelectionLine = null; }
             if (dssVertexMarker) { viewer.scene.remove(dssVertexMarker); dssVertexMarker.geometry.dispose(); dssVertexMarker = null; }
         }
@@ -1854,48 +2363,12 @@
         }
     }
 
-    /**
-     * Análise DSS da malha original (snapshot=0) em segundo plano, como referência
-     * para comparar antes/depois. Não mexe no painel DSS (só guarda o resultado).
-     * Tem de arrancar depois do POST do RL: um novo RL apaga as análises da malha.
-     */
-    function runOriginalBaseline(meshId) {
-        if (!meshId) return Promise.resolve();
-        const cacheKey = `${meshId}_0`;
-        if (dssAnalysisCache.has(cacheKey)) return Promise.resolve();
-        if (dssInFlight.has(cacheKey)) return dssInFlight.get(cacheKey);
-
-        const promise = (async () => {
-            try {
-                const statusResult = await window.MeshQAAPI.runFullAnalysis(meshId, QAState.params, 0);
-                if (!statusResult || statusResult.status !== "done") return;
-                const resultData = await window.MeshQAAPI.downloadAnalysisResult(meshId, true, 0);
-                if ((QAState.activeMeshId || window.currentActiveModelId) !== meshId) return;
-                dssAnalysisCache.set(cacheKey, {
-                    statusData: statusResult,
-                    resultData,
-                    rawObjText: (typeof window.getCleanMeshObjText === "function" && window.getCleanMeshObjText()) || window.currentUploadedObjText || null
-                });
-                QAState.originalBaseline = { statusData: statusResult, resultData };
-                // Atualizar comparações antes/depois se já houver outra análise no painel
-                if (QAState.resultData && QAState.activeSnapshot !== 0) renderDSSUI();
-            } catch (err) {
-                console.warn("[DSS Original] Análise da malha original falhou:", err.message);
-            } finally {
-                dssInFlight.delete(cacheKey);
-            }
-        })();
-        dssInFlight.set(cacheKey, promise);
-        return promise;
-    }
-
     /** Um novo RL apaga quads e análises da malha: esquecer o que estava em cache. */
     function invalidateMeshAnalyses(meshId) {
         if (!meshId) return;
         for (const key of [...dssAnalysisCache.keys()]) {
             if (key.startsWith(`${meshId}_`)) dssAnalysisCache.delete(key);
         }
-        QAState.originalBaseline = null;
         QAState.statusData = null;
         QAState.resultData = null;
         QAState.rawObjText = null;
@@ -1947,7 +2420,7 @@
         if (snapshot === 0) {
             QAState.activeMeshName = "Malha Original (Upload)";
         } else if (snapshot !== null && snapshot !== undefined) {
-            QAState.activeMeshName = `Snapshot #${snapshot} (${snapshot} Dissolves)`;
+            QAState.activeMeshName = `Snapshot #${snapshot} (${snapshot} junções)`;
         } else {
             QAState.activeMeshName = "Malha Otimizada Final";
         }
@@ -1983,7 +2456,7 @@
 
             try {
                 // Polling até terminar (suportando query param ?snapshot=N)
-                const statusResult = await window.MeshQAAPI.runFullAnalysis(
+                const statusResult = adaptDSS(await window.MeshQAAPI.runFullAnalysis(
                     idToRun,
                     QAState.params,
                     snapshot,
@@ -1993,19 +2466,22 @@
                             statusEl.textContent = statusUpdate.status === "queued" ? "Em Fila..." : "A Processar...";
                         }
                     }
-                );
+                ));
 
                 if (statusResult && statusResult.status === "failed") {
                     renderDSSFailed(statusResult);
                     return;
                 }
 
-                // Descarregar resultado detalhado com geometria incluída
-                const resultData = await window.MeshQAAPI.downloadAnalysisResult(idToRun, true, snapshot);
+                // O resultado (só a análise) e o que o 3D precisa para o desenhar.
+                const [resultRaw, viewerRaw] = await Promise.all([
+                    window.MeshQAAPI.downloadAnalysisResult(idToRun, snapshot),
+                    window.MeshQAAPI.getAnalysisViewer(idToRun, snapshot).catch(() => null),
+                ]);
+                const resultData = adaptDSS(resultRaw, viewerRaw);
 
                 let objText = null;
                 if (snapshot === 0) {
-                    QAState.originalBaseline = { statusData: statusResult, resultData: resultData };
                     // snapshot=0 analisa a malha limpa (vértices fundidos, faces degeneradas removidas)
                     objText = (typeof window.getCleanMeshObjText === "function" && window.getCleanMeshObjText())
                         || window.currentUploadedObjText || QAState.rawObjText;
@@ -2116,6 +2592,7 @@
             if (sideBarQuads) sideBarQuads.style.width = "0%";
             if (sideBarTris) sideBarTris.style.width = "0%";
             if (sideBarNgons) sideBarNgons.style.width = "0%";
+            renderSideDSSFacts(null, null);
 
             // Disparar automaticamente a auditoria DSS em background assim que a malha entra no visualizador!
             if (idToRun) {
@@ -2271,6 +2748,11 @@
             if (QAState.activeViewMode && QAState.activeViewMode !== "none") {
                 setViewMode("none");
             } else {
+                // Ligar o mapa mostra o mapa todo, não a última verificação aberta.
+                QAState.focusCheck = null;
+                QAState.showWarnings = true;
+                const summaryChecks = QAState.statusData?.summary?.checks;
+                if (summaryChecks) renderChecksList(summaryChecks, QAState.resultData?.checks);
                 setViewMode(lastSelectedDSSMode || "errors");
             }
         }
@@ -2280,24 +2762,6 @@
 
         const drawerBtnToggle = document.getElementById("dss-drawer-btn-toggle");
         if (drawerBtnToggle) drawerBtnToggle.addEventListener("click", toggleDSSColorMap);
-
-        // Botões de Modo Específico no Sidebar Contextual
-        const sideBtnAngle = document.getElementById("side-btn-dss-angle");
-        const sideBtnValence = document.getElementById("side-btn-dss-valence");
-        const sideBtnErrors = document.getElementById("side-btn-dss-errors");
-
-        if (sideBtnAngle) sideBtnAngle.addEventListener("click", () => setViewMode("min_angle"));
-        if (sideBtnValence) sideBtnValence.addEventListener("click", () => setViewMode("valence"));
-        if (sideBtnErrors) sideBtnErrors.addEventListener("click", () => setViewMode("errors"));
-
-        // Botões de Modo Específico na Janela / Drawer Dedicado
-        const drawerBtnAngle = document.getElementById("dss-drawer-btn-angle");
-        const drawerBtnValence = document.getElementById("dss-drawer-btn-valence");
-        const drawerBtnErrors = document.getElementById("dss-drawer-btn-errors");
-
-        if (drawerBtnAngle) drawerBtnAngle.addEventListener("click", () => setViewMode("min_angle"));
-        if (drawerBtnValence) drawerBtnValence.addEventListener("click", () => setViewMode("valence"));
-        if (drawerBtnErrors) drawerBtnErrors.addEventListener("click", () => setViewMode("errors"));
 
         // Botão Fechar Painel Raycaster
         const btnCloseDetail = document.getElementById("qa-detail-close");
@@ -2337,7 +2801,6 @@
     window.MeshQA = {
         loadData: loadDSSData,
         runAnalysis: runDSSAnalysis,
-        runOriginalBaseline: runOriginalBaseline,
         invalidateMesh: invalidateMeshAnalyses,
         setWaitingRL: setWaitingRLState,
         loadFixtures: loadDSSFromFixtures,

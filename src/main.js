@@ -988,7 +988,16 @@
             mesh.material.needsUpdate = true;
 
             // Quando o heatmap está ativo, oculta os pontos amarelos e suaviza as arestas para não degradar a visualização térmica
-            if (isHeatmapActive) {
+            if (isDSSHeatmapActive) {
+                // Mapa do DSS: as faces sem problemas ficam cinzentas e as arestas
+                // à vista (tipo wireframe); só os problemas têm cor.
+                if (pointsMesh) pointsMesh.visible = false;
+                if (edgesMesh) {
+                    edgesMesh.visible = true;
+                    edgesMaterial.color.setHex(0xcbd5e1);
+                    edgesMaterial.opacity = 0.55;
+                }
+            } else if (isHeatmapActive) {
                 if (pointsMesh) pointsMesh.visible = false;
                 if (edgesMesh && showEdges) {
                     edgesMaterial.color.setHex(0x0f172a);
@@ -1257,6 +1266,26 @@
         let previousSidebarContext = "low";
         let activeSidebarContext = "high";
 
+        /** A malha final (quads) tem outro número de faces do que a saída do RL:
+         *  mostra-o à parte, com a redução total, para bater com o DSS. */
+        function showFinalFaces(faces, before) {
+            const row = document.getElementById("side-final-faces-row");
+            const value = document.getElementById("side-final-faces");
+            const label = document.getElementById("side-comp-faces-label");
+            const isSnap = faces === null || faces === undefined;
+            if (label) label.textContent = isSnap ? "Faces (Antes ➔ Depois):" : "Faces do RL (Antes ➔ Depois):";
+            if (!row || !value) return;
+            faces = Number(faces);
+            before = Number(before);
+            if (isSnap || !(faces > 0)) {
+                row.style.display = "none";
+                return;
+            }
+            const total = before > 0 ? (1 - faces / before) * 100 : null;
+            value.textContent = `${faces.toLocaleString()} faces${total === null ? "" : ` (−${total.toFixed(1)}%)`}`;
+            row.style.display = "flex";
+        }
+
         function updateFloatingStats(verts, tris) {
             if (valVerts) valVerts.textContent = (verts || 0).toLocaleString();
             if (valTris) valTris.textContent = (tris || 0).toLocaleString();
@@ -1374,11 +1403,6 @@
             showVerts = false;
             if (edgesMesh) edgesMesh.visible = false;
             if (pointsMesh) pointsMesh.visible = false;
-
-            const btnDssOverlay = document.getElementById("btn-dss-overlay");
-            const btnDssAngle = document.getElementById("btn-dss-heatmap-angle");
-            const btnDssValence = document.getElementById("btn-dss-heatmap-valence");
-            [btnDssOverlay, btnDssAngle, btnDssValence].forEach(b => b?.classList.remove("active"));
 
             // Esvaziar arrays de dados e caches de Relatório
             actionLogEntries.length = 0;
@@ -1617,6 +1641,7 @@
                     sideCompFacesAfter.textContent = after > 0 ? after.toLocaleString() : "--";
                     sideCompFacesAfter.style.color = "#34d399";
                 }
+                showFinalFaces(realStats.low.isQuad ? realStats.low.faces : null, realStats.high.faces);
                 if (sideRLEfficiency) {
                     sideRLEfficiency.textContent = realStats.low.efficiencyText || "--%";
                 }
@@ -1666,7 +1691,7 @@
                 const optSub = document.getElementById("side-opt-subtitle");
                 const optTag = document.getElementById("side-opt-tag");
                 const optIcon = document.getElementById("side-opt-icon");
-                if (optTitle) optTitle.textContent = `${snapNumDisplay} (${snapDiss} Dissolves)`;
+                if (optTitle) optTitle.textContent = `${snapNumDisplay} (${snapDiss} junções)`;
                 if (optSub) optSub.textContent = `Marco Intermédio da Execução RL • ${snapFaces ? snapFaces.toLocaleString() : "--"} Faces`;
                 if (optTag) { optTag.textContent = currentSnapIndex ? `SNAPSHOT #${currentSnapIndex}` : "SNAPSHOT"; optTag.className = "badge-tag purple"; }
                 if (optIcon) optIcon.textContent = "📸";
@@ -1694,6 +1719,7 @@
                     sideCompFacesAfter.textContent = snapFaces > 0 ? snapFaces.toLocaleString() : "--";
                     sideCompFacesAfter.style.color = "#c084fc";
                 }
+                showFinalFaces(null);
                 if (sideRLEfficiency) {
                     if (currentSnapEfficiency) {
                         sideRLEfficiency.textContent = currentSnapEfficiency;
@@ -1712,7 +1738,7 @@
                     qaTitle.style.color = "#c084fc";
                 }
                 const dssDrawerTitle = document.getElementById("dss-drawer-target-title");
-                if (dssDrawerTitle) dssDrawerTitle.textContent = `${snapNumDisplay} (${snapDiss} Dissolves)`;
+                if (dssDrawerTitle) dssDrawerTitle.textContent = `${snapNumDisplay} (${snapDiss} junções)`;
                 if (window.MeshQA && typeof window.MeshQA.syncTargetMesh === "function") {
                     window.MeshQA.syncTargetMesh(currentSnapDissolves);
                 }
@@ -2375,6 +2401,7 @@
                     realStats.low.isQuad = finalMeshIsQuad;
 
                     if (sideCompFacesBefore) sideCompFacesBefore.textContent = Number(rlFacesBefore || 0).toLocaleString();
+                    showFinalFaces(finalMeshIsQuad ? finalFaces : null, rlFacesBefore);
                     if (sideCompFacesAfter) {
                         sideCompFacesAfter.textContent = typeof rlFacesAfter === "number" ? rlFacesAfter.toLocaleString() : "--";
                     }
@@ -2488,13 +2515,7 @@
                         window.showApiError(err, { title: `Erro na Simplificação RL — ${info.title}` });
                     }
                 },
-                onRLProgress,
-                // onStarted: o RL foi aceite (202) → DSS da malha original como referência
-                () => {
-                    if (window.MeshQA && typeof window.MeshQA.runOriginalBaseline === "function") {
-                        window.MeshQA.runOriginalBaseline(currentModelId);
-                    }
-                }
+                onRLProgress
             );
         }
 
