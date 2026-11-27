@@ -156,6 +156,10 @@
                             <span class="sc-label">Redução Faces</span>
                             <span class="sc-value text-green" id="rep-reduction">0%</span>
                         </div>
+                        <div class="summary-card" title="Soma das rewards de todos os passos: para comparar corridas e modelos">
+                            <span class="sc-label">Reward Total</span>
+                            <span class="sc-value" id="rep-reward">--</span>
+                        </div>
                         <div class="summary-card">
                             <span class="sc-label">Snapshots</span>
                             <span class="sc-value text-purple" id="rep-snapshots">0</span>
@@ -796,10 +800,6 @@
                                     <strong id="qa-topo-boundary-edges" class="qa-mc-num">--</strong>
                                 </div>
                                 <div class="qa-metric-card">
-                                    <span class="qa-mc-label">Buracos</span>
-                                    <strong id="qa-topo-holes" class="qa-mc-num">--</strong>
-                                </div>
-                                <div class="qa-metric-card">
                                     <span class="qa-mc-label">Partes</span>
                                     <strong id="qa-topo-parts" class="qa-mc-num">--</strong>
                                 </div>
@@ -810,6 +810,10 @@
                                 <div class="qa-metric-card">
                                     <span class="qa-mc-label">Volume</span>
                                     <strong id="qa-topo-volume" class="qa-mc-num">--</strong>
+                                </div>
+                                <div class="qa-metric-card" title="100% menos a distância de Chamfer à malha original (em % da diagonal da caixa envolvente): 100% = a forma ficou igual">
+                                    <span class="qa-mc-label">Preservação da silhueta</span>
+                                    <strong id="qa-topo-chamfer" class="qa-mc-num">--</strong>
                                 </div>
                             </div>
                         </div>

@@ -1446,6 +1446,8 @@
             if (repDissolves) repDissolves.textContent = "0";
             if (repReduction) repReduction.textContent = "0%";
             if (repSnapshots) repSnapshots.textContent = "0";
+            const repRewardReset = document.getElementById("rep-reward");
+            if (repRewardReset) repRewardReset.textContent = "--";
             if (actionLogCount) actionLogCount.textContent = "0 acções";
 
             const countAllEdges = document.getElementById("filter-all-edges-count");
@@ -2778,6 +2780,12 @@
             if (repSteps) repSteps.textContent = totalSteps;
             if (repDissolves) repDissolves.textContent = totalDissolves;
             if (repReduction) repReduction.textContent = `${reductionPct}%`;
+            const repReward = document.getElementById("rep-reward");
+            if (repReward) {
+                repReward.textContent = typeof results?.total_reward === "number"
+                    ? results.total_reward.toFixed(2)
+                    : "--";
+            }
             if (actionLogCount) actionLogCount.textContent = `${actions.length} acções`;
 
             // Renderizar Snapshots e Histórico de Edges integrados

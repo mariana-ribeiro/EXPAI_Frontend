@@ -1050,7 +1050,7 @@ input:checked + .slider.round:before {
 /* Executive Summary Cards */
 .report-summary-cards {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 0.6rem;
     padding: 1rem 1.4rem;
     background: rgba(255, 255, 255, 0.02);

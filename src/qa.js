@@ -1426,9 +1426,11 @@
             [badge.style.background, badge.style.color, badge.style.borderColor] = palette;
         }
 
-        // Métricas e Topologia
-        renderTopologyInfo(summary.metrics, summary.checks);
-        renderSideDSSFacts(summary.metrics, summary.checks);
+        // Métricas e Topologia. Os ângulos, a proporção e os polos vêm dos dados
+        // do 3D (/viewer), que só o resultado tem.
+        const topo = { ...summary.metrics, ...(QAState.resultData?.metrics || {}) };
+        renderTopologyInfo(topo, summary.checks);
+        renderSideDSSFacts(topo, summary.checks);
 
         // Checklist Dinâmica
         renderChecksList(summary.checks, res?.checks);
@@ -1505,11 +1507,15 @@
         if (eulerEl) eulerEl.textContent = topo.euler_characteristic ?? "--";
 
         setText("qa-topo-parts", topo.parts ?? "--");
-        setText("qa-topo-holes", topo.holes ?? "--");
         setText("qa-topo-area", fmt(topo.surface_area, 3));
         setText("qa-topo-volume", topo.volume === null || topo.volume === undefined ? "—" : fmt(topo.volume, 3));
+        // Preservação da silhueta = 100% - Chamfer (distância média à malha
+        // original, em % da diagonal). null na própria original (snapshot=0).
+        const chamfer = topo.chamfer;
+        const preserved = chamfer ? Math.max(0, 100 - chamfer.chamfer_pct) : null;
+        setText("qa-topo-chamfer", preserved === null ? "—" : `${fmt(preserved, 3)}%`);
         // Fluxo de arestas: informação, não conta para o veredicto.
-        setText("qa-poles-summary", `${topo.corner_poles ?? 0} em cantos • ${topo.smooth_poles ?? 0} em zona lisa • ${topo.high_valence_vertices ?? 0} valência alta (informação, não são erros)`);
+        setText("qa-poles-summary", `${topo.smooth_poles ?? 0} em zona lisa • ${topo.high_valence_vertices ?? 0} valência alta (informação, não são erros)`);
         const aspect = topo.quad_aspect_ratio || {};
         setText("qa-aspect-summary", `média ${fmt(aspect.mean, 1)} • máx ${fmt(aspect.max, 1)}`);
 
@@ -2167,7 +2173,70 @@
     const BY_KIND_CHECKS = new Set(["broken_faces", "distorted_faces", "flipped_normals", "overlaps"]);
 
     /**
-     * A API (schema 5) dá general_metrics e uma lista verifications com errors;
+     * Schema 6: o general_metrics só tem as métricas gerais. O painel completo
+     * ainda mostra buracos, manifold, ângulos e polos: vêm das verificações e,
+     * quando há, dos dados do 3D (/viewer), como a API os calculava.
+     */
+    function derivedMetrics(general, checks, drawing, params) {
+        const out = {};
+        const holes = checks.holes;
+        const nonman = checks.nonmanifold;
+        if (holes?.evaluated) {
+            out.holes = holes.count;
+            out.boundary_edges = holes.breakdown?.open_edges ?? 0;
+        }
+        if (nonman?.evaluated) {
+            out.nonmanifold_edges = nonman.breakdown?.edges ?? 0;
+            out.nonmanifold_vertices = nonman.breakdown?.vertices ?? 0;
+            out.is_manifold = !nonman.count;
+        }
+        out.regular_valence = params?.regular_valence
+            || (general.faces && general.quads / general.faces >= 0.5 ? 4 : 6);
+
+        const finite = (list) => (list || []).filter(v => typeof v === "number");
+        const perFace = drawing.per_face;
+        if (perFace) {
+            const mins = finite(perFace.min_angle);
+            const maxs = finite(perFace.max_angle);
+            if (mins.length) {
+                out.angles_deg = {
+                    min: mins.reduce((a, b) => Math.min(a, b)),
+                    max: maxs.length ? maxs.reduce((a, b) => Math.max(a, b)) : null,
+                    mean: mins.reduce((a, b) => a + b, 0) / mins.length,
+                };
+            }
+            const aspects = finite(perFace.aspect_ratio);
+            if (aspects.length) {
+                out.quad_aspect_ratio = {
+                    mean: aspects.reduce((a, b) => a + b, 0) / aspects.length,
+                    max: aspects.reduce((a, b) => Math.max(a, b)),
+                };
+            }
+        }
+        // Histograma só dos vértices interiores: fora os das arestas abertas e
+        // não-manifold (estão nos errors dessas verificações).
+        const valence = drawing.per_vertex?.valence;
+        if (valence) {
+            const border = new Set();
+            for (const error of [...(holes?.errors || []), ...(nonman?.errors || [])]) {
+                if (error.edge && error.kind !== "cracks") error.edge.forEach(v => border.add(v));
+            }
+            const histogram = {};
+            valence.forEach((count, vertex) => {
+                if (count > 0 && !border.has(vertex)) histogram[count] = (histogram[count] || 0) + 1;
+            });
+            out.valence_histogram = histogram;
+        }
+        const flow = drawing.edge_flow;
+        if (flow) {
+            out.smooth_poles = flow.smooth_poles?.length || 0;
+            out.high_valence_vertices = flow.high_valence?.length || 0;
+        }
+        return out;
+    }
+
+    /**
+     * A API (schema 6) dá general_metrics e uma lista verifications com errors;
      * o que só serve para desenhar (faces a pintar, per_face, per_vertex,
      * edge_flow) vem à parte, de GET /v1/dss/{id}/viewer. O viewer trabalha com
      * metrics e checks por código (faces, by_kind, hosts). Aceita o estado do job
@@ -2228,7 +2297,12 @@
                 const value = viewer?.[key] || report[key];
                 if (value) drawing[key] = value;
             }
-            return { ...report, ...drawing, metrics: { ...general, is_closed: general.is_watertight }, checks };
+            const metrics = {
+                ...general,
+                is_closed: general.is_watertight,
+                ...derivedMetrics(general, checks, drawing, report.params),
+            };
+            return { ...report, ...drawing, metrics, checks };
         };
         return json.summary ? { ...json, summary: toViewer(json.summary) } : toViewer(json);
     }
